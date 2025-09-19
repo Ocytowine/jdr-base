@@ -1,4 +1,4 @@
-// Fichier : nuxt.config.ts
+// nuxt.config.ts
 // Rôle : Configuration Nuxt. On active Pinia et on fixe des meta simples.
 export default defineNuxtConfig({
   modules: ['@pinia/nuxt'],
@@ -15,4 +15,23 @@ export default defineNuxtConfig({
       ]
     }
   },
+
+  // -------------------------
+  // Runtime config (server-only + public)
+  // -------------------------
+  runtimeConfig: {
+    // server-only values (ne sont **pas** exposés au client)
+    github: {
+      owner: process.env.GITHUB_OWNER || 'Ocytowine',
+      repo: process.env.GITHUB_REPO || 'ArchiveValmorinTest',
+      branch: process.env.GITHUB_BRANCH || 'main',
+      token: process.env.GITHUB_TOKEN || ''    // <- ton token si nécessaire (server-only)
+    },
+    dataCacheDir: process.env.DATA_CACHE_DIR || '/tmp/data_adapter_cache',
+
+    // public values (exposées côté client via useRuntimeConfig().public)
+    public: {
+      // place ici ce que tu veux exposer au client (vide pour l'instant)
+    }
+  }
 });
