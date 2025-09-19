@@ -6,7 +6,7 @@
         <div class="liens">
           <NuxtLink to="/joueur">Joueur</NuxtLink>
           <NuxtLink to="/creation">Création PJ</NuxtLink>
-          <NuxtLink to="/aventure">Aventure</NuxtLink>
+          <NuxtLink to="/aventure">Aventure</NuxtLink>ss
         </div>
       </nav>
     </header>
