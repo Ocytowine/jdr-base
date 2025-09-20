@@ -1,10 +1,22 @@
-// server/api/creation/preview.post.ts
+// server/api/creation/resolve-choice.post.ts
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event);
+    const ui_id = body.ui_id;
+    const value = body.value; // could be string, array, or object
     const selection = body.selection || {};
     const baseCharacter = body.baseCharacter || { base_stats_before_race: {} };
 
+    if (!ui_id) {
+      return { ok: false, error: 'ui_id required' };
+    }
+
+    // ensure chosenOptions exists
+    selection.chosenOptions = selection.chosenOptions || {};
+    // set/override the choice for this ui_id
+    selection.chosenOptions[ui_id] = value;
+
+    // load adapter
     const config = useRuntimeConfig();
     const owner = config.github?.owner || 'Ocytowine';
     const repo = config.github?.repo || 'ArchiveValmorinTest';
@@ -31,11 +43,12 @@ export default defineEventHandler(async (event) => {
     const creationAdapter = new CreationAdapterServer(adapter);
     await creationAdapter.init();
 
+    // build preview using updated selection
     const result = await creationAdapter.buildPreview(selection, baseCharacter);
 
     return result;
   } catch (err: any) {
-    console.error('preview endpoint error', err);
+    console.error('resolve-choice error', err);
     return { ok: false, error: err?.message || String(err) };
   }
 });
