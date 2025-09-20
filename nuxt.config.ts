@@ -25,7 +25,7 @@ export default defineNuxtConfig({
       owner: process.env.GITHUB_OWNER || 'Ocytowine',
       repo: process.env.GITHUB_REPO || 'ArchiveValmorinTest',
       branch: process.env.GITHUB_BRANCH || 'main',
-      token: process.env.GITHUB_TOKEN || ''    // <- ton token si nécessaire (server-only)
+      token: process.env.GITHUB_TOKEN || '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'    // <- ton token si nécessaire (server-only)
     },
     dataCacheDir: process.env.DATA_CACHE_DIR || '/tmp/data_adapter_cache',
 

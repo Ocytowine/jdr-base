@@ -1,10 +1,8 @@
-import { readBody } from 'h3';
 import { DataAdapterV2GitHub } from '~/utils/dataAdapterV2GitHub';
-import { CreationAdapterServer } from '~/utils/creationAdapterServer';
 import { EffectEngine } from '~/engine/effectEngine';
+import { CreationAdapterServer } from '~/utils/creationAdapterServer';
 
 let singleton: any = null;
-
 function getSingleton() {
   if (singleton) return singleton;
   const config = useRuntimeConfig();
@@ -21,15 +19,8 @@ function getSingleton() {
 }
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  const { selection, baseCharacter } = body || {};
   const s = getSingleton();
   try { await s.adapter.initIndex(); } catch(e){}
-
-  try {
-    const res = await s.creation.applyFeaturesToCharacter(selection || {}, baseCharacter || {});
-    return res;
-  } catch (err:any) {
-    return { ok:false, error: err.message || String(err) };
-  }
+  const surf = await s.creation.getCreationSurface();
+  return { ok:true, surface: surf };
 });

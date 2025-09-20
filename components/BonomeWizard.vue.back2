@@ -314,43 +314,51 @@
   </div>
 </template>
 
-
 <script setup lang="ts">
-// BonomeWizard.vue - script généré pour usage avec server-side creation API
-// - Utilise le store Pinia '~/stores/personnage' pour exposer `perso`
-// - Appelle /api/creation/surface et /api/creation/preview
-// - Expose les refs attendues par le template (etape, subclassChoiceModal, etc.)
-// NOTE: n'importe quel import côté serveur (fs, dataAdapter) ne doit PAS être importé ici.
+// Small compatibility shim for BonomeWizard.vue -- defines variables/functions the template expects.
+// Paste this <script> content into your BonomeWizard.vue <script setup> section (replace existing script).
+// It is UI-side only and delegates heavy work to server endpoints:
+//  - GET  /api/creation/surface
+//  - POST /api/creation/preview
+//
+// It defines commonly referenced refs to avoid "property accessed during render but not defined" warnings
+// and provides stubs for functions that the template may call. Adjust as needed.
 
-import { ref, reactive, computed, onMounted } from 'vue';
-import { usePersonnage } from '~/stores/personnage';
+import { ref, reactive, onMounted } from 'vue';
 
-// --- Pinia store (option A) ---
-const persoStore = usePersonnage();
-const perso = persoStore;
+const etape = ref(1); // current wizard step (1..n)
+function suivant() { etape.value = Math.min((etape.value||1)+1, 99); }
+function precedent() { etape.value = Math.max((etape.value||1)-1, 1); }
+function setEtape(n:number){ etape.value = n; }
 
-// --- Wizard UI state ---
-const etape = ref<number>(1);
-function precedent() { if (etape.value > 1) etape.value -= 1; }
-function suivant() { etape.value += 1; }
-
-// modal for subclass / feature choices
-const subclassChoiceModal = reactive({ opened: false, data: null });
-
-// Options lists (lightweight)
-const options = reactive({
-  races: [] as Array<{ id: string; nom?: string }>,
-  classes: [] as Array<{ id: string; nom?: string }>,
-  backgrounds: [] as Array<{ id: string; nom?: string }>
+// modal for subclass / feature choices expected by the template
+const subclassChoiceModal = reactive({
+  opened: false,
+  payload: null as any
 });
+function openSubclassModal(payload?: any){
+  subclassChoiceModal.payload = payload ?? null;
+  subclassChoiceModal.opened = true;
+}
+function closeSubclassModal(){
+  subclassChoiceModal.opened = false;
+  subclassChoiceModal.payload = null;
+}
 
-// Selection & base character used for preview requests
+// main UI state
+const loading = ref(false);
+const error = ref<string|null>(null);
+const preview = ref<any>(null);
+const appliedFeatures = ref<string[]>([]);
+const pendingChoices = ref<any[]>([]);
+
+// selection & baseCharacter objects used for preview requests
 const selection = reactive({
-  race: null as string | null,
-  subrace: null as string | null,
-  class: null as string | null,
-  subclass: null as string | null,
-  background: null as string | null,
+  race: null as string|null,
+  subrace: null as string|null,
+  class: null as string|null,
+  subclass: null as string|null,
+  background: null as string|null,
   manual_features: [] as string[],
   chosenOptions: {} as Record<string, any>
 });
@@ -366,32 +374,55 @@ const baseCharacter = reactive({
   }
 });
 
-// Preview result
-const loading = ref(false);
-const error = ref<string | null>(null);
-const preview = ref<any>(null);
-const appliedFeatures = ref<string[]>([]);
-const pendingChoices = ref<any[]>([]);
+// options for selects (races, classes, backgrounds)
+const options = reactive({
+  races: [] as Array<{id:string, nom?:string}>,
+  classes: [] as Array<{id:string, nom?:string}>,
+  backgrounds: [] as Array<{id:string, nom?:string}>
+});
 
-// --- Fetch creation surface (races, classes, backgrounds) ---
-async function fetchCreationSurface() {
+// simple local helpers the template may use
+function telechargerJSON(obj:any, filename='export.json'){
+  try {
+    const data = JSON.stringify(obj, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e){
+    console.warn('telechargerJSON failed', e);
+  }
+}
+
+function scoreCompetence(ability:string){
+  // small helper: derive mod from baseCharacter (if present)
+  const stats = baseCharacter.base_stats_before_race || {};
+  const v = stats[ability] ?? 10;
+  return Math.floor((v - 10) / 2);
+}
+
+// API calls
+async function fetchCreationSurface(){
   loading.value = true;
   error.value = null;
   try {
-    const res = await $fetch('/api/creation/surface', { method: 'GET' });
+    const res:any = await $fetch('/api/creation/surface', { method: 'GET' });
     options.races = res.races || [];
     options.classes = res.classes || [];
     options.backgrounds = res.backgrounds || [];
-  } catch (e: any) {
-    console.error('fetchCreationSurface error', e);
-    error.value = e?.message || 'Erreur de chargement des options';
+  } catch(e:any){
+    // non-fatal: the UI can still work with manual inputs
+    error.value = e?.message || 'Impossible de charger les options (surface)';
   } finally {
     loading.value = false;
   }
 }
 
-// --- Request preview (server-side application of features) ---
-async function requestPreview() {
+async function requestPreview(){
   loading.value = true;
   error.value = null;
   preview.value = null;
@@ -410,105 +441,73 @@ async function requestPreview() {
       },
       baseCharacter: { base_stats_before_race: baseCharacter.base_stats_before_race }
     };
-    const res = await $fetch('/api/creation/preview', { method: 'POST', body });
-    if (!res) throw new Error('Aucune réponse du serveur');
+    const res:any = await $fetch('/api/creation/preview', { method: 'POST', body });
+    if (!res) throw new Error('No response from server');
     if (res.ok === false) {
-      error.value = res.error || (res.errors && JSON.stringify(res.errors)) || 'Erreur serveur';
+      error.value = res.error || (res.errors && JSON.stringify(res.errors)) || 'Erreur serveur lors de la prévisualisation';
       return;
     }
     preview.value = res.previewCharacter || null;
     appliedFeatures.value = res.appliedFeatures || [];
     pendingChoices.value = res.pendingChoices || [];
-    // Optionally sync preview into the perso store (non destructive)
-    if (preview.value) {
-      applyPreviewToStore(preview.value);
+    // if pending choices exist, open modal or let template handle display using pendingChoices
+    if (pendingChoices.value.length) {
+      // open a generic modal if template expects it
+      openSubclassModal({ title: 'Choix requis', items: pendingChoices.value });
     }
-  } catch (e: any) {
-    console.error('requestPreview error', e);
+  } catch(e:any){
+    console.error('requestPreview', e);
     error.value = e?.message || String(e);
   } finally {
     loading.value = false;
   }
 }
 
-// Apply preview values into the perso Pinia store (non-destructive)
-function applyPreviewToStore(previewCharacter: any) {
-  // conservative assign: only set keys that exist to avoid overwriting user edits
-  if (!previewCharacter || typeof previewCharacter !== 'object') return;
-  try {
-    if ('nom' in previewCharacter) perso.nom = previewCharacter.nom;
-    if ('final_stats' in previewCharacter) perso.final_stats = previewCharacter.final_stats;
-    if ('spellcasting' in previewCharacter) perso.spellcasting = previewCharacter.spellcasting;
-    if ('equipment' in previewCharacter) perso.equipment = previewCharacter.equipment;
-    if ('appliedFeatures' in previewCharacter) perso.features = previewCharacter.appliedFeatures;
-    // merge others as needed
-  } catch (e) {
-    console.warn('applyPreviewToStore failed', e);
-  }
-}
-
-// When a pending choice is resolved by the UI, store it and re-request preview
-async function handleResolvePendingChoice(choice: any, chosenValue: any) {
+// When a pending choice is resolved in the UI, call this to update selection and re-preview
+async function handleResolvePendingChoice(choice:any, chosenValue:any){
   const uiId = choice.ui_id || choice.id || `choice_${Math.random().toString(36).slice(2,8)}`;
   selection.chosenOptions[uiId] = chosenValue;
-  // close modal if relevant
-  subclassChoiceModal.opened = false;
+  // close modal if open
+  closeSubclassModal();
+  // re-request preview
   await requestPreview();
 }
 
-// --- Small helper: generate stats (stubbed) ---
-function generer(method: 'roll'|'array'|'buy' = 'roll') {
-  if (method === 'roll') {
-    // 4d6 drop lowest
-    const rolls = Array.from({length:6}, ()=>roll4d6().sort((a,b)=>b-a).slice(0,3).reduce((s,x)=>s+x,0));
-    baseCharacter.base_stats_before_race.strength = rolls[0];
-    baseCharacter.base_stats_before_race.dexterity = rolls[1];
-    baseCharacter.base_stats_before_race.constitution = rolls[2];
-    baseCharacter.base_stats_before_race.intelligence = rolls[3];
-    baseCharacter.base_stats_before_race.wisdom = rolls[4];
-    baseCharacter.base_stats_before_race.charisma = rolls[5];
+// stubs for functions used in templates
+function validerClasse(){ return requestPreview(); }
+function validerBackground(){ return requestPreview(); }
+function validerSkills(){ return requestPreview(); }
+function validerFeatureChoice(){ return requestPreview(); }
+
+function generer(method:string){
+  // method: 'roll' | 'array' | 'buy' etc.
+  // simple roll 4d6 drop lowest implementation (if method === 'roll')
+  if(method === 'roll'){
+    const rollStat = () => {
+      const rolls = Array.from({length:4}, ()=> Math.floor(Math.random()*6)+1).sort((a,b)=>a-b);
+      return rolls[1]+rolls[2]+rolls[3];
+    };
+    baseCharacter.base_stats_before_race.strength = rollStat();
+    baseCharacter.base_stats_before_race.dexterity = rollStat();
+    baseCharacter.base_stats_before_race.constitution = rollStat();
+    baseCharacter.base_stats_before_race.intelligence = rollStat();
+    baseCharacter.base_stats_before_race.wisdom = rollStat();
+    baseCharacter.base_stats_before_race.charisma = rollStat();
   }
-  // array/buy can be implemented later
-}
-function roll4d6() {
-  const r = [d6(), d6(), d6(), d6()];
-  return r;
-}
-function d6(){ return Math.floor(Math.random()*6)+1; }
-
-// --- Simple validators / valider* stubs used by template ---
-function validerClasse() {
-  // do a quick preview to validate class choices
-  return requestPreview();
-}
-function validerBackground() {
-  return requestPreview();
-}
-function validerSkills() {
-  return requestPreview();
-}
-function validerFeatureChoice(featureId: string, choiceValue: any) {
-  // store choice and re-request preview
-  selection.chosenOptions[featureId] = choiceValue;
-  return requestPreview();
 }
 
-// utility download JSON for debugging
-function telechargerJSON(obj: any, filename = 'pj_preview.json') {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+// save / commit stub (to be wired to your store or API)
+async function sauvegarder(){
+  console.log('sauvegarder stub', preview.value || selection);
+  // implement persistence: call /api/creation/commit or use your store
 }
 
-// On mounted, load surface options
-onMounted(async () => {
-  await fetchCreationSurface();
+// expose variables for template (script setup exposes top-level bindings)
+onMounted(()=>{
+  // attempt to load surface options on mount
+  fetchCreationSurface().catch(()=>{});
 });
 </script>
-
 
 <style scoped>
 /* Conteneur bloc */

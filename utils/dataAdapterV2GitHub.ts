@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import Ajv from 'ajv';
 
 type ID = string;
 
@@ -8,13 +9,7 @@ interface Options {
   token?: string;
   cacheDir?: string;
   useRawFallback?: boolean;
-}
-
-function apiContentsUrl(owner: string, repo: string, repoPath: string, branch = 'main') {
-  return `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(repoPath)}?ref=${encodeURIComponent(branch)}`;
-}
-function rawUrl(owner: string, repo: string, branch: string, repoPath: string) {
-  return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${repoPath}`;
+  scanFolders?: string[];
 }
 
 export class DataAdapterV2GitHub {
@@ -26,6 +21,9 @@ export class DataAdapterV2GitHub {
   indexCache: Map<ID, string>;
   fileCache: Map<string, any>;
   useRawFallback: boolean;
+  ajv: Ajv;
+  effectSchema: any;
+  scanFolders: string[];
 
   constructor(owner: string, repo: string, options: Options = {}) {
     this.owner = owner;
@@ -36,6 +34,16 @@ export class DataAdapterV2GitHub {
     this.indexCache = new Map();
     this.fileCache = new Map();
     this.useRawFallback = options.useRawFallback ?? true;
+    this.ajv = new Ajv({ allErrors: true, strict: false });
+    this.effectSchema = null;
+    this.scanFolders = options.scanFolders || ['classes','features','spells','races','items'];
+  }
+
+  apiContentsUrl(repoPath: string) {
+    return `https://api.github.com/repos/${this.owner}/${this.repo}/contents/${encodeURIComponent(repoPath)}?ref=${encodeURIComponent(this.branch)}`;
+  }
+  rawUrl(repoPath: string) {
+    return `https://raw.githubusercontent.com/${this.owner}/${this.repo}/${this.branch}/${repoPath}`;
   }
 
   async fetchUrl(url: string) {
@@ -50,7 +58,7 @@ export class DataAdapterV2GitHub {
   }
 
   async listFilesInPath(repoPath: string) {
-    const url = apiContentsUrl(this.owner, this.repo, repoPath, this.branch);
+    const url = this.apiContentsUrl(repoPath);
     const res = await this.fetchUrl(url);
     const json = await res.json();
     return json;
@@ -58,7 +66,7 @@ export class DataAdapterV2GitHub {
 
   async fetchJsonFromRepoPath(repoPath: string) {
     if (this.fileCache.has(repoPath)) return this.fileCache.get(repoPath);
-    const apiUrl = apiContentsUrl(this.owner, this.repo, repoPath, this.branch);
+    const apiUrl = this.apiContentsUrl(repoPath);
     try {
       const res = await this.fetchUrl(apiUrl);
       const j = await res.json();
@@ -74,8 +82,9 @@ export class DataAdapterV2GitHub {
         return parsed;
       }
     } catch (err) {
+      // fallback to raw if allowed
       if (this.useRawFallback) {
-        const raw = rawUrl(this.owner, this.repo, this.branch, repoPath);
+        const raw = this.rawUrl(repoPath);
         try {
           const res2 = await fetch(raw);
           if (!res2.ok) throw new Error(`raw fetch failed ${res2.status}`);
@@ -114,8 +123,8 @@ export class DataAdapterV2GitHub {
     }
   }
 
-  async initIndex(scanFolders: string[] = ['classes','features','spells','races','items']) {
-    for (const folder of scanFolders) {
+  async initIndex() {
+    for (const folder of this.scanFolders) {
       try {
         const entries = await this.listFilesInPath(folder);
         for (const e of entries) {
@@ -136,29 +145,32 @@ export class DataAdapterV2GitHub {
       await this.initIndex();
     }
     if (this.indexCache.has(id)) return this.indexCache.get(id)!;
-    const tryPaths = ['classes','features','spells','races','items','data','content'];
+    const tryPaths = [...this.scanFolders, 'data', 'content'];
     for (const p of tryPaths) {
       const rp = `${p}/${id}.json`;
       try {
         await this.fetchJsonFromRepoPath(rp);
         this.indexCache.set(id, rp);
         return rp;
-      } catch (e) {}
+      } catch (e) {
+        // ignore
+      }
     }
     return null;
   }
 
+  async loadRaw(id: ID) {
+    const rp = await this.findPathForId(id);
+    if (!rp) return null;
+    return await this.fetchJsonFromRepoPath(rp);
+  }
+
+  // load feature & normalize to {id,effects,links,raw}
   async loadFeatureById(id: ID) {
-    const repoPath = await this.findPathForId(id);
-    if (!repoPath) return null;
-    const raw = await this.fetchJsonFromRepoPath(repoPath);
+    const raw = await this.loadRaw(id);
+    if (!raw) return null;
     const effects = raw.effects || raw.features || raw.mecanique?.effects || [];
-    const feature = {
-      id: raw.id || id,
-      effects,
-      links: raw.links || raw.mecanique?.links || raw.grants || null,
-      raw
-    };
+    const feature = { id: raw.id || id, effects, links: raw.links || raw.mecanique?.links || raw.grants || null, raw };
     return feature;
   }
 
@@ -183,6 +195,22 @@ export class DataAdapterV2GitHub {
     return out;
   }
 
+  // validation of effects against schema if provided
+  loadEffectSchema(schemaObj: any) {
+    this.effectSchema = schemaObj;
+    try {
+      this.ajv.addSchema(schemaObj, 'effectSchema');
+    } catch (e) {}
+  }
+
+  validateEffect(effect: any) {
+    if (!this.effectSchema) return { valid: true };
+    const validate = this.ajv.getSchema('effectSchema') || this.ajv.compile(this.effectSchema);
+    const ok = validate(effect);
+    return { valid: !!ok, errors: validate.errors };
+  }
+
+  // convenience listing
   async listRaces() {
     try {
       const entries = await this.listFilesInPath('races');
