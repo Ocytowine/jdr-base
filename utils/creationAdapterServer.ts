@@ -110,7 +110,38 @@ export class CreationAdapterServer {
           const applyNow = ef.payload?.apply_immediately === true;
           if (isChoice && !applyNow) {
             const cd = extractChoiceDescriptor(ef);
-            if (cd) pendingChoices.push(cd);
+            if (cd) {
+              const identifiers = [
+                cd.ui_id,
+                cd.featureId,
+                cd.raw?.ui_id,
+                cd.raw?.featureId,
+                cd.raw?.id
+              ]
+                .map((val) => (val === undefined || val === null ? null : String(val)))
+                .filter((val): val is string => Boolean(val));
+
+              let hasSelection = false;
+              for (const identifier of identifiers) {
+                const existing = selection.chosenOptions?.[identifier];
+                if (existing === undefined || existing === null) continue;
+
+                if (Array.isArray(existing)) {
+                  if (existing.length === 0) continue;
+                } else {
+                  selection.chosenOptions![identifier] = [existing];
+                }
+
+                hasSelection = true;
+                break;
+              }
+
+              if (hasSelection) {
+                continue;
+              }
+
+              pendingChoices.push(cd);
+            }
             // do not push as immediate
             continue;
           }
