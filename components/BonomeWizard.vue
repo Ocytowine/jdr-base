@@ -1,549 +1,353 @@
 <template>
-  <div>
-    <!-- Barre d'étapes -->
-    <div class="ligne" style="justify-content: space-between; margin-bottom:10px;">
-      <div class="badge">Étape {{ etape }} / 5</div>
-      <div class="ligne" style="gap:8px;">
-        <button class="btn ghost" @click="precedent" :disabled="etape===1">← Précédent</button>
-        <button class="btn" @click="suivant" v-if="etape<5">Suivant →</button>
-        <button class="btn" v-else @click="sauvegarder">Enregistrer le PJ</button>
-      </div>
-    </div>
+  <div class="p-4 max-w-4xl mx-auto">
+    <h2 class="text-2xl font-semibold mb-4">Création de personnage — Wizard (light)</h2>
 
-    <!-- Étape 1 : identité / background -->
-    <div v-if="etape===1" class="bloc">
-      <h2 class="h2">[1/5] Identité</h2>
-      <div class="champs">
-        <div style="grid-column: span 6;">
-          <label>Nom</label>
-          <input class="input" v-model="perso.nom" placeholder="Ex: Alia Cendrefeu" />
-        </div>
-
-        <div style="grid-column: span 3;">
-          <label>Lignée (race)</label>
-          <select class="input" v-model="perso.lignee" :disabled="backgroundLocked">
-            <option value="Humain">Humain</option>
-            <option value="Elfe">Elfe</option>
-            <option value="Nain">Nain</option>
-            <option value="Halfelin">Halfelin</option>
-            <option value="Autre">Autre</option>
+    <!-- Sélections -->
+    <section class="mb-6 border rounded p-4 bg-white/80">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Classe</label>
+          <select v-model="selectedClass" class="w-full border rounded p-2">
+            <option v-for="c in classes" :key="c" :value="c">{{ c }}</option>
           </select>
         </div>
 
-        <div style="grid-column: span 3;">
-          <label>Âge</label>
-          <input class="input" type="number" v-model.number="perso.age" :disabled="backgroundLocked" />
-        </div>
-
-        <div style="grid-column: span 4;">
-          <label>Alignement (indicatif)</label>
-          <select class="input" v-model="perso.alignement" :disabled="backgroundLocked">
-            <option>Neutre</option>
-            <option>Loyal Bon</option>
-            <option>Chaotique Bon</option>
-            <option>Loyal Neutre</option>
-            <option>Chaotique Neutre</option>
-            <option>Loyal Mauvais</option>
-            <option>Chaotique Mauvais</option>
+        <div>
+          <label class="block text-sm font-medium mb-1">Race</label>
+          <select v-model="selectedRace" class="w-full border rounded p-2">
+            <option v-for="r in races" :key="r" :value="r">{{ r }}</option>
           </select>
         </div>
 
-        <div style="grid-column: span 8;">
-          <label>Historique (background)</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <select class="input" v-model="selectedBackgroundName" :disabled="backgroundLocked">
-              <option value="">-- Aucun --</option>
-              <option v-for="b in backgroundsOptions" :key="b.id" :value="b.name">{{ b.name }}</option>
+        <div>
+          <label class="block text-sm font-medium mb-1">Niveau</label>
+          <input type="number" v-model.number="niveau" min="1" max="20" class="w-full border rounded p-2" />
+        </div>
+      </div>
+
+      <hr class="my-3" />
+
+      <!-- Base stats quick edit -->
+      <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
+        <div v-for="(v,k) in baseStats" :key="k">
+          <label class="block text-xs text-gray-600">{{ k }}</label>
+          <input type="number" v-model.number="baseStats[k]" class="w-full border rounded p-1" />
+        </div>
+      </div>
+
+      <div class="mt-4 flex gap-2">
+        <button @click="sendPreview" :disabled="loading" class="px-3 py-2 rounded bg-blue-600 text-white">
+          {{ loading ? 'Prévisualisation...' : 'Prévisualiser' }}
+        </button>
+        <button @click="resetChosenOptions" class="px-3 py-2 rounded border">Réinitialiser choix</button>
+      </div>
+    </section>
+
+    <!-- Pending choices -->
+    <section v-if="preview && preview.pendingChoices && preview.pendingChoices.length" class="mb-6 p-4 border rounded bg-white/80">
+      <h3 class="font-semibold mb-2">Choix à faire</h3>
+      <div v-for="(choice, idx) in preview.pendingChoices" :key="choice.ui_id ?? (choice.featureId ?? idx)" class="mb-3 p-3 border rounded">
+        <div class="flex items-center justify-between mb-1">
+          <div>
+            <div class="font-medium">{{ choice.raw?.payload?.source_label ?? choice.type ?? choice.featureId ?? choice.ui_id }}</div>
+            <div class="text-sm text-gray-600">Choisir {{ choice.choose }} / catégorie: {{ choice.type ?? choice.raw?.type ?? '—' }}</div>
+          </div>
+          <div class="text-sm text-gray-500">source: {{ choice.raw?.source ?? choice.raw?.payload?.source ?? 'unknown' }}</div>
+        </div>
+
+        <!-- selector -->
+        <div class="mt-2">
+          <template v-if="choice.payload?.from && choice.payload.from.length">
+            <label class="block text-xs text-gray-600 mb-1">Options</label>
+
+            <!-- multiple selection if choose > 1 -->
+            <select
+              v-if="choice.choose <= 1"
+              v-model="localChosen[choice.ui_id || choice.featureId || idx]"
+              class="w-full border rounded p-2"
+            >
+              <option value="">-- choisir --</option>
+              <option v-for="opt in choice.payload.from" :key="opt" :value="opt">{{ opt }}</option>
             </select>
-            <button class="btn" v-if="!backgroundLocked" @click="validerBackground">Valider</button>
-            <button class="btn ghost" v-else @click="deverrouillerBackground">Modifier</button>
-          </div>
+
+            <div v-else>
+              <label class="text-xs text-gray-500">Sélectionner {{ choice.choose }} éléments</label>
+              <select multiple v-model="localChosen[choice.ui_id || choice.featureId || idx]" class="w-full border rounded p-2 h-28">
+                <option v-for="opt in choice.payload.from" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+            </div>
+
+            <div class="mt-2">
+              <button @click="applyChoice(choice)" class="px-3 py-1 rounded bg-green-600 text-white">Appliquer</button>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="text-sm italic text-gray-600">Aucune option lisible pour ce choix (vérifier la donnée).</div>
+          </template>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Étape 2 : Classe & progression -->
-    <div v-else-if="etape===2" class="bloc">
-      <h2 class="h2">[2/5] Classe & niveau</h2>
-      <div class="champs">
-        <div style="grid-column: span 4;">
-          <label>Classe</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <select class="input" v-model="selectedClassName" :disabled="classLocked">
-              <option value="">-- Choisir une classe --</option>
-              <option v-for="c in classesOptions" :key="c.id" :value="c.name">{{ c.name }}</option>
-            </select>
-            <button class="btn" v-if="!classLocked" @click="validerClasse">Valider</button>
-            <button class="btn ghost" v-else @click="deverrouillerClasse">Modifier</button>
-          </div>
-        </div>
-
-        <!-- NOTE: Le choix de sous-classe direct a été supprimé de l'UI.
-             La sous-classe est désormais choisie via une feature 'subclass_choice'
-             (déclenchée par features_by_level). On affiche la sous-classe choisie en info. -->
-        <div style="grid-column: span 4;">
-          <label>Sous-classe (actuelle)</label>
-          <input class="input" type="text" :value="perso.sousClasse || '— aucune —'" disabled />
-        </div>
-
-        <div style="grid-column: span 4;">
-          <label>Niveau</label>
-          <input class="input" type="number" min="1" max="20" v-model.number="perso.niveau" :disabled="classLocked" />
-        </div>
-
-        <div style="grid-column: span 4;">
-          <label>DV (dé de vie)</label>
-          <input class="input" type="number" :value="dvComputed" disabled />
-        </div>
-
-        <div style="grid-column: span 4;">
-          <label>PV max (calculé)</label>
-          <input class="input" type="number" :value="pvMaxComputed" disabled />
-        </div>
-
-        <div style="grid-column: span 4;">
-          <label>PV actuels</label>
-          <input class="input" type="number" :value="pvActuelsComputed" disabled />
-        </div>
+    <!-- Preview area -->
+    <section v-if="preview" class="mb-6 p-4 border rounded bg-white/80">
+      <div class="flex items-start justify-between">
+        <h3 class="text-lg font-semibold">Preview</h3>
+        <div class="text-sm text-gray-600">applied: {{ preview.appliedFeatures?.length ?? 0 }}</div>
       </div>
 
-      <!-- Indicateur de la classe chargée -->
-      <div style="margin-top:10px;color:var(--texte-2)">
-        <strong>Classe détectée :</strong>
-        <span v-if="classData">{{ classData.name || classData.raw?.name || classData.raw?.nom }}</span>
-        <span v-else>aucune</span>
+      <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Left: stats & proficiencies -->
+        <div class="border rounded p-3 bg-white">
+          <h4 class="font-medium mb-2">Caractéristiques</h4>
+          <table class="w-full text-sm">
+            <tr v-for="(val, key) in displayStats" :key="key">
+              <td class="pr-3 font-medium">{{ key }}</td>
+              <td>{{ val }}</td>
+            </tr>
+          </table>
 
-        <div v-if="(classData?.raw?.skill_choices) || (classData?.skill_choices)" style="margin-top:6px;">
-          <small>
-            Choisir
-            {{ (classData?.raw?.skill_choices?.choose) || (classData?.skill_choices?.choose) || 0 }}
-            compétences parmi :
-            {{ (classData?.raw?.skill_choices?.from ?? classData?.skill_choices?.from ?? []).join(', ') }}
-          </small>
-        </div>
-      </div>
+          <hr class="my-2" />
+          <h4 class="font-medium">Compétences / Proficiencies</h4>
+          <ul class="list-disc ml-5 text-sm">
+            <li v-for="p in preview.previewCharacter?.proficiencies ?? []" :key="p">{{ p }}</li>
+            <li v-if="!(preview.previewCharacter?.proficiencies ?? []).length" class="text-gray-500">Aucune</li>
+          </ul>
 
-      <!-- BLOC: Choix spécifiques à la classe (compétences & features enrichies) -->
-      <div style="margin-top:14px; border-top:1px dashed var(--bord); padding-top:10px;">
-        <h3 class="h3">Choix spécifiques à la classe</h3>
-
-        <!-- Choix de compétences (si la classe impose un choix) -->
-        <div v-if="classSkillChoices" style="margin-top:8px;">
-          <label><strong>Compétences à choisir</strong> — Choisir {{ classSkillChoices.choose }} :</label>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
-            <label v-for="s in classSkillChoices.from" :key="s" style="display:flex; align-items:center; gap:6px;">
-              <input type="checkbox" :value="s" :checked="selectedSkills.includes(s)" @change="toggleSkillChoice(s)" :disabled="isSkillLocked" />
-              <span>{{ s }}</span>
-            </label>
-          </div>
-          <div style="margin-top:6px;">
-            <small>{{ selectedSkills.length }} / {{ classSkillChoices.choose }} sélectionné(s)</small>
-            <button class="btn" style="margin-left:8px;" @click="validerSkills" :disabled="selectedSkills.length !== classSkillChoices.choose || isSkillLocked">Valider les compétences</button>
-            <button class="btn ghost" v-if="isSkillLocked" @click="deverrouillerSkills">Modifier</button>
-          </div>
-        </div>
-
-        <!-- Features enrichies (classe + sous-classe) -->
-        <div v-if="enrichedAvailableFeatures.length" style="margin-top:12px;">
-          <label><strong>Features disponibles (niveau ≤ {{ perso.niveau }})</strong></label>
-          <ul style="margin-top:6px; padding-left:18px;">
-            <li v-for="(f, idx) in enrichedAvailableFeatures" :key="f.id+idx" style="margin-bottom:8px;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                  <strong>{{ f.displayName || f.id }}</strong>
-                  <div style="color:var(--texte-2); font-size:12px;">{{ f.description || '' }}</div>
-                </div>
-                <div style="margin-left:12px;">
-                  <!-- SPECIAL : feature qui déclenche le choix de sous-classe -->
-                  <div v-if="f.id === 'subclass_choice' && !featureChoicesLocked[f.id]">
-                    <small>Choix de sous-classe requis</small>
-                    <div style="margin-top:6px;">
-                      <button class="btn" @click="openSubclassChoiceModal(f.id)">Choisir la sous-classe</button>
-                    </div>
-                  </div>
-
-                  <!-- Si la feature demande un choix multiple (choose/from) -->
-                  <div v-else-if="f.choose && !featureChoicesLocked[f.id]">
-                    <small>Choisir {{ f.choose }}</small>
-                    <div style="display:flex; gap:6px; margin-top:6px;">
-                      <label v-for="opt in (f.from||[])" :key="opt" style="display:flex; align-items:center; gap:6px;">
-                        <input type="checkbox" :value="opt" :checked="(selectedFeatureChoices[f.id] || []).includes(opt)" @change="toggleFeatureChoice(f.id, opt, f.choose)" />
-                        <span>{{ opt }}</span>
-                      </label>
-                    </div>
-                    <div style="margin-top:6px;">
-                      <button class="btn" @click="validerFeatureChoice(f.id)" :disabled="(selectedFeatureChoices[f.id]||[]).length !== f.choose">Valider</button>
-                    </div>
-                  </div>
-
-                  <!-- Sinon feature automatique -->
-                  <div v-else>
-                    <small v-if="featureChoicesLocked[f.id]">Verrouillée ✓</small>
-                    <small v-else>Automatique</small>
-                  </div>
-                </div>
-              </div>
-            </li>
+          <hr class="my-2" />
+          <h4 class="font-medium">Senses</h4>
+          <ul class="list-disc ml-5 text-sm">
+            <li v-for="s in preview.previewCharacter?.senses ?? []" :key="JSON.stringify(s)">{{ s.sense_type ? (s.sense_type + ' ' + (s.range??'') + (s.units?(' '+s.units):'')) : JSON.stringify(s) }}</li>
+            <li v-if="!(preview.previewCharacter?.senses ?? []).length" class="text-gray-500">Aucune</li>
           </ul>
         </div>
 
-      </div>
-      <!-- FIN bloc choix classe/features -->
-    </div>
+        <!-- Right: spells / equipment / features -->
+        <div class="border rounded p-3 bg-white">
+          <h4 class="font-medium mb-2">Magie</h4>
+          <div v-if="preview.previewCharacter?.spellcasting">
+            <div class="text-sm">Ability: {{ preview.previewCharacter.spellcasting.ability ?? preview.previewCharacter.spellcasting?.meta?.ability ?? '—' }}</div>
+            <div class="text-sm">Spell save DC: {{ preview.previewCharacter.spellcasting?.meta?.spell_save_dc ?? preview.previewCharacter.spellcasting?.meta?.spell_save_dc ?? '—' }}</div>
+            <div class="text-sm">Spell attack mod: {{ preview.previewCharacter.spellcasting?.meta?.spell_attack_mod ?? '—' }}</div>
+            <div class="mt-2">
+              <div class="font-medium">Slots</div>
+              <div v-if="preview.previewCharacter.spellcasting.slots && Object.keys(preview.previewCharacter.spellcasting.slots).length">
+                <div v-for="(num, lvl) in preview.previewCharacter.spellcasting.slots" :key="lvl" class="text-sm">{{ lvl }} : {{ num }}</div>
+              </div>
+              <div v-else class="text-sm text-gray-500">Aucun</div>
+            </div>
 
-    <!-- Étape 3 : caractéristiques -->
-    <div v-else-if="etape===3" class="bloc">
-      <h2 class="h2">[3/5] Caractéristiques</h2>
-      <div class="ligne" style="gap:8px; margin-bottom:8px;">
-        <button class="btn ghost" @click="generer('roll')">🎲 Lancer 4d6 (garde 3)</button>
-        <button class="btn ghost" @click="generer('array')">📚 Répartition standard</button>
-        <button class="btn ghost" @click="generer('buy')">🧮 Point Buy (27)</button>
-      </div>
-
-      <div class="champs">
-        <div v-for="(val, cle) in perso.caracs" :key="cle" style="grid-column: span 4;">
-          <label style="display:flex; justify-content:space-between;">
-            <span style="text-transform: capitalize;">{{ cle }}</span>
-            <small class="badge">mod {{ modificateur(cle) >= 0 ? '+' : '' }}{{ modificateur(cle) }}</small>
-          </label>
-          <input class="input" type="number" v-model.number="perso.caracs[cle]" :disabled="false" />
-        </div>
-      </div>
-      <p style="margin-top:8px; color:var(--texte-2);">Rappel : mod = ⌊(score − 10) / 2⌋</p>
-    </div>
-
-    <!-- Étape 4 : compétences / équipement -->
-    <div v-else-if="etape===4" class="bloc">
-      <h2 class="h2">[4/5] Compétences, sauvegardes, équipement de base</h2>
-      <div class="champs">
-        <div style="grid-column: span 4;">
-          <label>Bonus de maîtrise</label>
-          <input class="input" type="number" :value="bonusMaitrise" disabled />
-        </div>
-        <div style="grid-column: span 4;">
-          <label>Classe d'armure (CA)</label>
-          <input class="input" type="number" :value="classeArmure" disabled />
-        </div>
-        <div style="grid-column: span 4;">
-          <label>Initiative</label>
-          <input class="input" type="number" :value="initiative" disabled />
-        </div>
-      </div>
-
-      <details style="margin-top:10px;">
-        <summary>Proficiences (cocher maîtrises)</summary>
-        <table class="table" style="margin-top:8px;">
-          <thead>
-            <tr><th>Compétence</th><th>Carac</th><th>Maîtrise ?</th><th>Total</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in competencesDef" :key="c.id">
-              <td>{{ c.nom }}</td>
-              <td>{{ c.carac.toUpperCase() }}</td>
-              <td><input type="checkbox" v-model="perso.competences[c.id]" :disabled="classLocked && !perso.competences[c.id]" /></td>
-              <td>{{ scoreCompetence(c) >= 0 ? '+' : '' }}{{ scoreCompetence(c) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </details>
-
-      <div class="champs" style="margin-top:10px;">
-        <div style="grid-column: span 6;">
-          <label>Langues</label>
-          <select class="input" v-model="perso.langues" :disabled="backgroundLocked">
-            <option v-for="l in languesOptions" :key="l.id" :value="l.name">{{ l.name }}</option>
-          </select>
-        </div>
-
-        <div style="grid-column: span 6;">
-          <label>Équipement de départ (armes disponibles selon maîtrises)</label>
-          <select class="input" v-model="equipementModel" multiple :disabled="classLocked && !armesOptionsFiltered.length">
-            <option v-for="it in armesOptionsFiltered" :key="it.id" :value="it.name" :title="it.raw?.description || it.description || ''">
-              {{ it.name + ' (' + (it.weaponType || 'inconnu') + ')' }}
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <details style="margin-top:10px;">
-        <summary>Monture / Créature apprivoisée (règle maison)</summary>
-        <div class="champs" style="margin-top:8px;">
-          <div style="grid-column: span 6;">
-            <label>Nom monture/créature</label>
-            <input class="input" v-model="perso.monture.nom" placeholder="Ex: Havane (cheval)" :disabled="false" />
+            <div class="mt-2">
+              <div class="font-medium">Sorts connus</div>
+              <ul class="list-disc ml-5 text-sm">
+                <li v-for="s in preview.previewCharacter.spellcasting.known ?? []" :key="s">{{ s }}</li>
+                <li v-if="!(preview.previewCharacter.spellcasting.known ?? []).length" class="text-gray-500">Aucun</li>
+              </ul>
+            </div>
           </div>
-          <div style="grid-column: span 3;">
-            <label>Vitesse</label>
-            <input class="input" v-model="perso.monture.vitesse" placeholder="Ex: 60 ft. (/12 m)" :disabled="false" />
-          </div>
-          <div style="grid-column: span 3;">
-            <label>Notes</label>
-            <input class="input" v-model="perso.monture.notes" placeholder="Charge, dressage…" :disabled="false" />
-          </div>
-        </div>
-      </details>
-    </div>
+          <div v-else class="text-sm text-gray-500">Aucune capacité de lanceur de sorts détectée</div>
 
-    <!-- Étape 5 : résumé -->
-    <div v-else class="bloc">
-      <h2 class="h2">[5/5] Résumé</h2>
-      <FichePersonnage :compact="true" />
-      <div style="margin-top:10px; display:flex; gap:8px;">
-        <button class="btn ghost" @click="editerJSON">Voir JSON</button>
-        <button class="btn" @click="telechargerJSON">Télécharger JSON</button>
+          <hr class="my-2" />
+          <h4 class="font-medium">Équipement</h4>
+          <ul class="list-disc ml-5 text-sm">
+            <li v-for="e in preview.previewCharacter?.equipment ?? []" :key="JSON.stringify(e)">{{ e }}</li>
+            <li v-if="!(preview.previewCharacter?.equipment ?? []).length" class="text-gray-500">Aucun</li>
+          </ul>
+
+          <hr class="my-2" />
+          <h4 class="font-medium">Features appliqués</h4>
+          <ul class="list-disc ml-5 text-sm">
+            <li v-for="f in preview.appliedFeatures ?? []" :key="f">{{ f }}</li>
+            <li v-if="!(preview.appliedFeatures ?? []).length" class="text-gray-500">Aucun</li>
+          </ul>
+        </div>
       </div>
-    </div>
 
-    <!-- MODAL pour choix sous-classe (ouvert par feature 'subclass_choice') -->
-    <div v-if="subclassChoiceModal.opened" class="bw-modal" @click.self="subclassChoiceModal.opened=false">
-      <div class="card">
-        <h3>Choisir une sous-classe</h3>
-        <div class="list">
-          <label v-for="s in subclassesFiltered" :key="s.id">
-            <input type="radio" name="subclass_choice" :value="s.name" v-model="subclassChoiceSelection" />
-            <strong style="margin-left:6px">{{ s.name }}</strong>
-            <div style="font-size:12px; color:var(--texte-2)">{{ s.raw?.description || s.raw?.texte || '' }}</div>
-          </label>
-        </div>
-        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
-          <button class="btn ghost" @click="subclassChoiceModal.opened=false">Annuler</button>
-          <button class="btn" @click="confirmSubclassChoice">Confirmer</button>
-        </div>
+      <!-- Errors / unhandled effects -->
+      <div v-if="preview.errors && preview.errors.length" class="mt-4 p-3 border rounded bg-red-50 text-sm text-red-700">
+        <div class="font-medium">Erreurs détectées</div>
+        <ul class="list-disc ml-5">
+          <li v-for="(e, i) in preview.errors" :key="i">{{ e.type }} — {{ e.message }}</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Raw response debug -->
+    <div class="mb-6">
+      <button @click="showRaw = !showRaw" class="px-3 py-1 rounded border">
+        {{ showRaw ? 'Cacher Raw response (debug)' : 'Voir Raw response (debug)' }}
+      </button>
+      <div v-if="showRaw" class="mt-3">
+        <pre class="whitespace-pre-wrap bg-slate-100 p-3 rounded text-sm overflow-auto" style="max-height:400px">{{ rawText }}</pre>
       </div>
     </div>
   </div>
 </template>
 
-
 <script setup lang="ts">
-// BonomeWizard.vue - script généré pour usage avec server-side creation API
-// - Utilise le store Pinia '~/stores/personnage' pour exposer `perso`
-// - Appelle /api/creation/surface et /api/creation/preview
-// - Expose les refs attendues par le template (etape, subclassChoiceModal, etc.)
-// NOTE: n'importe quel import côté serveur (fs, dataAdapter) ne doit PAS être importé ici.
+import { ref, reactive, computed, watch } from 'vue';
 
-import { ref, reactive, computed, onMounted } from 'vue';
-import { usePersonnage } from '~/stores/personnage';
-
-// --- Pinia store (option A) ---
-const persoStore = usePersonnage();
-const perso = persoStore;
-
-// --- Wizard UI state ---
-const etape = ref<number>(1);
-function precedent() { if (etape.value > 1) etape.value -= 1; }
-function suivant() { etape.value += 1; }
-
-// modal for subclass / feature choices
-const subclassChoiceModal = reactive({ opened: false, data: null });
-
-// Options lists (lightweight)
-const options = reactive({
-  races: [] as Array<{ id: string; nom?: string }>,
-  classes: [] as Array<{ id: string; nom?: string }>,
-  backgrounds: [] as Array<{ id: string; nom?: string }>
-});
-
-// Selection & base character used for preview requests
-const selection = reactive({
-  race: null as string | null,
-  subrace: null as string | null,
-  class: null as string | null,
-  subclass: null as string | null,
-  background: null as string | null,
-  manual_features: [] as string[],
-  chosenOptions: {} as Record<string, any>
-});
-
-const baseCharacter = reactive({
-  base_stats_before_race: {
-    strength: 8,
-    dexterity: 14,
-    constitution: 12,
-    intelligence: 16,
-    wisdom: 10,
-    charisma: 11
-  }
-});
-
-// Preview result
+const classes = ref<string[]>([]);
+const races = ref<string[]>([]);
+const selectedClass = ref<string>('');
+const selectedRace = ref<string>('');
+const niveau = ref<number>(1);
 const loading = ref(false);
-const error = ref<string | null>(null);
-const preview = ref<any>(null);
-const appliedFeatures = ref<string[]>([]);
-const pendingChoices = ref<any[]>([]);
 
-// --- Fetch creation surface (races, classes, backgrounds) ---
-async function fetchCreationSurface() {
-  loading.value = true;
-  error.value = null;
+const baseStats = reactive({
+  strength: 8,
+  dexterity: 14,
+  constitution: 12,
+  intelligence: 16,
+  wisdom: 10,
+  charisma: 11
+});
+
+// preview response container
+const preview = ref<any | null>(null);
+const rawText = ref<string>('');
+const showRaw = ref(false);
+
+// chosenOptions: map ui_id -> value (string or array)
+const chosenOptions = reactive<Record<string, any>>({});
+// localChosen used for UI selection before applying
+const localChosen = reactive<Record<string, any>>({});
+
+const loadCatalog = async () => {
   try {
-    const res = await $fetch('/api/creation/surface', { method: 'GET' });
-    options.races = res.races || [];
-    options.classes = res.classes || [];
-    options.backgrounds = res.backgrounds || [];
-  } catch (e: any) {
-    console.error('fetchCreationSurface error', e);
-    error.value = e?.message || 'Erreur de chargement des options';
-  } finally {
-    loading.value = false;
+    const c = await $fetch('/api/catalog/classes').catch(() => null);
+    if (c && Array.isArray(c)) {
+      classes.value = c;
+    } else {
+      classes.value = ['mage']; // fallback
+    }
+  } catch (e) {
+    classes.value = ['mage'];
   }
-}
 
-// --- Request preview (server-side application of features) ---
-async function requestPreview() {
+  try {
+    const r = await $fetch('/api/catalog/races').catch(() => null);
+    if (r && Array.isArray(r)) {
+      races.value = r;
+    } else {
+      races.value = ['humain','elfe']; // fallback
+    }
+  } catch (e) {
+    races.value = ['humain','elfe'];
+  }
+
+  // sensible defaults
+  if (!selectedClass.value && classes.value.length) selectedClass.value = classes.value[0];
+  if (!selectedRace.value && races.value.length) selectedRace.value = races.value[0];
+};
+
+// helper to create body and call preview endpoint
+const sendPreview = async () => {
   loading.value = true;
-  error.value = null;
   preview.value = null;
-  appliedFeatures.value = [];
-  pendingChoices.value = [];
+  rawText.value = '';
   try {
     const body = {
       selection: {
-        race: selection.race,
-        subrace: selection.subrace,
-        class: selection.class,
-        subclass: selection.subclass,
-        background: selection.background,
-        manual_features: selection.manual_features,
-        chosenOptions: selection.chosenOptions
+        class: selectedClass.value || null,
+        race: selectedRace.value || null,
+        niveau: Number(niveau.value || 1),
+        manual_features: [],
+        chosenOptions: { ...chosenOptions }
       },
-      baseCharacter: { base_stats_before_race: baseCharacter.base_stats_before_race }
+      baseCharacter: {
+        base_stats_before_race: { ...baseStats }
+      }
     };
-    const res = await $fetch('/api/creation/preview', { method: 'POST', body });
-    if (!res) throw new Error('Aucune réponse du serveur');
-    if (res.ok === false) {
-      error.value = res.error || (res.errors && JSON.stringify(res.errors)) || 'Erreur serveur';
-      return;
+
+    const res = await $fetch('/api/creation/preview', {
+      method: 'POST',
+      body
+    });
+
+    preview.value = res;
+    rawText.value = JSON.stringify(res, null, 2);
+    // prepopulate localChosen for pending choices from server
+    if (res?.pendingChoices && Array.isArray(res.pendingChoices)) {
+      for (const pc of res.pendingChoices) {
+        const key = pc.ui_id ?? pc.featureId ?? pc.id ?? null;
+        if (key && !localChosen[key]) {
+          // default to empty or first option if single choice
+          if (Array.isArray(pc.payload?.from) && pc.payload.from.length === 1) {
+            localChosen[key] = pc.payload.from[0];
+          } else {
+            localChosen[key] = (pc.payload?.from && pc.payload.from.length) ? '' : null;
+          }
+        }
+      }
     }
-    preview.value = res.previewCharacter || null;
-    appliedFeatures.value = res.appliedFeatures || [];
-    pendingChoices.value = res.pendingChoices || [];
-    // Optionally sync preview into the perso store (non destructive)
-    if (preview.value) {
-      applyPreviewToStore(preview.value);
-    }
-  } catch (e: any) {
-    console.error('requestPreview error', e);
-    error.value = e?.message || String(e);
+  } catch (err: any) {
+    preview.value = {
+      ok: false,
+      errors: [{ type: 'network', message: String(err?.message ?? err) }]
+    };
+    rawText.value = String(err?.message ?? err);
   } finally {
     loading.value = false;
   }
-}
+};
 
-// Apply preview values into the perso Pinia store (non-destructive)
-function applyPreviewToStore(previewCharacter: any) {
-  // conservative assign: only set keys that exist to avoid overwriting user edits
-  if (!previewCharacter || typeof previewCharacter !== 'object') return;
+const applyChoice = async (choice: any) => {
+  // store chosen value(s) into chosenOptions and re-send preview
+  const key = choice.ui_id ?? choice.featureId ?? choice.id ?? null;
+  if (!key) {
+    // fallback: ignore
+    alert('Choice has no ui_id/featureId — cannot apply from UI');
+    return;
+  }
+  const val = localChosen[key];
+  if (val === undefined || val === null || (typeof val === 'string' && val === '')) {
+    alert('Aucune valeur sélectionnée');
+    return;
+  }
+  // if choice.choose > 1 ensure array
+  if (choice.choose && Number(choice.choose) > 1) {
+    chosenOptions[key] = Array.isArray(val) ? val : [val];
+  } else {
+    chosenOptions[key] = val;
+  }
+  // re-request preview (server expects chosenOptions in selection)
+  await sendPreview();
+};
+
+const resetChosenOptions = () => {
+  for (const k of Object.keys(chosenOptions)) {
+    delete chosenOptions[k];
+  }
+  for (const k of Object.keys(localChosen)) {
+    delete localChosen[k];
+  }
+  // optional: refresh preview without choices
+  sendPreview();
+};
+
+const displayStats = computed(() => {
+  // merge base_stats_before_race and final_stats if available
+  const out: Record<string, any> = {};
+  // base
+  for (const k of Object.keys(baseStats)) out[k] = baseStats[k];
+  // apply preview final_stats (if present and specific)
   try {
-    if ('nom' in previewCharacter) perso.nom = previewCharacter.nom;
-    if ('final_stats' in previewCharacter) perso.final_stats = previewCharacter.final_stats;
-    if ('spellcasting' in previewCharacter) perso.spellcasting = previewCharacter.spellcasting;
-    if ('equipment' in previewCharacter) perso.equipment = previewCharacter.equipment;
-    if ('appliedFeatures' in previewCharacter) perso.features = previewCharacter.appliedFeatures;
-    // merge others as needed
-  } catch (e) {
-    console.warn('applyPreviewToStore failed', e);
-  }
-}
-
-// When a pending choice is resolved by the UI, store it and re-request preview
-async function handleResolvePendingChoice(choice: any, chosenValue: any) {
-  const uiId = choice.ui_id || choice.id || `choice_${Math.random().toString(36).slice(2,8)}`;
-  selection.chosenOptions[uiId] = chosenValue;
-  // close modal if relevant
-  subclassChoiceModal.opened = false;
-  await requestPreview();
-}
-
-// --- Small helper: generate stats (stubbed) ---
-function generer(method: 'roll'|'array'|'buy' = 'roll') {
-  if (method === 'roll') {
-    // 4d6 drop lowest
-    const rolls = Array.from({length:6}, ()=>roll4d6().sort((a,b)=>b-a).slice(0,3).reduce((s,x)=>s+x,0));
-    baseCharacter.base_stats_before_race.strength = rolls[0];
-    baseCharacter.base_stats_before_race.dexterity = rolls[1];
-    baseCharacter.base_stats_before_race.constitution = rolls[2];
-    baseCharacter.base_stats_before_race.intelligence = rolls[3];
-    baseCharacter.base_stats_before_race.wisdom = rolls[4];
-    baseCharacter.base_stats_before_race.charisma = rolls[5];
-  }
-  // array/buy can be implemented later
-}
-function roll4d6() {
-  const r = [d6(), d6(), d6(), d6()];
-  return r;
-}
-function d6(){ return Math.floor(Math.random()*6)+1; }
-
-// --- Simple validators / valider* stubs used by template ---
-function validerClasse() {
-  // do a quick preview to validate class choices
-  return requestPreview();
-}
-function validerBackground() {
-  return requestPreview();
-}
-function validerSkills() {
-  return requestPreview();
-}
-function validerFeatureChoice(featureId: string, choiceValue: any) {
-  // store choice and re-request preview
-  selection.chosenOptions[featureId] = choiceValue;
-  return requestPreview();
-}
-
-// utility download JSON for debugging
-function telechargerJSON(obj: any, filename = 'pj_preview.json') {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// On mounted, load surface options
-onMounted(async () => {
-  await fetchCreationSurface();
+    const fs = preview.value?.previewCharacter?.final_stats ?? {};
+    if (fs && typeof fs === 'object') {
+      for (const kk of Object.keys(fs)) {
+        out[kk] = fs[kk];
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return out;
 });
+
+// initial load
+loadCatalog();
+
 </script>
 
-
 <style scoped>
-/* Conteneur bloc */
-.bloc{ border:1px solid var(--bord); border-radius:12px; padding:12px; background:var(--fond, #0b1225); }
-/* Labels */
-label{ display:block; font-size:12px; color:var(--texte-2); margin-bottom:6px; }
-/* Inputs et selects */
-input.input, select.input { width:100%; padding:8px; border-radius:6px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:var(--texte, #e6eefc); }
-/* Assurer la visibilité des options (selon navigateur) */
-select.input option { color: var(--texte, #e6eefc) !important; background: transparent; }
-/* Badges */
-.badge{ background: rgba(255,255,255,0.06); padding:2px 6px; border-radius:8px; font-size:11px; }
-/* Table */
-.table{ width:100%; border-collapse:collapse; }
-.table th, .table td{ padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.03); color:var(--texte); }
-
-/* Modal simple pour choix sous-classe */
-.bw-modal {
-  position: fixed;
-  inset: 0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background: rgba(0,0,0,0.5);
-  z-index: 9999;
-}
-.bw-modal .card {
-  background: var(--fond, #0b1225);
-  padding: 16px;
-  border-radius: 10px;
-  width: 90%;
-  max-width: 720px;
-  color: var(--texte, #e6eefc);
-  box-shadow: 0 6px 24px rgba(0,0,0,0.6);
-}
-.bw-modal .list { max-height: 60vh; overflow:auto; margin-top:8px; }
-.bw-modal .list label { display:flex; align-items:center; gap:8px; padding:6px 0; }
+/* minimal */
 </style>

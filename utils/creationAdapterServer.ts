@@ -1,38 +1,27 @@
-/**
- * utils/creationAdapterServer.ts  (updated)
- * - robust previewChar init
- * - apply chosenOptions if present
- * - when engine.applyEffect fails we push result.errors entries that include the full effect object
- */
+// utils/creationAdapterServer.ts
+// Adaptateur serveur pour la création : résout features -> normalise -> applique via EffectEngine
+// Usage : const svc = new CreationAdapterServer(adapterInstance?); await svc.init(); const res = await svc.buildPreview(selection, baseChar);
 
-import { EffectEngine } from '../engine/effectEngine'
+import fs from 'fs/promises';
+import path from 'path';
+import EffectEngine from '~/engine/effectEngine';
+import { normalizeEffect, normalizeEffects, extractChoiceDescriptor } from '~/utils/normalizeEffect';
 
-export interface Selection {
-  race?: string | null;
-  subrace?: string | null;
+export type Selection = {
   class?: string | null;
-  subclass?: string | null;
-  background?: string | null;
-  manual_features?: string[];
+  race?: string | null;
+  niveau?: number;
+  classLevels?: Record<string, number>;
+  manual_features?: any[];
   chosenOptions?: Record<string, any>;
-  niveau?: number;
-}
-
-export interface BaseCharacter {
-  base_stats_before_race: Record<string, number>;
-  nom?: string;
-  niveau?: number;
-  features?: string[];
-  equipment?: any[];
-  spellcasting?: any;
-  proficiencies?: string[];
   [k: string]: any;
-}
+};
 
 export class CreationAdapterServer {
-  adapter: any;
+  adapter: any | null;
   engine: EffectEngine;
-  constructor(adapterInstance: any) {
+
+  constructor(adapterInstance: any = null) {
     this.adapter = adapterInstance;
     this.engine = new EffectEngine();
   }
@@ -43,205 +32,136 @@ export class CreationAdapterServer {
     }
   }
 
-  async buildPreview(selection: Selection, baseCharacter: BaseCharacter) {
-    const result: any = {
-      ok: true,
-      previewCharacter: null,
-      appliedFeatures: [],
-      pendingChoices: [],
-      errors: []
-    };
-
+  // Fallback read local JSON entity
+  async readLocalEntity(kind: 'classes' | 'races', id: string): Promise<any | null> {
     try {
-      const seeds: string[] = [];
-      if (selection?.class) seeds.push(selection.class);
-      if (selection?.subclass) seeds.push(selection.subclass);
-      if (selection?.race) seeds.push(selection.race);
-      if (selection?.subrace) seeds.push(selection.subrace);
-      if (selection?.background) seeds.push(selection.background);
-      if (Array.isArray(selection?.manual_features)) seeds.push(...selection.manual_features);
+      const fp = path.resolve(process.cwd(), kind, `${id}.json`);
+      const txt = await fs.readFile(fp, 'utf-8');
+      return JSON.parse(txt);
+    } catch (e) {
+      return null;
+    }
+  }
 
-      if (this.adapter && typeof this.adapter.initIndex === 'function') {
-        await this.adapter.initIndex();
-      }
+  // Resolve feature tree using adapter if present, otherwise a simple local resolution.
+  async resolveFeatureTree(selection: Selection) {
+    if (this.adapter && typeof this.adapter.resolveFeatureTree === 'function') {
+      return await this.adapter.resolveFeatureTree(selection);
+    }
 
-      let resolved: any[] = [];
-      if (this.adapter && typeof this.adapter.resolveFeatureTree === 'function') {
-        resolved = await this.adapter.resolveFeatureTree(seeds, 20);
+    const out: any[] = [];
+    if (selection.class) {
+      const cls = await this.readLocalEntity('classes', String(selection.class));
+      if (cls) out.push({ originId: selection.class, payload: cls });
+    }
+    if (selection.race) {
+      const rc = await this.readLocalEntity('races', String(selection.race));
+      if (rc) out.push({ originId: selection.race, payload: rc });
+    }
+    return out;
+  }
+
+  // Build preview character
+  async buildPreview(selectionIn: any = {}, baseCharacterIn: any = {}) {
+    try {
+      // Normaliser selection : accepter string ou objet
+      let selection: Selection;
+      if (typeof selectionIn === 'string') {
+        selection = { class: selectionIn, niveau: 1, manual_features: [], chosenOptions: {}, classLevels: {} };
       } else {
-        for (const id of seeds) {
-          if (this.adapter && typeof this.adapter.loadFeatureById === 'function') {
-            const f = await this.adapter.loadFeatureById(id);
-            if (f) resolved.push(f);
-          }
-        }
+        selection = { ...(selectionIn ?? {}) } as Selection;
+      }
+      selection.class = selection.class ?? null;
+      selection.niveau = Number(selection.niveau ?? selection.level ?? 1);
+      selection.manual_features = selection.manual_features ?? [];
+      selection.chosenOptions = selection.chosenOptions ?? {};
+      selection.classLevels = selection.classLevels ?? {};
+
+      // Construire classLevels de façon explicite
+      const classLevels: Record<string, number> = { ...(selection.classLevels ?? {}) };
+      if (selection.class) {
+        classLevels[selection.class] = Number(classLevels[selection.class] ?? selection.niveau ?? 1);
       }
 
-      const allEffects: any[] = [];
+      // debug log
+      // eslint-disable-next-line no-console
+      console.debug('[CREATION PREVIEW] selection normalized', { selection, classLevels });
 
-      for (const f of resolved) {
-        const id = f.id || f.raw?.id || f.raw?.name || null;
-        const ui_id = f.raw?.ui_id || f.id || id || `choice_${Math.random().toString(36).slice(2,8)}`;
+      // Resolve features/entities
+      const resolved = await this.resolveFeatureTree(selection);
 
-        const hasChoice = Boolean(f.raw && (f.raw.choose || f.raw.from));
-        const providedValue = selection?.chosenOptions?.[ui_id];
+      // collect immediate effects and pending choices
+      const immediateEffects: Array<{ source?: string | null; effect: any }> = [];
+      const pendingChoices: any[] = [];
+      const appliedFeatures: string[] = [];
 
-        if (hasChoice && providedValue !== undefined && providedValue !== null) {
-          const chosenArr = Array.isArray(providedValue) ? providedValue : [providedValue];
-          for (const chosen of chosenArr) {
-            try {
-              if (typeof chosen === 'string') {
-                if (Array.isArray(f.raw.from) && f.raw.from.includes(chosen)) {
-                  try {
-                    const gf = (this.adapter && typeof this.adapter.loadFeatureById === 'function') ? await this.adapter.loadFeatureById(chosen) : null;
-                    if (gf) {
-                      if (Array.isArray(gf.effects)) for (const e of gf.effects) allEffects.push({ source: chosen, effect: e });
-                      else if (gf.raw && Array.isArray(gf.raw.effects)) for (const e of gf.raw.effects) allEffects.push({ source: chosen, effect: e });
-                      result.appliedFeatures.push(gf.id || chosen);
-                      continue;
-                    }
-                  } catch (e) { /* ignore */ }
-                }
+      for (const node of (resolved || [])) {
+        const payloadEntity = node?.payload ?? node;
+        // extract raw effects array from common fields
+        const effectsRaw = payloadEntity.effects ?? payloadEntity.features ?? payloadEntity.payload?.effects ?? payloadEntity.payload?.features ?? [];
+        const arr = Array.isArray(effectsRaw) ? effectsRaw : (effectsRaw ? [effectsRaw] : []);
 
-                if (Array.isArray(f.raw.from)) {
-                  const candidate = f.raw.from.find((x: any) => {
-                    if (!x) return false;
-                    if (typeof x === 'string') return false;
-                    return x.id === chosen || x.value === chosen || x.name === chosen;
-                  });
-                  if (candidate) {
-                    if (Array.isArray(candidate.effects)) for (const e of candidate.effects) allEffects.push({ source: id, effect: e });
-                    if (Array.isArray(candidate.grants)) {
-                      for (const gid of candidate.grants) {
-                        try {
-                          const gf = (this.adapter && typeof this.adapter.loadFeatureById === 'function') ? await this.adapter.loadFeatureById(gid) : null;
-                          if (gf) {
-                            if (Array.isArray(gf.effects)) for (const e of gf.effects) allEffects.push({ source: gid, effect: e });
-                            else if (gf.raw && Array.isArray(gf.raw.effects)) for (const e of gf.raw.effects) allEffects.push({ source: gid, effect: e });
-                            result.appliedFeatures.push(gf.id || gid);
-                          }
-                        } catch (e) {
-                          result.errors.push({ type: 'choice_grant_load', id: gid, message: String(e), effect: { sourceFeature: id, candidate } });
-                        }
-                      }
-                    }
-                    continue;
-                  }
-                }
+        for (const rawEf of arr) {
+          const ef = normalizeEffect(rawEf);
+          if (!ef) continue;
 
-                try {
-                  const gf = (this.adapter && typeof this.adapter.loadFeatureById === 'function') ? await this.adapter.loadFeatureById(chosen) : null;
-                  if (gf) {
-                    if (Array.isArray(gf.effects)) for (const e of gf.effects) allEffects.push({ source: chosen, effect: e });
-                    else if (gf.raw && Array.isArray(gf.raw.effects)) for (const e of gf.raw.effects) allEffects.push({ source: chosen, effect: e });
-                    result.appliedFeatures.push(gf.id || chosen);
-                    continue;
-                  }
-                } catch (e) {
-                  result.errors.push({ type: 'choice_resolve', ui_id, choice: chosen, message: String(e) });
-                }
-              }
-
-              if (typeof chosen === 'object' && chosen !== null) {
-                if (Array.isArray(chosen.effects)) for (const e of chosen.effects) allEffects.push({ source: id, effect: e });
-                if (Array.isArray(chosen.grants)) {
-                  for (const gid of chosen.grants) {
-                    try {
-                      const gf = (this.adapter && typeof this.adapter.loadFeatureById === 'function') ? await this.adapter.loadFeatureById(gid) : null;
-                      if (gf) {
-                        if (Array.isArray(gf.effects)) for (const e of gf.effects) allEffects.push({ source: gid, effect: e });
-                        else if (gf.raw && Array.isArray(gf.raw.effects)) for (const e of gf.raw.effects) allEffects.push({ source: gid, effect: e });
-                        result.appliedFeatures.push(gf.id || gid);
-                      }
-                    } catch (e) {
-                      result.errors.push({ type: 'choice_grant_load', id: gid, message: String(e), effect: { sourceFeature: id, candidate: chosen } });
-                    }
-                  }
-                }
-                if (chosen.id) {
-                  try {
-                    const gf = (this.adapter && typeof this.adapter.loadFeatureById === 'function') ? await this.adapter.loadFeatureById(chosen.id) : null;
-                    if (gf) {
-                      if (Array.isArray(gf.effects)) for (const e of gf.effects) allEffects.push({ source: chosen.id, effect: e });
-                      else if (gf.raw && Array.isArray(gf.raw.effects)) for (const e of gf.raw.effects) allEffects.push({ source: chosen.id, effect: e });
-                      result.appliedFeatures.push(gf.id || chosen.id);
-                    }
-                  } catch (e) {
-                    result.errors.push({ type: 'choice_grant_load', id: chosen.id, message: String(e), effect: { sourceFeature: id, candidate: chosen } });
-                  }
-                }
-              }
-            } catch (e) {
-              result.errors.push({ type: 'choice_resolve', ui_id, message: String(e) });
-            }
-          } // chosenArr loop
-        } else {
-          if (hasChoice) {
-            result.pendingChoices.push({
-              ui_id,
-              featureId: id,
-              choose: f.raw?.choose || null,
-              from: f.raw?.from || null,
-              note: f.raw?.note || f.raw?.description || null
-            });
+          // if this is a choice and not apply_immediately, mark as pending
+          const isChoice = String(ef.type ?? '').toLowerCase().includes('choice') || ef.payload?.choose !== undefined;
+          const applyNow = ef.payload?.apply_immediately === true;
+          if (isChoice && !applyNow) {
+            const cd = extractChoiceDescriptor(ef);
+            if (cd) pendingChoices.push(cd);
+            // do not push as immediate
+            continue;
           }
+
+          // otherwise it's immediate -> push for application
+          immediateEffects.push({ source: node.originId ?? payloadEntity.id ?? null, effect: ef });
         }
 
-        // add feature's own effects
-        if (Array.isArray(f.effects)) for (const e of f.effects) allEffects.push({ source: id, effect: e });
-        else if (f.raw && f.raw.effects) for (const e of f.raw.effects) allEffects.push({ source: id, effect: e });
-        else if (f.raw && f.raw.mecanique) allEffects.push({ source: id, effect: { type: 'legacy_mecanique', payload: f.raw.mecanique }});
+        // record applied feature OR entity id
+        if (node.originId) appliedFeatures.push(String(node.originId));
+        else if (payloadEntity.id) appliedFeatures.push(String(payloadEntity.id));
+      }
 
-        // expand grants
-        if (f.raw && Array.isArray(f.raw.grants)) {
-          for (const gid of f.raw.grants) {
-            try {
-              const gf = (this.adapter && typeof this.adapter.loadFeatureById === 'function') ? await this.adapter.loadFeatureById(gid) : null;
-              if (gf) {
-                if (Array.isArray(gf.effects)) for (const e of gf.effects) allEffects.push({ source: gid, effect: e });
-                else if (gf.raw && Array.isArray(gf.raw.effects)) for (const e of gf.raw.effects) allEffects.push({ source: gid, effect: e });
-                result.appliedFeatures.push(gf.id || gid);
-              }
-            } catch (e) {
-              result.errors.push({ type: 'grant_load', id: gid, message: String(e), effect: { sourceFeature: id, grantId: gid } });
-            }
-          }
-        }
-
-        if (!result.appliedFeatures.includes(id)) result.appliedFeatures.push(id);
-      } // end resolved loop
-
-      // Build initial preview character with robust defaults
+      // Build initial preview character skeleton
       const previewChar: any = {
-        ...baseCharacter,
-        final_stats: { ...(baseCharacter.final_stats || {} )},
-        features: Array.isArray(baseCharacter.features) ? [...baseCharacter.features] : [],
-        equipment: Array.isArray(baseCharacter.equipment) ? [...baseCharacter.equipment] : [],
-        spellcasting: {
-          known: Array.isArray(baseCharacter?.spellcasting?.known) ? [...baseCharacter.spellcasting.known] : [],
-          prepared: Array.isArray(baseCharacter?.spellcasting?.prepared) ? [...baseCharacter.spellcasting.prepared] : [],
-          slots: baseCharacter?.spellcasting?.slots ? { ...baseCharacter.spellcasting.slots } : {},
-          meta: baseCharacter?.spellcasting?.meta ? { ...baseCharacter.spellcasting.meta } : {},
-          features: Array.isArray(baseCharacter?.spellcasting?.features) ? [...baseCharacter.spellcasting.features] : [],
-          modifiers: Array.isArray(baseCharacter?.spellcasting?.modifiers) ? [...baseCharacter.spellcasting.modifiers] : []
-        },
-        proficiencies: Array.isArray(baseCharacter.proficiencies) ? [...baseCharacter.proficiencies] : []
+        base_stats_before_race: { ...(baseCharacterIn?.base_stats_before_race ?? {}) },
+        niveau: selection.niveau,
+        final_stats: {},
+        features: [],
+        equipment: [],
+        spellcasting: {},
+        proficiencies: [],
+        temp_hp: 0,
+        senses: [],
+        unhandled_effects: []
       };
 
-      // Apply effects via engine (with enriched errors including effect object)
-      for (const entry of allEffects) {
-        try {
-          // pass some context for computing (level, baseCharacter)
-          await this.engine.applyEffect(previewChar, entry.effect, { source: entry.source, selection, baseCharacter, character: previewChar, level: selection?.niveau ?? baseCharacter?.niveau });
-        } catch (e) {
-          result.errors.push({ type: 'effect_apply', source: entry.source, message: String(e), effect: entry.effect });
-        }
-      }
+      // Apply immediate effects
+      await this.engine.applyEffects(previewChar, immediateEffects, {
+        selection,
+        baseCharacter: baseCharacterIn,
+        classLevels
+      });
 
-      result.previewCharacter = previewChar;
-      return result;
+      return {
+        ok: true,
+        previewCharacter: previewChar,
+        appliedFeatures,
+        pendingChoices,
+        errors: []
+      };
     } catch (err: any) {
-      return { ok: false, error: err?.message || String(err) };
+      // eslint-disable-next-line no-console
+      console.error('[CreationAdapterServer.buildPreview] error', err);
+      return {
+        ok: false,
+        error: String(err?.message ?? err),
+        stack: err?.stack
+      };
     }
   }
 }
+
+export default CreationAdapterServer;

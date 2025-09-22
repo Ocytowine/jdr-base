@@ -1,0 +1,330 @@
+
+// utils/creationAdapterServer.ts
+/**
+ * CreationAdapterServer (v2) - patched
+ *
+ * Changes:
+ * - When calling engine.applyEffect we provide `classLevels` in the context so condition
+ *   checks such as { kind: 'level_gte', class: 'mage', value: 5 } can be evaluated correctly.
+ * - Added small debug log before applying each effect to help trace condition evaluation.
+ *
+ * Other behavior remains the same.
+ */
+
+import { EffectEngine } from '../engine/effectEngine';
+import { normalizeEffect, normalizeEffects, extractChoiceDescriptor } from './normalizeEffect';
+
+export interface Selection {
+  race?: string | null;
+  subrace?: string | null;
+  class?: string | null;
+  subclass?: string | null;
+  background?: string | null;
+  manual_features?: string[];
+  chosenOptions?: Record<string, any>;
+  niveau?: number;
+  // optional: per-class levels for multiclass support
+  classLevels?: Record<string, number>;
+  [k: string]: any;
+}
+
+export interface BaseCharacter {
+  base_stats_before_race: Record<string, number>;
+  nom?: string;
+  niveau?: number;
+  features?: string[];
+  equipment?: any[];
+  spellcasting?: any;
+  proficiencies?: string[];
+  [k: string]: any;
+}
+
+export class CreationAdapterServer {
+  adapter: any;
+  engine: EffectEngine;
+
+  constructor(adapterInstance: any) {
+    this.adapter = adapterInstance;
+    this.engine = new EffectEngine();
+  }
+
+  async init() {
+    if (this.adapter && typeof this.adapter.initIndex === 'function') {
+      await this.adapter.initIndex();
+    }
+  }
+
+  /**
+   * Build a preview character:
+   * - resolve feature tree from selection seeds
+   * - normalize features/effects
+   * - extract pending choices and skip their effects
+   * - apply remaining effects with EffectEngine
+   */
+  async buildPreview(selection: Selection = {}, baseCharacter: BaseCharacter = { base_stats_before_race: {} }) {
+    const result: any = {
+      ok: true,
+      previewCharacter: null,
+      appliedFeatures: [],
+      pendingChoices: [],
+      errors: []
+    };
+
+    try {
+      // 1) seeds to resolve
+      const seeds: string[] = [];
+      if (selection?.class) seeds.push(selection.class);
+      if (selection?.subclass) seeds.push(selection.subclass);
+      if (selection?.race) seeds.push(selection.race);
+      if (selection?.subrace) seeds.push(selection.subrace);
+      if (selection?.background) seeds.push(selection.background);
+      if (Array.isArray(selection?.manual_features)) seeds.push(...selection.manual_features);
+
+      // Ensure adapter index ready
+      if (this.adapter && typeof this.adapter.initIndex === 'function') {
+        await this.adapter.initIndex();
+      }
+
+      // 2) resolve with adapter
+      let resolved: any[] = [];
+      if (this.adapter && typeof this.adapter.resolveFeatureTree === 'function') {
+        resolved = await this.adapter.resolveFeatureTree(seeds, 50);
+      } else {
+        // fallback: try to load each seed independently
+        for (const id of seeds) {
+          try {
+            if (this.adapter && typeof this.adapter.loadFeatureById === 'function') {
+              const f = await this.adapter.loadFeatureById(id);
+              if (f) resolved.push(f);
+            }
+          } catch (e) {
+            result.errors.push({ type: 'load_feature', id, message: String(e) });
+          }
+        }
+      }
+
+      // DEBUG: log resolved shape to help diagnosing missing pending choices
+      try {
+        console.warn('[DEBUG] creationAdapterServer.resolved count=' + (resolved?.length ?? 0));
+        // log only first N to avoid huge output
+        console.warn('[DEBUG] resolved preview (sample 0..30):\n' + JSON.stringify((resolved || []).slice(0, 30), null, 2));
+      } catch (e) {
+        // ignore logging errors
+      }
+
+      // 3) collect effects to apply (skip choice effects) and extract pending choices
+      const allEffects: Array<{ source: string | null; effect: any }> = [];
+
+      // Iterate resolved items robustly (wrappers, features, effects)
+      for (const f of resolved) {
+        // Possibilities:
+        // - f is a wrapper with .features (array)
+        // - f is a wrapper with .effects (array)
+        // - f is already an effect object (type/payload)
+        // We create entries to normalize and inspect
+        const entries: Array<{ originId: string | null; item: any; wrapper?: any }> = [];
+
+        if (f && Array.isArray(f.features) && f.features.length > 0) {
+          for (const sub of f.features) entries.push({ originId: f.id ?? f.raw?.id ?? null, item: sub, wrapper: f });
+        } else if (f && (Array.isArray(f.effects) || (f.raw && f.raw.effects))) {
+          // If wrapper with effects, treat wrapper as context; expand effects or keep aggregated depending structure
+          const effs = Array.isArray(f.effects) ? f.effects : (f.raw?.effects ?? []);
+          // If wrapper has its own id, keep it as origin and expand effects
+          if (effs && effs.length > 0) {
+            for (const re of (Array.isArray(effs) ? effs : [effs])) {
+              entries.push({ originId: f.id ?? f.raw?.id ?? null, item: re, wrapper: f });
+            }
+          } else {
+            // fallback: treat wrapper itself as an item
+            entries.push({ originId: f.id ?? f.raw?.id ?? null, item: f, wrapper: f });
+          }
+        } else {
+          // Plain effect or feature object
+          entries.push({ originId: f.id ?? f.raw?.id ?? null, item: f, wrapper: null });
+        }
+
+        // Process each entry: detect choice, register pendingChoice or push normalized effects
+        for (const ent of entries) {
+          const item = ent.item;
+          // Normalize item (works for both features and effects)
+          const normalized = normalizeEffect(item) || item;
+
+          // Try to extract a choice descriptor (if present)
+          const choiceDesc = extractChoiceDescriptor(normalized);
+          if (choiceDesc) {
+            // If user already provided chosenOptions for this ui_id, resolve now
+            const provided = selection?.chosenOptions?.[choiceDesc.ui_id];
+            if (provided !== undefined && provided !== null && provided !== '') {
+              // Resolve provided value(s)
+              const providedArr = Array.isArray(provided) ? provided : [provided];
+              for (const chosen of providedArr) {
+                let resolvedAny = false;
+
+                // If chosen is a string, try to load a feature by id, else treat as skill/prof name
+                if (typeof chosen === 'string') {
+                  try {
+                    if (this.adapter && typeof this.adapter.loadFeatureById === 'function') {
+                      const gf = await this.adapter.loadFeatureById(chosen);
+                      if (gf) {
+                        const gfEffects = gf.effects ?? gf.raw?.effects ?? [];
+                        for (const re of (Array.isArray(gfEffects) ? gfEffects : [gfEffects])) {
+                          allEffects.push({ source: gf.id ?? chosen, effect: normalizeEffect(re) });
+                        }
+                        if (!result.appliedFeatures.includes(gf.id ?? chosen)) result.appliedFeatures.push(gf.id ?? chosen);
+                        resolvedAny = true;
+                        continue;
+                      }
+                    }
+                  } catch (e) {
+                    // ignore adapter load failure, fallback below
+                  }
+
+                  // Heuristic: if choice category/label indicates skill, grant proficiency
+                  const typeHint = choiceDesc.type ?? choiceDesc.raw?.type ?? '';
+                  const categoryHint = choiceDesc.raw?.payload?.category ?? choiceDesc.raw?.payload?.source_label ?? null;
+                  if (/skill/i.test(String(typeHint)) || categoryHint === 'skill') {
+                    allEffects.push({
+                      source: ent.originId ?? normalized.id ?? 'choice',
+                      effect: { type: 'proficiency_grant', payload: { proficiency: chosen } }
+                    });
+                    resolvedAny = true;
+                  } else {
+                    // fallback to grant_feature with feature_id = chosen
+                    allEffects.push({
+                      source: ent.originId ?? normalized.id ?? 'choice',
+                      effect: { type: 'grant_feature', payload: { feature_id: chosen } }
+                    });
+                    resolvedAny = true;
+                  }
+                } else if (typeof chosen === 'object' && chosen !== null) {
+                  if (Array.isArray(chosen.effects)) {
+                    for (const re of chosen.effects) {
+                      allEffects.push({ source: ent.originId ?? normalized.id, effect: normalizeEffect(re) });
+                    }
+                    resolvedAny = true;
+                  } else if (chosen.id) {
+                    allEffects.push({ source: ent.originId ?? normalized.id, effect: { type: 'grant_feature', payload: { feature_id: chosen.id } } });
+                    resolvedAny = true;
+                  }
+                }
+
+                if (!resolvedAny) {
+                  // ultimate fallback: treat chosen as a feature id
+                  allEffects.push({
+                    source: ent.originId ?? normalized.id ?? 'choice',
+                    effect: { type: 'grant_feature', payload: { feature_id: chosen } }
+                  });
+                }
+              } // end providedArr loop
+
+              // mark original feature as applied in UI
+              if (!result.appliedFeatures.includes(normalized.id ?? ent.originId)) {
+                result.appliedFeatures.push(normalized.id ?? ent.originId);
+              }
+
+              // skip adding original choice's own effects (it was only a placeholder)
+              continue;
+            } else {
+              // No provided value -> register pendingChoice and skip adding its effects
+              result.pendingChoices.push(choiceDesc);
+              continue;
+            }
+          } // end choice handling
+
+          // If item is a wrapper with .effects (aggregated), expand them
+          if (item && (item.effects || (normalized && normalized.payload && normalized.payload.effects))) {
+            const effs = item.effects ?? normalized.payload?.effects ?? [];
+            const effArr = Array.isArray(effs) ? effs : (effs ? [effs] : []);
+            for (const re of effArr) {
+              const ne = normalizeEffect(re);
+              if (ne && ne.type === 'choice' && !ne.payload?.apply_immediately) {
+                // skip choice effects (they should have been handled via pendingChoices)
+                continue;
+              }
+              allEffects.push({ source: ent.originId ?? normalized.id ?? null, effect: ne });
+            }
+            continue;
+          }
+
+          // Guard: skip normalized item if it's a 'choice' (should be handled above)
+          if (normalized && normalized.type === 'choice') {
+            if (normalized.payload?.apply_immediately) {
+              allEffects.push({ source: ent.originId ?? normalized.id, effect: normalized });
+            } else {
+              // register pending choice just in case and skip
+              const cd = extractChoiceDescriptor(normalized);
+              if (cd) result.pendingChoices.push(cd);
+            }
+            continue;
+          }
+
+          // Default: treat normalized as an effect and push
+          allEffects.push({ source: ent.originId ?? normalized.id ?? null, effect: normalized });
+        } // end entries
+      } // end resolved loop
+
+      // 4) Build preview character with defaults
+      const previewChar: any = {
+        ...baseCharacter,
+        niveau: selection?.niveau ?? baseCharacter?.niveau ?? 1,
+        final_stats: { ...(baseCharacter.final_stats || {}) },
+        features: Array.isArray(baseCharacter.features) ? [...baseCharacter.features] : [],
+        equipment: Array.isArray(baseCharacter.equipment) ? [...baseCharacter.equipment] : [],
+        spellcasting: {
+          known: Array.isArray(baseCharacter?.spellcasting?.known) ? [...baseCharacter.spellcasting.known] : [],
+          prepared: Array.isArray(baseCharacter?.spellcasting?.prepared) ? [...baseCharacter.spellcasting.prepared] : [],
+          slots: baseCharacter?.spellcasting?.slots ? { ...baseCharacter.spellcasting.slots } : {},
+          meta: baseCharacter?.spellcasting?.meta ? { ...baseCharacter.spellcasting.meta } : {},
+          features: Array.isArray(baseCharacter?.spellcasting?.features) ? [...baseCharacter.spellcasting.features] : [],
+          modifiers: Array.isArray(baseCharacter?.spellcasting?.modifiers) ? [...baseCharacter.spellcasting.modifiers] : []
+        },
+        proficiencies: Array.isArray(baseCharacter.proficiencies) ? [...baseCharacter.proficiencies] : []
+      };
+
+      // Defensive ensure final_stats contains base stats keys if present
+      try {
+        const keys = Object.keys(baseCharacter?.base_stats_before_race ?? {});
+        for (const k of keys) {
+          if (previewChar.final_stats[k] === undefined) previewChar.final_stats[k] = baseCharacter.base_stats_before_race[k];
+        }
+      } catch (e) { /* ignore */ }
+
+      // 5) Apply collected effects
+      for (const entry of allEffects) {
+        try {
+          // Build classLevels context for engine (supports multiclass if provided)
+          const classLevels = {
+            ...(selection?.class ? { [selection.class]: Number(selection?.niveau ?? previewChar.niveau ?? 0) } : {}),
+            ...(selection?.classLevels ?? {})
+          };
+
+          // Debug log to inspect context used to evaluate conditions
+          try {
+            console.warn('[DEBUG APPLY_EFFECT] effect=%s source=%s classLevels=%s selection=%s previewLevel=%s', 
+              entry.effect?.id ?? '(no-id)', String(entry.source ?? ''), JSON.stringify(classLevels), JSON.stringify(selection?.class ?? null), String(previewChar.niveau));
+          } catch (e) {
+            // ignore
+          }
+
+          await this.engine.applyEffect(previewChar, entry.effect, {
+            source: entry.source,
+            selection,
+            baseCharacter,
+            character: previewChar,
+            level: previewChar.niveau,
+            classLevels
+          });
+        } catch (e) {
+          result.errors.push({ type: 'effect_apply', source: entry.source, message: String(e), effect: entry.effect });
+        }
+      }
+
+      result.previewCharacter = previewChar;
+      return result;
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? String(err) };
+    }
+  }
+}
+
+export default CreationAdapterServer;

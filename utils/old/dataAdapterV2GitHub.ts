@@ -1,4 +1,3 @@
-// dataAdapterV2GitHub.ts
 import fs from 'fs/promises';
 import path from 'path';
 import Ajv from 'ajv';
@@ -175,102 +174,21 @@ export class DataAdapterV2GitHub {
     return feature;
   }
 
-  /**
-   * resolveFeatureTree
-   *
-   * Accepts either:
-   *  - seedIds: ID[]  (legacy)
-   *  - selection object { class, race, manual_features, seedIds, ... }
-   *
-   * Returns the resolved feature objects (BFS, following grants).
-   */
-  async resolveFeatureTree(seedIdsOrSelection: ID[] | any, maxDepth = 8) {
-    // Normalize input to an array of seedIds
-    let seedIds: string[] = [];
-
-    // Defensive logging
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('[DataAdapterV2GitHub] resolveFeatureTree called with', { seedIdsOrSelection });
-    } catch (e) {}
-
-    if (Array.isArray(seedIdsOrSelection)) {
-      seedIds = seedIdsOrSelection.map((s: any) => String(s));
-    } else if (seedIdsOrSelection && typeof seedIdsOrSelection === 'object') {
-      const sel = seedIdsOrSelection;
-
-      // common single ids
-      if (sel.class) seedIds.push(String(sel.class));
-      if (sel.race) seedIds.push(String(sel.race));
-
-      // manual_features can be an array of ids or objects
-      if (Array.isArray(sel.manual_features)) {
-        for (const it of sel.manual_features) {
-          if (!it) continue;
-          if (typeof it === 'string') seedIds.push(it);
-          else if (typeof it === 'object') {
-            if (it.id) seedIds.push(String(it.id));
-            else if (it.feature_id) seedIds.push(String(it.feature_id));
-          }
-        }
-      }
-
-      // explicit seedIds field (various possible names)
-      if (sel.seedIds && Array.isArray(sel.seedIds)) seedIds.push(...sel.seedIds.map((s:any)=>String(s)));
-      if (sel.seed_ids && Array.isArray(sel.seed_ids)) seedIds.push(...sel.seed_ids.map((s:any)=>String(s)));
-
-      // chosenOptions may include features/spells ids (flatten shallow)
-      if (sel.chosenOptions && typeof sel.chosenOptions === 'object') {
-        for (const k of Object.keys(sel.chosenOptions)) {
-          const v = sel.chosenOptions[k];
-          if (Array.isArray(v)) seedIds.push(...v.map((x:any)=>String(x)));
-          else if (v && typeof v === 'string') seedIds.push(String(v));
-        }
-      }
-
-      // if user passed a single id in selection (legacy) e.g. "mage"
-      if (!seedIds.length && sel && (sel.id || sel.name)) {
-        if (sel.id) seedIds.push(String(sel.id));
-        else if (sel.name) seedIds.push(String(sel.name));
-      }
-    } else if (seedIdsOrSelection !== undefined && seedIdsOrSelection !== null) {
-      // primitive passed (string/number) -> wrap
-      seedIds = [String(seedIdsOrSelection)];
-    }
-
-    // sanitize & deduplicate
-    seedIds = Array.from(new Set(seedIds.filter(Boolean)));
-
-    if (!seedIds.length) {
-      // nothing to resolve
-      // eslint-disable-next-line no-console
-      console.warn('[DataAdapterV2GitHub] resolveFeatureTree: no seedIds extracted, returning []');
-      return [];
-    }
-
+  async resolveFeatureTree(seedIds: ID[], maxDepth = 8) {
     const out: any[] = [];
     const visited = new Set<ID>();
     const queue = [...seedIds];
     let depth = 0;
     while (queue.length && depth < maxDepth) {
       const id = queue.shift()!;
-      if (!id) { depth++; continue; }
       if (visited.has(id)) { depth++; continue; }
-      let feat = null;
-      try {
-        feat = await this.loadFeatureById(id);
-      } catch (e) {
-        // log and continue
-        // eslint-disable-next-line no-console
-        console.debug('[DataAdapterV2GitHub] loadFeatureById failed for', id, e?.message ?? e);
-      }
+      const feat = await this.loadFeatureById(id);
       visited.add(id);
       if (!feat) { depth++; continue; }
       out.push(feat);
       const grants = (feat.links && (feat.links.grants || feat.links.grant_feature_ids || feat.links.features || [])) || [];
       for (const g of grants) {
-        if (!g) continue;
-        if (!visited.has(String(g))) queue.push(String(g));
+        if (!visited.has(g)) queue.push(g);
       }
       depth++;
     }
