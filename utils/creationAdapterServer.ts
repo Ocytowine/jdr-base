@@ -122,6 +122,7 @@ export class CreationAdapterServer {
                 .filter((val): val is string => Boolean(val));
 
               let hasSelection = false;
+              let resolvedIdentifier: string | null = null;
               for (const identifier of identifiers) {
                 const existing = selection.chosenOptions?.[identifier];
                 if (existing === undefined || existing === null) continue;
@@ -133,10 +134,59 @@ export class CreationAdapterServer {
                 }
 
                 hasSelection = true;
+                resolvedIdentifier = identifier;
                 break;
               }
 
-              if (hasSelection) {
+              if (hasSelection && resolvedIdentifier) {
+                const rawSelection = selection.chosenOptions?.[resolvedIdentifier];
+                const ensureArray = Array.isArray(rawSelection) ? rawSelection : [rawSelection];
+                const normalizeChoiceId = (val: any): string | null => {
+                  if (val === undefined || val === null) return null;
+                  if (typeof val === 'string') return val;
+                  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+                  if (typeof val === 'object') {
+                    if (val.id !== undefined && val.id !== null) return String(val.id);
+                    if (val.value !== undefined && val.value !== null) return String(val.value);
+                    if (val.key !== undefined && val.key !== null) return String(val.key);
+                  }
+                  return null;
+                };
+
+                const chosenIds = ensureArray
+                  .map((val) => normalizeChoiceId(val))
+                  .filter((val): val is string => Boolean(val && val.length > 0));
+
+                selection.chosenOptions![resolvedIdentifier] = chosenIds;
+
+                const categoryRaw =
+                  cd.raw?.payload?.category ??
+                  cd.raw?.payload?.type ??
+                  cd.raw?.category ??
+                  cd.raw?.type ??
+                  cd.type ??
+                  null;
+                const category =
+                  typeof categoryRaw === 'string' ? categoryRaw.toLowerCase() : null;
+
+                let effectGenerated = false;
+
+                if ((category === 'skill' || category === 'skills') && chosenIds.length > 0) {
+                  const skillsPayload = chosenIds.length === 1 ? chosenIds[0] : chosenIds;
+                  immediateEffects.push({
+                    source: node.originId ?? payloadEntity.id ?? null,
+                    effect: {
+                      type: 'proficiency_grant',
+                      payload: { skills: skillsPayload }
+                    }
+                  });
+                  effectGenerated = true;
+                }
+
+                if (!effectGenerated) {
+                  pendingChoices.push(cd);
+                }
+
                 continue;
               }
 
