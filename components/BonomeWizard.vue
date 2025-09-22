@@ -57,23 +57,39 @@
 
         <!-- selector -->
         <div class="mt-2">
-          <template v-if="choice.payload?.from && choice.payload.from.length">
+          <template v-if="getChoiceOptions(choice).length">
             <label class="block text-xs text-gray-600 mb-1">Options</label>
 
             <!-- multiple selection if choose > 1 -->
             <select
-              v-if="choice.choose <= 1"
+              v-if="Number(choice.choose ?? 1) <= 1"
               v-model="localChosen[choice.ui_id || choice.featureId || idx]"
               class="w-full border rounded p-2"
             >
               <option value="">-- choisir --</option>
-              <option v-for="opt in choice.payload.from" :key="opt" :value="opt">{{ opt }}</option>
+              <option
+                v-for="(opt, optIdx) in getChoiceOptions(choice)"
+                :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </option>
             </select>
 
             <div v-else>
               <label class="text-xs text-gray-500">Sélectionner {{ choice.choose }} éléments</label>
-              <select multiple v-model="localChosen[choice.ui_id || choice.featureId || idx]" class="w-full border rounded p-2 h-28">
-                <option v-for="opt in choice.payload.from" :key="opt" :value="opt">{{ opt }}</option>
+              <select
+                multiple
+                v-model="localChosen[choice.ui_id || choice.featureId || idx]"
+                class="w-full border rounded p-2 h-28"
+              >
+                <option
+                  v-for="(opt, optIdx) in getChoiceOptions(choice)"
+                  :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
               </select>
             </div>
 
@@ -213,6 +229,76 @@ const chosenOptions = reactive<Record<string, any>>({});
 // localChosen used for UI selection before applying
 const localChosen = reactive<Record<string, any>>({});
 
+type ChoiceOption = { value: any; label: string };
+
+const extractChoiceFrom = (choice: any): any[] => {
+  if (Array.isArray(choice?.from) && choice.from.length) {
+    return choice.from;
+  }
+  if (Array.isArray(choice?.payload?.from) && choice.payload.from.length) {
+    return choice.payload.from;
+  }
+  if (choice?.from && typeof choice.from === 'object') {
+    return Object.keys(choice.from);
+  }
+  if (choice?.payload?.from && typeof choice.payload.from === 'object') {
+    return Object.keys(choice.payload.from);
+  }
+  return [];
+};
+
+const extractChoiceLabels = (choice: any): Record<string, string> => {
+  const out: Record<string, string> = {};
+  const source = choice?.from_labels ?? choice?.payload?.from_labels ?? null;
+  if (!source) return out;
+
+  if (Array.isArray(source)) {
+    source.forEach((entry: any, idx: number) => {
+      if (entry && typeof entry === 'object') {
+        const id = entry.id ?? entry.value ?? entry.key ?? entry.uid ?? null;
+        const label = entry.label ?? entry.name ?? entry.title ?? entry.text ?? entry.value ?? entry.id ?? null;
+        if (id !== null && id !== undefined) {
+          out[String(id)] = String(label ?? id);
+        } else if (entry.label) {
+          out[String(idx)] = String(entry.label);
+        }
+      } else if (entry !== null && entry !== undefined) {
+        out[String(idx)] = String(entry);
+      }
+    });
+  } else if (typeof source === 'object') {
+    for (const [key, value] of Object.entries(source)) {
+      if (value !== null && value !== undefined) {
+        out[String(key)] = String(value as any);
+      }
+    }
+  }
+
+  return out;
+};
+
+const getChoiceOptions = (choice: any): ChoiceOption[] => {
+  const from = extractChoiceFrom(choice);
+  if (!from.length) return [];
+
+  const labels = extractChoiceLabels(choice);
+
+  return from.map((value: any, idx: number) => {
+    const key = typeof value === 'string' || typeof value === 'number' ? String(value) : String(idx);
+    let label = labels[key] ?? labels[String(idx)] ?? null;
+    if (!label && value && typeof value === 'object') {
+      label = value.label ?? value.name ?? value.title ?? null;
+    }
+    if (!label) {
+      label = typeof value === 'string' || typeof value === 'number' ? String(value) : JSON.stringify(value);
+    }
+    return {
+      value,
+      label
+    };
+  });
+};
+
 const loadCatalog = async () => {
   try {
     const c = await $fetch('/api/catalog/classes').catch(() => null);
@@ -271,12 +357,16 @@ const sendPreview = async () => {
     if (res?.pendingChoices && Array.isArray(res.pendingChoices)) {
       for (const pc of res.pendingChoices) {
         const key = pc.ui_id ?? pc.featureId ?? pc.id ?? null;
-        if (key && !localChosen[key]) {
-          // default to empty or first option if single choice
-          if (Array.isArray(pc.payload?.from) && pc.payload.from.length === 1) {
-            localChosen[key] = pc.payload.from[0];
+        if (key && !(key in localChosen)) {
+          const options = getChoiceOptions(pc);
+          if (options.length === 1) {
+            localChosen[key] = options[0].value;
+          } else if (Number(pc.choose ?? 1) > 1) {
+            localChosen[key] = [];
+          } else if (options.length) {
+            localChosen[key] = '';
           } else {
-            localChosen[key] = (pc.payload?.from && pc.payload.from.length) ? '' : null;
+            localChosen[key] = null;
           }
         }
       }
@@ -301,12 +391,17 @@ const applyChoice = async (choice: any) => {
     return;
   }
   const val = localChosen[key];
-  if (val === undefined || val === null || (typeof val === 'string' && val === '')) {
+  if (
+    val === undefined ||
+    val === null ||
+    (typeof val === 'string' && val === '') ||
+    (Array.isArray(val) && val.length === 0)
+  ) {
     alert('Aucune valeur sélectionnée');
     return;
   }
   // if choice.choose > 1 ensure array
-  if (choice.choose && Number(choice.choose) > 1) {
+  if (Number(choice.choose ?? 1) > 1) {
     chosenOptions[key] = Array.isArray(val) ? val : [val];
   } else {
     chosenOptions[key] = val;
