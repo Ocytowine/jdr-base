@@ -112,4 +112,25 @@ export async function run() {
     [{ id: 'spell_magic_missile', label: 'Projectiles magiques' }],
     'auto_from should provide labels for filtered spells'
   );
+
+  const resultWithSpell = await creation.buildPreview(
+    {
+      chosenOptions: {
+        humain_bonus_competence: ['survie'],
+        wizard_level1_spell: ['spell_magic_missile']
+      }
+    },
+    {}
+  );
+
+  assert.equal(resultWithSpell.ok, true, 'preview with spell selection should be ok');
+  assert.equal(
+    resultWithSpell.pendingChoices.length,
+    0,
+    'all choices should be satisfied when spell is preselected'
+  );
+  assert.ok(
+    resultWithSpell.previewCharacter.spellcasting?.known?.includes('spell_magic_missile'),
+    'selected spell should be granted to known spells'
+  );
 }
