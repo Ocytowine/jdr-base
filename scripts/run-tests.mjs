@@ -4,32 +4,48 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 
 const projectRoot = path.resolve('.');
+const testDir = path.join(projectRoot, 'tests');
 const outDir = path.join(projectRoot, '.tmp-tests');
-const outFile = path.join(outDir, 'creationAdapter.test.mjs');
 
 await fs.rm(outDir, { recursive: true, force: true });
 await fs.mkdir(outDir, { recursive: true });
 
-await build({
-  entryPoints: [path.join(projectRoot, 'tests/creationAdapter.test.ts')],
-  outfile: outFile,
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  sourcemap: 'inline',
-  logLevel: 'silent',
-  alias: {
-    '~': projectRoot,
-    '@': projectRoot
+const testFiles = (await fs.readdir(testDir))
+  .filter((file) => file.endsWith('.test.ts'))
+  .sort();
+
+let exitCode = 0;
+
+for (const file of testFiles) {
+  const entryPath = path.join(testDir, file);
+  const outFile = path.join(outDir, `${file.replace(/\.ts$/, '.mjs')}`);
+
+  await build({
+    entryPoints: [entryPath],
+    outfile: outFile,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    sourcemap: 'inline',
+    logLevel: 'silent',
+    alias: {
+      '~': projectRoot,
+      '@': projectRoot
+    }
+  });
+
+  const mod = await import(pathToFileURL(outFile).href);
+
+  if (typeof mod.run === 'function') {
+    await mod.run();
+  } else {
+    console.error(`No run() export found in compiled test ${file}`);
+    exitCode = 1;
   }
-});
+}
 
-const mod = await import(pathToFileURL(outFile).href);
+await fs.rm(outDir, { recursive: true, force: true });
 
-if (typeof mod.run === 'function') {
-  await mod.run();
-  await fs.rm(outDir, { recursive: true, force: true });
-} else {
-  console.error('No run() export found in compiled tests');
-  process.exitCode = 1;
+if (exitCode) {
+  process.exitCode = exitCode;
 }
