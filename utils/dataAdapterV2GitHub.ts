@@ -21,6 +21,7 @@ export class DataAdapterV2GitHub {
   cacheDir?: string;
   indexCache: Map<ID, string>;
   fileCache: Map<string, any>;
+  collectionCache: Map<string, any[]>;
   useRawFallback: boolean;
   ajv: Ajv;
   effectSchema: any;
@@ -34,10 +35,57 @@ export class DataAdapterV2GitHub {
     this.cacheDir = options.cacheDir;
     this.indexCache = new Map();
     this.fileCache = new Map();
+    this.collectionCache = new Map();
     this.useRawFallback = options.useRawFallback ?? true;
     this.ajv = new Ajv({ allErrors: true, strict: false });
     this.effectSchema = null;
     this.scanFolders = options.scanFolders || ['classes','features','spells','races','items'];
+  }
+
+  async queryCollection(collection: string, predicate: (entry: any) => boolean | Promise<boolean>) {
+    let cachedEntries = this.collectionCache.get(collection);
+
+    if (!cachedEntries) {
+      cachedEntries = [];
+      try {
+        const entries = await this.listFilesInPath(collection);
+        for (const entry of entries ?? []) {
+          if (!entry || entry.type !== 'file') continue;
+          const repoPath = entry.path ?? (entry.name ? `${collection}/${entry.name}` : null);
+          if (!repoPath || !/\.json$/i.test(repoPath)) continue;
+          try {
+            const data = await this.fetchJsonFromRepoPath(repoPath);
+            if (!data) continue;
+            if (data.id === undefined || data.id === null) {
+              const fallbackId = entry.name ? String(entry.name).replace(/\.json$/i, '') : null;
+              if (fallbackId) data.id = fallbackId;
+            }
+            cachedEntries.push(data);
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn('[DataAdapterV2GitHub.queryCollection] unable to load entry', { repoPath, err });
+          }
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[DataAdapterV2GitHub.queryCollection] listFilesInPath failed', { collection, err });
+      }
+      this.collectionCache.set(collection, cachedEntries);
+    }
+
+    const results: any[] = [];
+    for (const data of cachedEntries) {
+      try {
+        if (await predicate(data)) {
+          results.push(data);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[DataAdapterV2GitHub.queryCollection] predicate threw', { collection, err });
+      }
+    }
+
+    return results;
   }
 
   apiContentsUrl(repoPath: string) {
