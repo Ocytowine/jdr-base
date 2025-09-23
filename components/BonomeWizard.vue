@@ -46,7 +46,11 @@
     <!-- Pending choices -->
     <section v-if="preview && preview.pendingChoices && preview.pendingChoices.length" class="mb-6 p-4 border rounded bg-white/80">
       <h3 class="font-semibold mb-2">Choix à faire</h3>
-      <div v-for="(choice, idx) in preview.pendingChoices" :key="choice.ui_id ?? (choice.featureId ?? idx)" class="mb-3 p-3 border rounded">
+      <div
+        v-for="(choice, idx) in preview.pendingChoices"
+        :key="getChoiceKey(choice, idx) ?? idx"
+        class="mb-3 p-3 border rounded"
+      >
         <div class="flex items-center justify-between mb-1">
           <div>
             <div class="font-medium">{{ choice.raw?.payload?.source_label ?? choice.type ?? choice.featureId ?? choice.ui_id }}</div>
@@ -63,7 +67,7 @@
             <!-- multiple selection if choose > 1 -->
             <select
               v-if="Number(choice.choose ?? 1) <= 1"
-              v-model="localChosen[choice.ui_id || choice.featureId || idx]"
+              v-model="localChosen[getChoiceKey(choice, idx) ?? idx]"
               class="w-full border rounded p-2"
             >
               <option value="">-- choisir --</option>
@@ -80,7 +84,7 @@
               <label class="text-xs text-gray-500">Sélectionner {{ choice.choose }} éléments</label>
               <select
                 multiple
-                v-model="localChosen[choice.ui_id || choice.featureId || idx]"
+                v-model="localChosen[getChoiceKey(choice, idx) ?? idx]"
                 class="w-full border rounded p-2 h-28"
               >
                 <option
@@ -93,8 +97,15 @@
               </select>
             </div>
 
-            <div class="mt-2">
+            <div class="mt-2 flex items-center gap-2">
               <button @click="applyChoice(choice)" class="px-3 py-1 rounded bg-green-600 text-white">Appliquer</button>
+              <button
+                @click="resetChoice(choice)"
+                class="px-3 py-1 rounded border"
+                :disabled="!hasLocalChoiceValue(choice)"
+              >
+                Réinitialiser
+              </button>
             </div>
           </template>
 
@@ -103,6 +114,27 @@
           </template>
         </div>
       </div>
+    </section>
+
+    <!-- Applied choices overview -->
+    <section
+      v-if="appliedChoices.length"
+      class="mb-6 p-4 border rounded bg-white/80"
+    >
+      <h3 class="font-semibold mb-2">Choix appliqués</h3>
+      <ul class="space-y-2">
+        <li
+          v-for="choice in appliedChoices"
+          :key="choice.id"
+          class="flex items-start justify-between gap-4 border rounded p-3 bg-white"
+        >
+          <div>
+            <div class="font-medium">{{ choice.label }}</div>
+            <div class="text-sm text-gray-600">{{ choice.displayValue }}</div>
+          </div>
+          <button @click="resetChoiceById(choice.id)" class="px-3 py-1 rounded border">Réinitialiser</button>
+        </li>
+      </ul>
     </section>
 
     <!-- Preview area -->
@@ -201,7 +233,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, computed } from 'vue';
 
 const classes = ref<string[]>([]);
 const races = ref<string[]>([]);
@@ -228,6 +260,9 @@ const showRaw = ref(false);
 const chosenOptions = reactive<Record<string, any>>({});
 // localChosen used for UI selection before applying
 const localChosen = reactive<Record<string, any>>({});
+// cache options & metadata for displaying applied choices later
+const choiceOptionCache = reactive<Record<string, ChoiceOption[]>>({});
+const choiceMetadata = reactive<Record<string, { label: string }>>({});
 
 type ChoiceOption = { value: any; label: string };
 
@@ -299,6 +334,101 @@ const getChoiceOptions = (choice: any): ChoiceOption[] => {
   });
 };
 
+const getChoiceKey = (choice: any, fallback?: string | number | null): string | null => {
+  const candidates = [choice?.ui_id, choice?.featureId, choice?.id, fallback];
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null && candidate !== '') {
+      return String(candidate);
+    }
+  }
+  const rawKey = choice?.ui_id ?? choice?.featureId ?? choice?.id ?? fallback;
+  if (rawKey === undefined || rawKey === null) return null;
+  return String(rawKey);
+};
+
+const registerChoiceMetadata = (choice: any, key: string | null) => {
+  if (!key) return;
+  const label =
+    choice?.raw?.payload?.source_label ??
+    choice?.raw?.payload?.label ??
+    choice?.raw?.payload?.title ??
+    choice?.raw?.payload?.name ??
+    choice?.type ??
+    choice?.featureId ??
+    choice?.ui_id ??
+    key;
+  choiceMetadata[key] = { label: String(label) };
+};
+
+const cacheChoiceOptions = (key: string | null, options: ChoiceOption[]) => {
+  if (!key) return;
+  choiceOptionCache[key] = options;
+};
+
+const valueExists = (val: any): boolean => {
+  if (val === undefined || val === null) return false;
+  if (typeof val === 'string') return val.length > 0;
+  if (Array.isArray(val)) return val.length > 0;
+  return true;
+};
+
+const hasLocalChoiceValue = (choice: any): boolean => {
+  const key = getChoiceKey(choice);
+  if (!key) return false;
+  return valueExists(localChosen[key]);
+};
+
+const isSameChoiceValue = (a: any, b: any): boolean => {
+  if (a === b) return true;
+  if (typeof a === 'object' && typeof b === 'object') {
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+};
+
+const formatChoiceValue = (key: string, value: any): string => {
+  const options = choiceOptionCache[key] ?? [];
+  const toLabel = (val: any): string => {
+    for (const opt of options) {
+      if (isSameChoiceValue(opt.value, val)) {
+        return opt.label;
+      }
+    }
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+      return String(val);
+    }
+    if (val === null || val === undefined) {
+      return '—';
+    }
+    try {
+      return JSON.stringify(val);
+    } catch (e) {
+      return String(val);
+    }
+  };
+
+  if (Array.isArray(value)) {
+    if (!value.length) return '—';
+    return value.map((entry) => toLabel(entry)).join(', ');
+  }
+
+  return toLabel(value);
+};
+
+const appliedChoices = computed(() => {
+  return Object.entries(chosenOptions)
+    .map(([id, value]) => {
+      const label = choiceMetadata[id]?.label ?? id;
+      const displayValue = formatChoiceValue(id, value);
+      return { id, label, displayValue };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+});
+
 const loadCatalog = async () => {
   try {
     const c = await $fetch('/api/catalog/classes').catch(() => null);
@@ -355,10 +485,18 @@ const sendPreview = async () => {
     rawText.value = JSON.stringify(res, null, 2);
     // prepopulate localChosen for pending choices from server
     if (res?.pendingChoices && Array.isArray(res.pendingChoices)) {
-      for (const pc of res.pendingChoices) {
-        const key = pc.ui_id ?? pc.featureId ?? pc.id ?? null;
-        if (key && !(key in localChosen)) {
-          const options = getChoiceOptions(pc);
+      for (const [idx, pc] of (res.pendingChoices as any[]).entries()) {
+        const key = getChoiceKey(pc, idx);
+        registerChoiceMetadata(pc, key);
+        const options = getChoiceOptions(pc);
+        cacheChoiceOptions(key, options);
+        if (!key) continue;
+        if (key in chosenOptions) {
+          const existing = chosenOptions[key];
+          localChosen[key] = Array.isArray(existing) ? [...existing] : existing;
+          continue;
+        }
+        if (!(key in localChosen)) {
           if (options.length === 1) {
             localChosen[key] = options[0].value;
           } else if (Number(pc.choose ?? 1) > 1) {
@@ -384,41 +522,63 @@ const sendPreview = async () => {
 
 const applyChoice = async (choice: any) => {
   // store chosen value(s) into chosenOptions and re-send preview
-  const key = choice.ui_id ?? choice.featureId ?? choice.id ?? null;
+  const key = getChoiceKey(choice);
   if (!key) {
     // fallback: ignore
     alert('Choice has no ui_id/featureId — cannot apply from UI');
     return;
   }
+  registerChoiceMetadata(choice, key);
+  cacheChoiceOptions(key, getChoiceOptions(choice));
+
   const val = localChosen[key];
-  if (
-    val === undefined ||
-    val === null ||
-    (typeof val === 'string' && val === '') ||
-    (Array.isArray(val) && val.length === 0)
-  ) {
+  if (!valueExists(val)) {
     alert('Aucune valeur sélectionnée');
     return;
   }
   // if choice.choose > 1 ensure array
   if (Number(choice.choose ?? 1) > 1) {
-    chosenOptions[key] = Array.isArray(val) ? val : [val];
+    chosenOptions[key] = Array.isArray(val) ? [...val] : [val];
   } else {
-    chosenOptions[key] = val;
+    chosenOptions[key] = Array.isArray(val) ? [...val] : val;
   }
   // re-request preview (server expects chosenOptions in selection)
   await sendPreview();
 };
 
-const resetChosenOptions = () => {
+const resetChosenOptions = async () => {
   for (const k of Object.keys(chosenOptions)) {
     delete chosenOptions[k];
   }
   for (const k of Object.keys(localChosen)) {
     delete localChosen[k];
   }
+  for (const k of Object.keys(choiceOptionCache)) {
+    delete choiceOptionCache[k];
+  }
+  for (const k of Object.keys(choiceMetadata)) {
+    delete choiceMetadata[k];
+  }
   // optional: refresh preview without choices
-  sendPreview();
+  await sendPreview();
+};
+
+const resetChoiceById = async (id: string | number) => {
+  if (id === null || id === undefined) return;
+  const key = String(id);
+  if (key in chosenOptions) {
+    delete chosenOptions[key];
+  }
+  if (key in localChosen) {
+    delete localChosen[key];
+  }
+  await sendPreview();
+};
+
+const resetChoice = async (choice: any) => {
+  const key = getChoiceKey(choice);
+  if (!key) return;
+  await resetChoiceById(key);
 };
 
 const displayStats = computed(() => {
