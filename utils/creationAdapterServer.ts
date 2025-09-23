@@ -184,13 +184,13 @@ export class CreationAdapterServer {
                 }
 
                 if (!effectGenerated) {
-                  pendingChoices.push(cd);
+                  await this.addPendingChoice(pendingChoices, cd);
                 }
 
                 continue;
               }
 
-              pendingChoices.push(cd);
+              await this.addPendingChoice(pendingChoices, cd);
             }
             // do not push as immediate
             continue;
@@ -242,6 +242,194 @@ export class CreationAdapterServer {
         stack: err?.stack
       };
     }
+  }
+
+  async addPendingChoice(pendingChoices: any[], cd: any) {
+    if (!cd) return;
+
+    const autoFrom = cd?.raw?.payload?.auto_from ?? cd?.raw?.auto_from ?? cd?.payload?.auto_from;
+    if (autoFrom) {
+      try {
+        const resolved = await this.resolveAutoFromChoices(autoFrom);
+        if (resolved.length > 0) {
+          const normalized = resolved
+            .map((choice) => {
+              if (!choice) return null;
+              const id = choice.id !== undefined && choice.id !== null ? String(choice.id) : null;
+              if (!id) return null;
+              const labelRaw = choice.label !== undefined && choice.label !== null ? choice.label : id;
+              const label = String(labelRaw);
+              return { id, label };
+            })
+            .filter((val): val is { id: string; label: string } => Boolean(val));
+
+          if (normalized.length > 0) {
+            const ids = normalized.map((item) => item.id);
+            const labels = normalized.map((item) => ({ id: item.id, label: item.label }));
+
+            cd.from = ids;
+            cd.from_labels = labels;
+            cd.raw = cd.raw ?? {};
+            cd.raw.payload = cd.raw.payload ?? {};
+            cd.raw.payload.from = ids;
+            cd.raw.payload.from_labels = labels;
+          }
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[CreationAdapterServer] resolveAutoFromChoices failed', err);
+      }
+    }
+
+    pendingChoices.push(cd);
+  }
+
+  async resolveAutoFromChoices(autoFrom: any): Promise<Array<{ id: string; label: string }>> {
+    if (!autoFrom || typeof autoFrom !== 'object') return [];
+    if (!this.adapter) return [];
+
+    const collection =
+      autoFrom.collection ?? autoFrom.folder ?? autoFrom.path ?? autoFrom.repoPath ?? autoFrom.source ?? null;
+    if (!collection || typeof collection !== 'string') return [];
+
+    const filters = (autoFrom.filters && typeof autoFrom.filters === 'object') ? autoFrom.filters : {};
+    const limit = typeof autoFrom.limit === 'number' && autoFrom.limit > 0 ? autoFrom.limit : null;
+
+    const normalizeKeyList = (value: any): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value.map((v) => String(v));
+      return [String(value)];
+    };
+
+    const idFields = normalizeKeyList(autoFrom.id_fields ?? autoFrom.id_field ?? autoFrom.idKey ?? autoFrom.id_path);
+    const labelFields = normalizeKeyList(
+      autoFrom.label_fields ?? autoFrom.label_field ?? autoFrom.labelKey ?? autoFrom.label_path
+    );
+
+    const getNestedValue = (obj: any, key: string) => {
+      if (!obj || typeof obj !== 'object' || !key) return undefined;
+      const parts = String(key).split('.');
+      let current = obj;
+      for (const part of parts) {
+        if (current === null || current === undefined) return undefined;
+        current = current[part];
+      }
+      return current;
+    };
+
+    const predicate = (entry: any): boolean => {
+      if (!filters) return true;
+      for (const [rawKey, expected] of Object.entries(filters)) {
+        const value = getNestedValue(entry, rawKey);
+        if (expected === undefined || expected === null) continue;
+
+        if (Array.isArray(expected)) {
+          const expectedValues = expected.map((item) => String(item).toLowerCase());
+          const valueArray = Array.isArray(value)
+            ? value.map((item: any) => String(item).toLowerCase())
+            : value === undefined || value === null
+              ? []
+              : [String(value).toLowerCase()];
+          const matches = expectedValues.every((item) => valueArray.includes(item));
+          if (!matches) return false;
+          continue;
+        }
+
+        if (typeof expected === 'object') {
+          if ('$in' in expected && expected.$in !== undefined && expected.$in !== null) {
+            const arr = Array.isArray(expected.$in) ? expected.$in : [expected.$in];
+            const normalized = arr.map((item) => String(item));
+            const valStr = value === undefined || value === null ? null : String(value);
+            if (!valStr || !normalized.includes(valStr)) return false;
+            continue;
+          }
+          if ('$eq' in expected) {
+            const valStr = value === undefined || value === null ? null : String(value);
+            if (valStr !== String(expected.$eq)) return false;
+            continue;
+          }
+          if (JSON.stringify(value) !== JSON.stringify(expected)) return false;
+          continue;
+        }
+
+        if (value === undefined || value === null) return false;
+        if (String(value) !== String(expected)) return false;
+      }
+      return true;
+    };
+
+    const loadEntries = async (): Promise<any[]> => {
+      if (typeof this.adapter.queryCollection === 'function') {
+        return await this.adapter.queryCollection(collection, predicate);
+      }
+
+      if (
+        typeof this.adapter.listFilesInPath !== 'function' ||
+        typeof this.adapter.fetchJsonFromRepoPath !== 'function'
+      ) {
+        return [];
+      }
+
+      const results: any[] = [];
+      try {
+        const entries = await this.adapter.listFilesInPath(collection);
+        for (const entry of entries ?? []) {
+          if (!entry || entry.type !== 'file') continue;
+          const repoPath = entry.path ?? (entry.name ? `${collection}/${entry.name}` : null);
+          if (!repoPath || !/\.json$/i.test(repoPath)) continue;
+          try {
+            const data = await this.adapter.fetchJsonFromRepoPath(repoPath);
+            if (!data) continue;
+            if (data.id === undefined || data.id === null) {
+              const fallbackId = entry.name ? String(entry.name).replace(/\.json$/i, '') : null;
+              if (fallbackId) data.id = fallbackId;
+            }
+            if (predicate(data)) {
+              results.push(data);
+            }
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error('[CreationAdapterServer.resolveAutoFromChoices] unable to read entry', err);
+          }
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[CreationAdapterServer.resolveAutoFromChoices] listFilesInPath failed', err);
+      }
+      return results;
+    };
+
+    const entries = await loadEntries();
+    if (!entries.length) return [];
+
+    const fallbackIdFields = ['id', 'slug', 'code', 'key', 'name'];
+    const fallbackLabelFields = ['label', 'name', 'title', 'display_name'];
+
+    const pickFirstValue = (entry: any, candidates: string[]): string | null => {
+      for (const candidate of candidates) {
+        const value = getNestedValue(entry, candidate);
+        if (value === undefined || value === null) continue;
+        return String(value);
+      }
+      return null;
+    };
+
+    const seen = new Set<string>();
+    const mapped: Array<{ id: string; label: string }> = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const id = pickFirstValue(entry, [...idFields, ...fallbackIdFields]);
+      if (!id) continue;
+      const label =
+        pickFirstValue(entry, [...labelFields, ...fallbackLabelFields]) ?? id;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      mapped.push({ id, label });
+    }
+
+    mapped.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+
+    return limit ? mapped.slice(0, limit) : mapped;
   }
 }
 
