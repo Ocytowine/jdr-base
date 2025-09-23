@@ -183,6 +183,19 @@ export class CreationAdapterServer {
                   effectGenerated = true;
                 }
 
+                if ((category === 'spell' || category === 'spells') && chosenIds.length > 0) {
+                  for (const spellId of chosenIds) {
+                    immediateEffects.push({
+                      source: node.originId ?? payloadEntity.id ?? null,
+                      effect: {
+                        type: 'spell_grant',
+                        payload: { spell_id: spellId }
+                      }
+                    });
+                  }
+                  effectGenerated = true;
+                }
+
                 if (!effectGenerated) {
                   await this.addPendingChoice(pendingChoices, cd);
                 }
