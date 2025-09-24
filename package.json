@@ -20,6 +20,7 @@
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.1.13",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "autoprefixer": "^10.4.21",
