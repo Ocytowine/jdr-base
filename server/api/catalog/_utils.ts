@@ -8,6 +8,8 @@ export type CatalogEntry = {
   name: string;
   description: string | null;
   image: string | null;
+  effectLabel: string | null;
+  effect_label?: string | null;
 };
 type CatalogKind = 'classes' | 'races' | 'backgrounds' | 'spells';
 
@@ -24,6 +26,8 @@ type GitHubEntry = {
 const JSON_EXTENSION = /\.json$/i;
 const TEXT_FIELDS = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
 const IMAGE_FIELDS = ['image', 'img', 'icon', 'art', 'avatar', 'illustration', 'picture', 'thumbnail'];
+const NAME_FIELDS = ['name', 'label', 'title'];
+const EFFECT_LABEL_FIELDS = ['effect_label', 'effectLabel', 'effect', 'summary', 'tagline', 'mecanique.effect_label', 'mecanique.effectLabel'];
 
 const pickFirstString = (values: Array<unknown>): string | null => {
   for (const value of values) {
@@ -35,6 +39,26 @@ const pickFirstString = (values: Array<unknown>): string | null => {
     }
   }
   return null;
+};
+
+const getNestedValue = (source: any, path: string): unknown => {
+  if (!source || typeof source !== 'object') {
+    return undefined;
+  }
+  const segments = String(path).split('.');
+  let current: any = source;
+  for (const segment of segments) {
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return current;
+};
+
+const pickFirstFromKeys = (record: Record<string, any>, keys: string[]): string | null => {
+  const values = keys.map((key) => getNestedValue(record, key));
+  return pickFirstString(values);
 };
 
 const toSlug = (value: unknown): string | null => {
@@ -69,7 +93,9 @@ const fromIndexEntry = (entry: IndexEntry, idx: number): CatalogEntry | null => 
       id,
       name: humanizeLabel(id),
       description: null,
-      image: null
+      image: null,
+      effectLabel: null,
+      effect_label: null
     };
   }
 
@@ -92,14 +118,17 @@ const fromIndexEntry = (entry: IndexEntry, idx: number): CatalogEntry | null => 
   }
 
   const name = pickFirstString([record.label, record.name, record.title, record.text]) ?? humanizeLabel(id);
-  const description = pickFirstString(TEXT_FIELDS.map((field) => record[field]));
-  const image = pickFirstString(IMAGE_FIELDS.map((field) => record[field]));
+  const description = pickFirstFromKeys(record, TEXT_FIELDS);
+  const image = pickFirstFromKeys(record, IMAGE_FIELDS);
+  const effectLabel = pickFirstFromKeys(record, EFFECT_LABEL_FIELDS);
 
   return {
     id,
     name,
     description: description ?? null,
-    image: image ?? null
+    image: image ?? null,
+    effectLabel: effectLabel ?? null,
+    effect_label: effectLabel ?? null
   };
 };
 
@@ -144,7 +173,9 @@ const fromGitHubEntry = (entry: GitHubEntry): CatalogEntry | null => {
     id,
     name: humanizeLabel(id),
     description: null,
-    image: null
+    image: null,
+    effectLabel: null,
+    effect_label: null
   };
 };
 
@@ -175,7 +206,7 @@ export async function getCatalogEntries(kind: CatalogKind): Promise<CatalogEntry
     const payload = await adapter.fetchJsonFromRepoPath(`${kind}/index.json`);
     const normalized = normalizeIndex(payload);
     if (normalized.length) {
-      return normalized;
+      return await enrichCatalogEntries(kind, normalized, adapter);
     }
   } catch (error) {
     indexError = error;
@@ -185,7 +216,7 @@ export async function getCatalogEntries(kind: CatalogKind): Promise<CatalogEntry
     const entries = await adapter.listFilesInPath(kind);
     const normalized = normalizeList(entries);
     if (normalized.length) {
-      return normalized;
+      return await enrichCatalogEntries(kind, normalized, adapter);
     }
   } catch (listError) {
     if (indexError) {
@@ -201,4 +232,62 @@ export async function getCatalogEntries(kind: CatalogKind): Promise<CatalogEntry
   }
 
   return [];
+}
+
+async function enrichCatalogEntries(
+  kind: CatalogKind,
+  entries: CatalogEntry[],
+  adapter: DataAdapterV2GitHub | any
+): Promise<CatalogEntry[]> {
+  if (!Array.isArray(entries) || !entries.length) {
+    return entries ?? [];
+  }
+
+  const hasContent = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
+
+  const tasks = entries.map(async (entry) => {
+    const needsDescription = !hasContent(entry.description);
+    const needsEffectLabel = !hasContent(entry.effectLabel);
+    const needsImage = !hasContent(entry.image);
+    const needsName = !hasContent(entry.name) || entry.name === humanizeLabel(entry.id);
+
+    if (!needsDescription && !needsEffectLabel && !needsImage && !needsName) {
+      return entry;
+    }
+
+    try {
+      const repoPath = `${kind}/${entry.id}.json`;
+      const payload = await adapter.fetchJsonFromRepoPath(repoPath);
+      if (!payload || typeof payload !== 'object') {
+        return entry;
+      }
+
+      const record = payload as Record<string, any>;
+      const resolvedName = pickFirstFromKeys(record, NAME_FIELDS);
+      const resolvedDescription = pickFirstFromKeys(record, TEXT_FIELDS);
+      const resolvedImage = pickFirstFromKeys(record, IMAGE_FIELDS);
+      const resolvedEffectLabel = pickFirstFromKeys(record, EFFECT_LABEL_FIELDS);
+
+      if (resolvedName) {
+        entry.name = resolvedName;
+      }
+      if (resolvedDescription) {
+        entry.description = resolvedDescription;
+      }
+      if (resolvedImage) {
+        entry.image = resolvedImage;
+      }
+      if (resolvedEffectLabel) {
+        entry.effectLabel = resolvedEffectLabel;
+        entry.effect_label = resolvedEffectLabel;
+      }
+    } catch (error) {
+      console.error(`[catalog] Impossible de récupérer les détails pour ${kind}/${entry.id}.json`, error);
+    }
+
+    return entry;
+  });
+
+  await Promise.all(tasks);
+  return entries;
 }

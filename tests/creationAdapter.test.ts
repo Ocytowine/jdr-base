@@ -109,7 +109,16 @@ export async function run() {
   );
   assert.deepEqual(
     spellChoice.from_labels,
-    [{ id: 'spell_magic_missile', label: 'Projectiles magiques' }],
+    [
+      {
+        id: 'spell_magic_missile',
+        label: 'Projectiles magiques',
+        description: null,
+        effectLabel: null,
+        effect_label: null,
+        image: null
+      }
+    ],
     'auto_from should provide labels for filtered spells'
   );
 

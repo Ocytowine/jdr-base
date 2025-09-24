@@ -27,27 +27,22 @@
                 v-for="option in group.options"
                 :key="option.id"
                 type="button"
-
-                class="snap-center w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-
-                :class="{
-                  'ring-2 ring-blue-500 border-blue-500 shadow-md': group.selected === option.id
-                }"
+                class="snap-center w-full text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 :aria-pressed="group.selected === option.id"
                 @click="selectPrimaryOption(group.id, option.id)"
               >
-                <div class="h-32 w-full overflow-hidden rounded-lg bg-slate-200">
-                  <img
-                    :src="option.image"
-                    :alt="`Illustration ${option.label}`"
-                    class="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                </div>
-                <div class="mt-3 space-y-1">
-                  <div class="text-base font-medium text-slate-900">{{ option.label }}</div>
-                  <div class="text-sm leading-snug text-gray-600 min-h-[3.5rem]">{{ option.description }}</div>
-                </div>
+                <BookCardTailwind
+                  :name="option.label"
+                  :description="option.description"
+                  :effect-label="option.effectLabel ?? null"
+                  :image="option.image"
+                  :class="[
+                    'h-full',
+                    group.selected === option.id
+                      ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
+                      : 'hover:border-slate-300 hover:shadow'
+                  ]"
+                />
               </button>
             </div>
           </div>
@@ -114,29 +109,25 @@
                   v-for="(opt, optIdx) in getChoiceOptions(choice)"
                   :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
                   type="button"
-
-                  class="snap-center w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  class="snap-center w-full text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   :class="{
-                    'ring-2 ring-blue-500 border-blue-500 shadow-md': isChoiceOptionSelected(choice, opt),
-                    'opacity-60 cursor-not-allowed': isChoiceOptionDisabled(choice, opt)
+                    'cursor-not-allowed opacity-60': isChoiceOptionDisabled(choice, opt)
                   }"
                   :disabled="isChoiceOptionDisabled(choice, opt)"
                   @click="handleChoiceOptionClick(choice, opt)"
                 >
-                  <div class="h-32 w-full overflow-hidden rounded-lg bg-slate-200">
-                    <img
-                      :src="getChoiceOptionImage(opt)"
-                      :alt="`Illustration ${opt.label}`"
-                      class="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  </div>
-                  <div class="mt-3 space-y-1">
-                    <div class="text-base font-medium text-slate-900">{{ opt.label }}</div>
-                    <div class="text-sm leading-snug text-gray-600 min-h-[3.5rem]">
-                      {{ getChoiceOptionDescription(opt) }}
-                    </div>
-                  </div>
+                  <BookCardTailwind
+                    :name="opt.label"
+                    :description="getChoiceOptionDescription(opt)"
+                    :effect-label="opt.effectLabel ?? opt.effect_label ?? null"
+                    :image="getChoiceOptionImage(opt)"
+                    :class="[
+                      'h-full',
+                      isChoiceOptionSelected(choice, opt)
+                        ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
+                        : 'hover:border-slate-300 hover:shadow'
+                    ]"
+                  />
                 </button>
               </div>
             </div>
@@ -285,11 +276,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 
+import BookCardTailwind from '~/components/BookCardTailwind.vue';
+
 type CatalogEntry = {
   id: string;
   name: string;
   description?: string | null;
   image?: string | null;
+  effectLabel?: string | null;
+  effect_label?: string | null;
 };
 
 type PrimaryCardOption = {
@@ -297,6 +292,7 @@ type PrimaryCardOption = {
   label: string;
   description: string;
   image: string;
+  effectLabel?: string | null;
 };
 
 type PrimarySelectionGroup = {
@@ -310,6 +306,16 @@ type ChoiceOption = {
   value: any;
   label: string;
   description?: string | null;
+  image?: string | null;
+  effectLabel?: string | null;
+  effect_label?: string | null;
+};
+
+type ChoiceOptionMetadata = {
+  label: string;
+  description?: string | null;
+  effectLabel?: string | null;
+  effect_label?: string | null;
   image?: string | null;
 };
 
@@ -325,6 +331,7 @@ const loading = ref(false);
 
 const TEXT_FIELDS = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
 const IMAGE_FIELDS = ['image', 'img', 'icon', 'art', 'avatar', 'illustration', 'picture', 'thumbnail'];
+const EFFECT_LABEL_FIELDS = ['effect_label', 'effectLabel', 'effect', 'summary', 'tagline', 'mecanique.effect_label', 'mecanique.effectLabel'];
 const DEFAULT_CARD_DESCRIPTION = 'Aucune description disponible.';
 
 const pickFirstString = (values: Array<unknown>): string | null => {
@@ -337,6 +344,26 @@ const pickFirstString = (values: Array<unknown>): string | null => {
     }
   }
   return null;
+};
+
+const getNestedValue = (source: any, path: string): unknown => {
+  if (!source || typeof source !== 'object') {
+    return undefined;
+  }
+  const segments = String(path).split('.');
+  let current: any = source;
+  for (const segment of segments) {
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return current;
+};
+
+const pickFirstFromKeys = (record: Record<string, any>, keys: string[]): string | null => {
+  const values = keys.map((key) => getNestedValue(record, key));
+  return pickFirstString(values);
 };
 
 const normalizeId = (value: unknown): string | null => {
@@ -413,14 +440,17 @@ const normalizeCatalogEntries = (payload: unknown): CatalogEntry[] => {
       }
 
       const name = pickFirstString([record.label, record.name, record.title, record.text]) ?? humanizeLabel(id);
-      const description = pickFirstString(TEXT_FIELDS.map((key) => record[key]));
-      const image = pickFirstString(IMAGE_FIELDS.map((key) => record[key]));
+      const description = pickFirstFromKeys(record, TEXT_FIELDS);
+      const image = pickFirstFromKeys(record, IMAGE_FIELDS);
+      const effectLabel = pickFirstFromKeys(record, EFFECT_LABEL_FIELDS);
 
       entries.set(id, {
         id,
         name,
         description: description ?? null,
-        image: image ?? null
+        image: image ?? null,
+        effectLabel: effectLabel ?? null,
+        effect_label: effectLabel ?? null
       });
       return;
     }
@@ -434,7 +464,9 @@ const normalizeCatalogEntries = (payload: unknown): CatalogEntry[] => {
         id,
         name: humanizeLabel(id),
         description: null,
-        image: null
+        image: null,
+        effectLabel: null,
+        effect_label: null
       });
     }
   });
@@ -447,7 +479,9 @@ const fallbackCatalogEntries = (ids: string[]): CatalogEntry[] =>
     id,
     name: humanizeLabel(id),
     description: null,
-    image: null
+    image: null,
+    effectLabel: null,
+    effect_label: null
   }));
 
 const buildPrimaryOptions = (entries: CatalogEntry[], categoryLabel: string): PrimaryCardOption[] =>
@@ -457,7 +491,8 @@ const buildPrimaryOptions = (entries: CatalogEntry[], categoryLabel: string): Pr
       id: entry.id,
       label,
       description: ensureDescription(entry.description ?? null, label, categoryLabel),
-      image: ensureCardImage(entry.image ?? null, label)
+      image: ensureCardImage(entry.image ?? null, label),
+      effectLabel: entry.effectLabel ?? entry.effect_label ?? null
     };
   });
 
@@ -552,43 +587,13 @@ const extractChoiceFrom = (choice: any): any[] => {
   return [];
 };
 
-const extractChoiceLabels = (choice: any): Record<string, string> => {
-  const out: Record<string, string> = {};
-  const source = choice?.from_labels ?? choice?.payload?.from_labels ?? null;
-  if (!source) return out;
-
-  if (Array.isArray(source)) {
-    source.forEach((entry: any, idx: number) => {
-      if (entry && typeof entry === 'object') {
-        const id = entry.id ?? entry.value ?? entry.key ?? entry.uid ?? null;
-        const label = entry.label ?? entry.name ?? entry.title ?? entry.text ?? entry.value ?? entry.id ?? null;
-        if (id !== null && id !== undefined) {
-          out[String(id)] = String(label ?? id);
-        } else if (entry.label) {
-          out[String(idx)] = String(entry.label);
-        }
-      } else if (entry !== null && entry !== undefined) {
-        out[String(idx)] = String(entry);
-      }
-    });
-  } else if (typeof source === 'object') {
-    for (const [key, value] of Object.entries(source)) {
-      if (value !== null && value !== undefined) {
-        out[String(key)] = String(value as any);
-      }
-    }
-  }
-
-  return out;
-};
-
 const extractDescriptionFromValue = (value: any, fallbackLabel: string): string | null => {
   if (!value || typeof value !== 'object') {
     return null;
   }
 
   const record = value as Record<string, any>;
-  const description = pickFirstString(TEXT_FIELDS.map((key) => record[key]));
+  const description = pickFirstFromKeys(record, TEXT_FIELDS);
   if (description) {
     return description;
   }
@@ -615,31 +620,127 @@ const extractImageFromValue = (value: any): string | null => {
     return null;
   }
   const record = value as Record<string, any>;
-  return pickFirstString(IMAGE_FIELDS.map((key) => record[key]));
+  return pickFirstFromKeys(record, IMAGE_FIELDS);
+};
+
+const extractEffectLabelFromValue = (value: any): string | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, any>;
+  return pickFirstFromKeys(record, EFFECT_LABEL_FIELDS);
+};
+
+const extractChoiceMetadata = (choice: any): Record<string, ChoiceOptionMetadata> => {
+  const out: Record<string, ChoiceOptionMetadata> = {};
+  const candidates = [
+    choice?.from_metadata,
+    choice?.from_labels,
+    choice?.payload?.from_metadata,
+    choice?.payload?.from_labels,
+    choice?.raw?.payload?.from_metadata,
+    choice?.raw?.payload?.from_labels
+  ];
+
+  for (const source of candidates) {
+    if (!source) continue;
+
+    if (Array.isArray(source)) {
+      source.forEach((entry: any, idx: number) => {
+        if (entry && typeof entry === 'object') {
+          const record = entry as Record<string, any>;
+          const id =
+            normalizeId(record.id) ??
+            normalizeId(record.value) ??
+            normalizeId(record.key) ??
+            normalizeId(record.uid) ??
+            (record.id !== undefined ? String(record.id) : null) ??
+            null;
+          const fallbackKey = String(idx);
+          const label =
+            pickFirstString([record.label, record.name, record.title, record.text, record.value, id ?? fallbackKey]) ??
+            (id ?? fallbackKey);
+          const description = pickFirstFromKeys(record, TEXT_FIELDS);
+          const image = pickFirstFromKeys(record, IMAGE_FIELDS);
+          const effectLabel = pickFirstFromKeys(record, EFFECT_LABEL_FIELDS);
+          const key = id ?? fallbackKey;
+          out[key] = {
+            label: label,
+            description: description ?? null,
+            image: image ?? null,
+            effectLabel: effectLabel ?? record.effectLabel ?? record.effect_label ?? null,
+            effect_label: effectLabel ?? record.effectLabel ?? record.effect_label ?? null
+          };
+        } else if (entry !== null && entry !== undefined) {
+          out[String(idx)] = { label: String(entry) };
+        }
+      });
+      continue;
+    }
+
+    if (typeof source === 'object') {
+      for (const [rawKey, rawValue] of Object.entries(source)) {
+        const key = String(rawKey);
+        if (rawValue && typeof rawValue === 'object') {
+          const record = rawValue as Record<string, any>;
+          const label =
+            pickFirstString([record.label, record.name, record.title, record.text, record.value, rawKey]) ??
+            String(rawKey);
+          const description = pickFirstFromKeys(record, TEXT_FIELDS);
+          const image = pickFirstFromKeys(record, IMAGE_FIELDS);
+          const effectLabel = pickFirstFromKeys(record, EFFECT_LABEL_FIELDS);
+          out[key] = {
+            label,
+            description: description ?? null,
+            image: image ?? null,
+            effectLabel: effectLabel ?? record.effectLabel ?? record.effect_label ?? null,
+            effect_label: effectLabel ?? record.effectLabel ?? record.effect_label ?? null
+          };
+        } else if (rawValue !== null && rawValue !== undefined) {
+          out[key] = { label: String(rawValue) };
+        }
+      }
+      continue;
+    }
+
+    if (typeof source === 'string' || typeof source === 'number' || typeof source === 'boolean') {
+      const key = String(source);
+      out[key] = { label: String(source) };
+    }
+  }
+
+  return out;
 };
 
 const getChoiceOptions = (choice: any): ChoiceOption[] => {
   const from = extractChoiceFrom(choice);
   if (!from.length) return [];
 
-  const labels = extractChoiceLabels(choice);
+  const metadata = extractChoiceMetadata(choice);
 
   return from.map((value: any, idx: number) => {
     const key = typeof value === 'string' || typeof value === 'number' ? String(value) : String(idx);
-    let label = labels[key] ?? labels[String(idx)] ?? null;
+    const meta = metadata[key] ?? metadata[String(idx)] ?? null;
+    let label = meta?.label ?? null;
     if (!label && value && typeof value === 'object') {
       label = value.label ?? value.name ?? value.title ?? null;
     }
     if (!label) {
       label = typeof value === 'string' || typeof value === 'number' ? String(value) : JSON.stringify(value);
     }
-    const description = extractDescriptionFromValue(value, label);
-    const image = extractImageFromValue(value);
+    const descriptionFromMeta = meta?.description ?? null;
+    const effectLabelFromMeta = meta?.effectLabel ?? meta?.effect_label ?? null;
+    const imageFromMeta = meta?.image ?? null;
+    const description = descriptionFromMeta ?? extractDescriptionFromValue(value, label);
+    const effectLabel = effectLabelFromMeta ?? extractEffectLabelFromValue(value);
+    const image = imageFromMeta ?? extractImageFromValue(value);
     return {
       value,
       label,
-      description: extractDescriptionFromValue(value, label),
-      image: extractImageFromValue(value)
+      description,
+      image,
+      effectLabel,
+      effect_label: effectLabel
     };
   });
 };
