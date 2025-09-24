@@ -4,19 +4,56 @@
 
     <!-- Sélections -->
     <section class="mb-6 border rounded p-4 bg-white/80">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label class="block text-sm font-medium mb-1">Classe</label>
-          <select v-model="selectedClass" class="w-full border rounded p-2">
-            <option v-for="c in classes" :key="c" :value="c">{{ c }}</option>
-          </select>
-        </div>
+      <div class="space-y-6">
+        <div
+          v-for="group in primarySelectionGroups"
+          :key="group.id"
+          class="border border-slate-200/70 rounded-xl p-4 bg-white shadow-sm"
+        >
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-lg font-semibold">{{ group.title }}</h3>
+              <p class="text-sm text-gray-600">Choisir une option obligatoire.</p>
+            </div>
+            <span class="text-xs uppercase tracking-wide text-gray-500">1 sélection</span>
+          </div>
 
-        <div>
-          <label class="block text-sm font-medium mb-1">Race</label>
-          <select v-model="selectedRace" class="w-full border rounded p-2">
-            <option v-for="r in races" :key="r" :value="r">{{ r }}</option>
-          </select>
+          <div v-if="group.options.length" class="-mx-1 px-1">
+            <div
+              class="grid grid-flow-col auto-cols-[minmax(18rem,1fr)] lg:auto-cols-[18rem] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
+            >
+              <button
+                v-for="option in group.options"
+                :key="option.id"
+                type="button"
+                class="snap-center w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                :class="{
+                  'ring-2 ring-blue-500 border-blue-500 shadow-md': group.selected === option.id
+                }"
+                :aria-pressed="group.selected === option.id"
+                @click="selectPrimaryOption(group.id, option.id)"
+              >
+                <div class="h-32 w-full overflow-hidden rounded-lg bg-slate-200">
+                  <img
+                    :src="option.image"
+                    :alt="`Illustration ${option.label}`"
+                    class="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                </div>
+                <div class="mt-3 space-y-1">
+                  <div class="text-base font-medium text-slate-900">{{ option.label }}</div>
+                  <div class="text-sm leading-snug text-gray-600 min-h-[3.5rem]">{{ option.description }}</div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div v-else class="text-sm text-gray-500">Aucune option disponible pour l'instant.</div>
+
+          <div class="mt-3 text-sm text-gray-600">
+            Option sélectionnée :
+            <span class="font-medium">{{ getPrimarySelectedLabel(group) }}</span>
+          </div>
         </div>
 
         <div>
@@ -53,48 +90,57 @@
       >
         <div class="flex items-center justify-between mb-1">
           <div>
-            <div class="font-medium">{{ choice.raw?.payload?.source_label ?? choice.type ?? choice.featureId ?? choice.ui_id }}</div>
-            <div class="text-sm text-gray-600">Choisir {{ choice.choose }} / catégorie: {{ choice.type ?? choice.raw?.type ?? '—' }}</div>
+            <div class="font-medium">{{ getChoiceTitle(choice) }}</div>
+            <div class="text-sm text-gray-600">
+              Choisir {{ getChoiceRequirement(choice) }} / catégorie: {{ getChoiceCategoryLabel(choice) }}
+            </div>
           </div>
-          <div class="text-sm text-gray-500">source: {{ choice.raw?.source ?? choice.raw?.payload?.source ?? 'unknown' }}</div>
+          <div class="text-sm text-gray-500">source: {{ getChoiceSourceLabel(choice) }}</div>
         </div>
 
         <!-- selector -->
         <div class="mt-2">
           <template v-if="getChoiceOptions(choice).length">
-            <label class="block text-xs text-gray-600 mb-1">Options</label>
+            <label class="block text-xs text-gray-600 mb-2 uppercase tracking-wide">Options</label>
 
-            <!-- multiple selection if choose > 1 -->
-            <select
-              v-if="Number(choice.choose ?? 1) <= 1"
-              v-model="localChosen[getChoiceKey(choice, idx) ?? idx]"
-              class="w-full border rounded p-2"
-            >
-              <option value="">-- choisir --</option>
-              <option
-                v-for="(opt, optIdx) in getChoiceOptions(choice)"
-                :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
-                :value="opt.value"
+            <div class="-mx-1 px-1">
+              <div
+                class="grid grid-flow-col auto-cols-[minmax(18rem,1fr)] lg:auto-cols-[18rem] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
               >
-                {{ opt.label }}
-              </option>
-            </select>
-
-            <div v-else>
-              <label class="text-xs text-gray-500">Sélectionner {{ choice.choose }} éléments</label>
-              <select
-                multiple
-                v-model="localChosen[getChoiceKey(choice, idx) ?? idx]"
-                class="w-full border rounded p-2 h-28"
-              >
-                <option
+                <button
                   v-for="(opt, optIdx) in getChoiceOptions(choice)"
                   :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
-                  :value="opt.value"
+                  type="button"
+                  class="snap-center w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  :class="{
+                    'ring-2 ring-blue-500 border-blue-500 shadow-md': isChoiceOptionSelected(choice, opt),
+                    'opacity-60 cursor-not-allowed': isChoiceOptionDisabled(choice, opt)
+                  }"
+                  :disabled="isChoiceOptionDisabled(choice, opt)"
+                  @click="handleChoiceOptionClick(choice, opt)"
                 >
-                  {{ opt.label }}
-                </option>
-              </select>
+                  <div class="h-32 w-full overflow-hidden rounded-lg bg-slate-200">
+                    <img
+                      :src="getChoiceOptionImage(opt)"
+                      :alt="`Illustration ${opt.label}`"
+                      class="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div class="mt-3 space-y-1">
+                    <div class="text-base font-medium text-slate-900">{{ opt.label }}</div>
+                    <div class="text-sm leading-snug text-gray-600 min-h-[3.5rem]">
+                      {{ getChoiceOptionDescription(opt) }}
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-2 text-xs text-gray-500">
+              Sélection :
+              {{ getLocalChoiceCount(choice) }} / {{ getChoiceRequirement(choice) }}
+              <span v-if="getChoiceRequirement(choice) > 1">(sélection multiple autorisée)</span>
             </div>
 
             <div class="mt-2 flex items-center gap-2">
@@ -233,14 +279,225 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue';
+import { computed, reactive, ref } from 'vue';
 
-const classes = ref<string[]>([]);
-const races = ref<string[]>([]);
+type CatalogEntry = {
+  id: string;
+  name: string;
+  description?: string | null;
+  image?: string | null;
+};
+
+type PrimaryCardOption = {
+  id: string;
+  label: string;
+  description: string;
+  image: string;
+};
+
+type PrimarySelectionGroup = {
+  id: 'class' | 'race' | 'background';
+  title: string;
+  options: PrimaryCardOption[];
+  selected: string;
+};
+
+type ChoiceOption = {
+  value: any;
+  label: string;
+  description?: string | null;
+  image?: string | null;
+};
+
+const classes = ref<CatalogEntry[]>([]);
+const races = ref<CatalogEntry[]>([]);
+const backgrounds = ref<CatalogEntry[]>([]);
 const selectedClass = ref<string>('');
 const selectedRace = ref<string>('');
+const selectedBackground = ref<string>('');
 const niveau = ref<number>(1);
 const loading = ref(false);
+
+const TEXT_FIELDS = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
+const IMAGE_FIELDS = ['image', 'img', 'icon', 'art', 'avatar', 'illustration', 'picture', 'thumbnail'];
+const DEFAULT_CARD_DESCRIPTION = 'Aucune description disponible.';
+
+const pickFirstString = (values: Array<unknown>): string | null => {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+};
+
+const normalizeId = (value: unknown): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const stringValue = String(value).trim();
+  if (!stringValue.length) {
+    return null;
+  }
+  const withoutJson = stringValue.replace(/\.json$/i, '');
+  const segments = withoutJson.split('/');
+  const candidate = segments[segments.length - 1]?.trim();
+  return candidate && candidate.length ? candidate : null;
+};
+
+const humanizeLabel = (value: string): string => {
+  const safe = value.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!safe.length) {
+    return value;
+  }
+  return safe.replace(/\b(\p{L})(\p{L}*)/gu, (_, first: string, rest: string) => `${first.toUpperCase()}${rest.toLowerCase()}`);
+};
+
+const escapeForSvg = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const createCardPlaceholder = (label: string): string => {
+  const base = label && label.trim().length ? label.trim() : 'Option';
+  const truncated = base.length <= 32 ? base : `${base.slice(0, 29)}…`;
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">\n  <defs>\n    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">\n      <stop offset="0%" stop-color="#e2e8f0"/>\n      <stop offset="100%" stop-color="#cbd5f5"/>\n    </linearGradient>\n  </defs>\n  <rect width="320" height="180" fill="url(#grad)" rx="16"/>\n  <text x="160" y="98" text-anchor="middle" font-family="'Inter', 'Segoe UI', sans-serif" font-size="20" fill="#475569">${escapeForSvg(truncated)}</text>\n</svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+};
+
+const ensureCardImage = (image: string | null | undefined, label: string): string => {
+  if (typeof image === 'string') {
+    const trimmed = image.trim();
+    if (trimmed.length) {
+      return trimmed;
+    }
+  }
+  return createCardPlaceholder(label);
+};
+
+const ensureDescription = (description: string | null | undefined, fallbackLabel: string, categoryLabel: string): string => {
+  if (typeof description === 'string') {
+    const trimmed = description.trim();
+    if (trimmed.length) {
+      return trimmed;
+    }
+  }
+  return `Sélectionnez ce ${categoryLabel.toLowerCase()} pour ${fallbackLabel}.`;
+};
+
+const normalizeCatalogEntries = (payload: unknown): CatalogEntry[] => {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  const entries = new Map<string, CatalogEntry>();
+
+  payload.forEach((item, idx) => {
+    if (item && typeof item === 'object') {
+      const record = item as Record<string, any>;
+      const id =
+        normalizeId(record.id) ??
+        normalizeId(record.slug) ??
+        normalizeId(record.uid) ??
+        normalizeId(record.key) ??
+        normalizeId(record.value) ??
+        normalizeId(record.name) ??
+        `entry_${idx}`;
+      if (!id) {
+        return;
+      }
+
+      const name = pickFirstString([record.label, record.name, record.title, record.text]) ?? humanizeLabel(id);
+      const description = pickFirstString(TEXT_FIELDS.map((key) => record[key]));
+      const image = pickFirstString(IMAGE_FIELDS.map((key) => record[key]));
+
+      entries.set(id, {
+        id,
+        name,
+        description: description ?? null,
+        image: image ?? null
+      });
+      return;
+    }
+
+    const id = normalizeId(item);
+    if (!id) {
+      return;
+    }
+    if (!entries.has(id)) {
+      entries.set(id, {
+        id,
+        name: humanizeLabel(id),
+        description: null,
+        image: null
+      });
+    }
+  });
+
+  return Array.from(entries.values());
+};
+
+const fallbackCatalogEntries = (ids: string[]): CatalogEntry[] =>
+  ids.map((id) => ({
+    id,
+    name: humanizeLabel(id),
+    description: null,
+    image: null
+  }));
+
+const buildPrimaryOptions = (entries: CatalogEntry[], categoryLabel: string): PrimaryCardOption[] =>
+  entries.map((entry) => {
+    const label = entry.name?.trim().length ? entry.name.trim() : humanizeLabel(entry.id);
+    return {
+      id: entry.id,
+      label,
+      description: ensureDescription(entry.description ?? null, label, categoryLabel),
+      image: ensureCardImage(entry.image ?? null, label)
+    };
+  });
+
+const primarySelectionGroups = computed<PrimarySelectionGroup[]>(() => [
+  {
+    id: 'class',
+    title: 'Classe',
+    options: buildPrimaryOptions(classes.value, 'Classe'),
+    selected: selectedClass.value
+  },
+  {
+    id: 'race',
+    title: 'Race',
+    options: buildPrimaryOptions(races.value, 'Race'),
+    selected: selectedRace.value
+  },
+  {
+    id: 'background',
+    title: 'Background',
+    options: buildPrimaryOptions(backgrounds.value, 'Background'),
+    selected: selectedBackground.value
+  }
+]);
+
+const selectPrimaryOption = (groupId: PrimarySelectionGroup['id'], optionId: string) => {
+  if (!optionId) {
+    return;
+  }
+  if (groupId === 'class') {
+    selectedClass.value = optionId;
+    return;
+  }
+  if (groupId === 'race') {
+    selectedRace.value = optionId;
+    return;
+  }
+  if (groupId === 'background') {
+    selectedBackground.value = optionId;
+  }
+};
+
+const getPrimarySelectedLabel = (group: PrimarySelectionGroup): string => {
+  const found = group.options.find((option) => option.id === group.selected);
+  return found?.label ?? '—';
+};
 
 const baseStats = reactive({
   strength: 8,
@@ -263,8 +520,6 @@ const localChosen = reactive<Record<string, any>>({});
 // cache options & metadata for displaying applied choices later
 const choiceOptionCache = reactive<Record<string, ChoiceOption[]>>({});
 const choiceMetadata = reactive<Record<string, { label: string }>>({});
-
-type ChoiceOption = { value: any; label: string };
 
 const extractChoiceFrom = (choice: any): any[] => {
   if (Array.isArray(choice?.from) && choice.from.length) {
@@ -312,6 +567,42 @@ const extractChoiceLabels = (choice: any): Record<string, string> => {
   return out;
 };
 
+const extractDescriptionFromValue = (value: any, fallbackLabel: string): string | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, any>;
+  const description = pickFirstString(TEXT_FIELDS.map((key) => record[key]));
+  if (description) {
+    return description;
+  }
+
+  if (Array.isArray(record.entries)) {
+    const text = record.entries.find((entry: any) => typeof entry === 'string' && entry.trim().length);
+    if (typeof text === 'string') {
+      return text.trim();
+    }
+  }
+
+  if (typeof record.name === 'string') {
+    const trimmed = record.name.trim();
+    if (trimmed.length && trimmed.toLowerCase() !== fallbackLabel.toLowerCase()) {
+      return trimmed;
+    }
+  }
+
+  return null;
+};
+
+const extractImageFromValue = (value: any): string | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, any>;
+  return pickFirstString(IMAGE_FIELDS.map((key) => record[key]));
+};
+
 const getChoiceOptions = (choice: any): ChoiceOption[] => {
   const from = extractChoiceFrom(choice);
   if (!from.length) return [];
@@ -329,10 +620,62 @@ const getChoiceOptions = (choice: any): ChoiceOption[] => {
     }
     return {
       value,
-      label
+      label,
+      description: extractDescriptionFromValue(value, label),
+      image: extractImageFromValue(value)
     };
   });
 };
+
+const getChoiceRequirement = (choice: any): number => {
+  const raw = Number(
+    choice?.choose ??
+      choice?.payload?.choose ??
+      choice?.raw?.choose ??
+      choice?.raw?.payload?.choose ??
+      1
+  );
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.floor(raw));
+};
+
+const getChoiceTitle = (choice: any): string =>
+  pickFirstString([
+    choice?.raw?.payload?.source_label,
+    choice?.raw?.payload?.label,
+    choice?.raw?.payload?.title,
+    choice?.label,
+    choice?.title,
+    choice?.name,
+    choice?.type,
+    choice?.featureId,
+    choice?.ui_id
+  ]) ?? 'Choix';
+
+const getChoiceCategoryLabel = (choice: any): string =>
+  pickFirstString([
+    choice?.type,
+    choice?.raw?.type,
+    choice?.raw?.payload?.type,
+    choice?.category
+  ]) ?? '—';
+
+const getChoiceSourceLabel = (choice: any): string =>
+  pickFirstString([
+    choice?.raw?.source,
+    choice?.raw?.payload?.source,
+    choice?.source,
+    choice?.featureId
+  ]) ?? 'inconnue';
+
+const getChoiceOptionDescription = (option: ChoiceOption): string => {
+  const description = typeof option.description === 'string' ? option.description.trim() : '';
+  return description.length ? description : DEFAULT_CARD_DESCRIPTION;
+};
+
+const getChoiceOptionImage = (option: ChoiceOption): string => ensureCardImage(option.image ?? null, option.label);
 
 const getChoiceKey = (choice: any, fallback?: string | number | null): string | null => {
   const candidates = [choice?.ui_id, choice?.featureId, choice?.id, fallback];
@@ -365,6 +708,75 @@ const cacheChoiceOptions = (key: string | null, options: ChoiceOption[]) => {
   choiceOptionCache[key] = options;
 };
 
+const isSameChoiceValue = (a: any, b: any): boolean => {
+  if (a === b) return true;
+  if (typeof a === 'object' && typeof b === 'object') {
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+};
+
+const getLocalChoiceCount = (choice: any): number => {
+  const key = getChoiceKey(choice);
+  if (!key) return 0;
+  const current = localChosen[key];
+  if (Array.isArray(current)) {
+    return current.length;
+  }
+  return current === null || current === undefined || current === '' ? 0 : 1;
+};
+
+const isChoiceOptionSelected = (choice: any, option: ChoiceOption): boolean => {
+  const key = getChoiceKey(choice);
+  if (!key) return false;
+  const current = localChosen[key];
+  if (Array.isArray(current)) {
+    return current.some((entry) => isSameChoiceValue(entry, option.value));
+  }
+  return isSameChoiceValue(current, option.value);
+};
+
+const handleChoiceOptionClick = (choice: any, option: ChoiceOption) => {
+  const key = getChoiceKey(choice);
+  if (!key) return;
+
+  const requirement = getChoiceRequirement(choice);
+  if (requirement > 1) {
+    const current = Array.isArray(localChosen[key]) ? (localChosen[key] as any[]) : [];
+    const index = current.findIndex((entry) => isSameChoiceValue(entry, option.value));
+    if (index >= 0) {
+      localChosen[key] = [...current.slice(0, index), ...current.slice(index + 1)];
+      return;
+    }
+    if (current.length >= requirement) {
+      return;
+    }
+    localChosen[key] = [...current, option.value];
+    return;
+  }
+
+  if (isSameChoiceValue(localChosen[key], option.value)) {
+    localChosen[key] = null;
+  } else {
+    localChosen[key] = option.value;
+  }
+};
+
+const isChoiceOptionDisabled = (choice: any, option: ChoiceOption): boolean => {
+  const requirement = getChoiceRequirement(choice);
+  if (requirement <= 1) {
+    return false;
+  }
+  if (isChoiceOptionSelected(choice, option)) {
+    return false;
+  }
+  return getLocalChoiceCount(choice) >= requirement;
+};
+
 const valueExists = (val: any): boolean => {
   if (val === undefined || val === null) return false;
   if (typeof val === 'string') return val.length > 0;
@@ -376,18 +788,6 @@ const hasLocalChoiceValue = (choice: any): boolean => {
   const key = getChoiceKey(choice);
   if (!key) return false;
   return valueExists(localChosen[key]);
-};
-
-const isSameChoiceValue = (a: any, b: any): boolean => {
-  if (a === b) return true;
-  if (typeof a === 'object' && typeof b === 'object') {
-    try {
-      return JSON.stringify(a) === JSON.stringify(b);
-    } catch (e) {
-      return false;
-    }
-  }
-  return false;
 };
 
 const formatChoiceValue = (key: string, value: any): string => {
@@ -430,31 +830,39 @@ const appliedChoices = computed(() => {
 });
 
 const loadCatalog = async () => {
+  const assignCatalog = (
+    target: { value: CatalogEntry[] },
+    payload: unknown,
+    fallbackIds: string[]
+  ) => {
+    const normalized = normalizeCatalogEntries(payload);
+    target.value = normalized.length ? normalized : fallbackCatalogEntries(fallbackIds);
+  };
+
   try {
-    const c = await $fetch('/api/catalog/classes').catch(() => null);
-    if (c && Array.isArray(c)) {
-      classes.value = c;
-    } else {
-      classes.value = ['mage']; // fallback
-    }
-  } catch (e) {
-    classes.value = ['mage'];
+    const response = await $fetch('/api/catalog/classes').catch(() => null);
+    assignCatalog(classes, response, ['mage']);
+  } catch (error) {
+    classes.value = fallbackCatalogEntries(['mage']);
   }
 
   try {
-    const r = await $fetch('/api/catalog/races').catch(() => null);
-    if (r && Array.isArray(r)) {
-      races.value = r;
-    } else {
-      races.value = ['humain','elfe']; // fallback
-    }
-  } catch (e) {
-    races.value = ['humain','elfe'];
+    const response = await $fetch('/api/catalog/races').catch(() => null);
+    assignCatalog(races, response, ['humain', 'elfe']);
+  } catch (error) {
+    races.value = fallbackCatalogEntries(['humain', 'elfe']);
   }
 
-  // sensible defaults
-  if (!selectedClass.value && classes.value.length) selectedClass.value = classes.value[0];
-  if (!selectedRace.value && races.value.length) selectedRace.value = races.value[0];
+  try {
+    const response = await $fetch('/api/catalog/backgrounds').catch(() => null);
+    assignCatalog(backgrounds, response, ['acolyte']);
+  } catch (error) {
+    backgrounds.value = fallbackCatalogEntries(['acolyte']);
+  }
+
+  if (!selectedClass.value && classes.value.length) selectedClass.value = classes.value[0].id;
+  if (!selectedRace.value && races.value.length) selectedRace.value = races.value[0].id;
+  if (!selectedBackground.value && backgrounds.value.length) selectedBackground.value = backgrounds.value[0].id;
 };
 
 // helper to create body and call preview endpoint
@@ -467,6 +875,7 @@ const sendPreview = async () => {
       selection: {
         class: selectedClass.value || null,
         race: selectedRace.value || null,
+        background: selectedBackground.value || null,
         niveau: Number(niveau.value || 1),
         manual_features: [],
         chosenOptions: { ...chosenOptions }
@@ -497,12 +906,11 @@ const sendPreview = async () => {
           continue;
         }
         if (!(key in localChosen)) {
-          if (options.length === 1) {
-            localChosen[key] = options[0].value;
-          } else if (Number(pc.choose ?? 1) > 1) {
+          const requirement = getChoiceRequirement(pc);
+          if (requirement > 1) {
             localChosen[key] = [];
-          } else if (options.length) {
-            localChosen[key] = '';
+          } else if (options.length === 1) {
+            localChosen[key] = options[0].value;
           } else {
             localChosen[key] = null;
           }
