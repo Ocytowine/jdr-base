@@ -1,14 +1,15 @@
 // nuxt.config.ts
 // Rôle : Configuration Nuxt. On active Pinia, Tailwind et on fixe des meta simples.
 export default defineNuxtConfig({
-  modules: ['@pinia/nuxt'],
   css: ['~/assets/css/tailwind.css'],
+
   postcss: {
     plugins: {
       '@tailwindcss/postcss': {},
       'autoprefixer': {}
     }
   },
+
   devtools: { enabled: true },
   nitro: {
     compatibilityDate: '2025-09-15',
