@@ -31,6 +31,22 @@ class SuccessAdapter {
     if (repoPath === 'races/nain.json') {
       return { name: 'Nain', description: 'Robuste', image: 'dwarf.png' };
     }
+    if (repoPath === 'backgrounds/index.json') {
+      return [
+        { id: 'acolyte', description: 'Serviteur dévoué', image: 'acolyte.png' },
+        { slug: 'artisan', summary: 'Maître des outils' },
+        'soldat'
+      ];
+    }
+    if (repoPath === 'backgrounds/acolyte.json') {
+      return { name: 'Acolyte', description: 'Foi inébranlable', image: 'acolyte.png' };
+    }
+    if (repoPath === 'backgrounds/artisan.json') {
+      return { name: 'Artisan', flavor: 'Créateur talentueux' };
+    }
+    if (repoPath === 'backgrounds/soldat.json') {
+      return { name: 'Soldat', desc: 'Discipliné' };
+    }
     throw new Error(`unexpected path: ${repoPath}`);
   }
 
@@ -64,6 +80,13 @@ class FallbackAdapter {
         { type: 'file', path: 'classes/ensorceleur.json' }
       ];
     }
+    if (kind === 'backgrounds') {
+      return [
+        { type: 'file', name: 'acolyte.json' },
+        { type: 'file', path: 'backgrounds/artisan.json' },
+        { type: 'file', name: 'soldat.json' }
+      ];
+    }
     return [];
   }
 }
@@ -87,12 +110,15 @@ export async function run() {
 
   const classesModule = await import('../server/api/catalog/classes.get');
   const racesModule = await import('../server/api/catalog/races.get');
+  const backgroundsModule = await import('../server/api/catalog/backgrounds.get');
   const classesHandler = classesModule.default;
   const racesHandler = racesModule.default;
+  const backgroundsHandler = backgroundsModule.default;
 
   setCatalogAdapter(new SuccessAdapter());
   const classesFromIndex = await classesHandler({} as any);
   const racesFromIndex = await racesHandler({} as any);
+  const backgroundsFromIndex = await backgroundsHandler({} as any);
 
   assert.deepEqual(classesFromIndex, [
     { id: 'guerrier', name: 'Guerrier', description: 'Maître du combat', image: 'warrior.png' },
@@ -105,10 +131,16 @@ export async function run() {
     { id: 'elfe', name: 'Elfe', description: 'Grâce et magie', image: 'elf.png' },
     { id: 'nain', name: 'Nain', description: 'Robuste', image: 'dwarf.png' }
   ]);
+  assert.deepEqual(backgroundsFromIndex, [
+    { id: 'acolyte', name: 'Acolyte', description: 'Foi inébranlable', image: 'acolyte.png' },
+    { id: 'artisan', name: 'Artisan', description: 'Créateur talentueux', image: undefined },
+    { id: 'soldat', name: 'Soldat', description: 'Discipliné', image: undefined }
+  ]);
 
   setCatalogAdapter(new FallbackAdapter());
   const classesFallback = await classesHandler({} as any);
   const racesFallback = await racesHandler({} as any);
+  const backgroundsFallback = await backgroundsHandler({} as any);
 
   assert.deepEqual(classesFallback, [
     { id: 'barbare', name: 'Barbare', description: 'barbare details', image: undefined },
@@ -118,6 +150,11 @@ export async function run() {
   assert.deepEqual(racesFallback, [
     { id: 'elfe', name: 'Elfe', description: 'elfe details', image: undefined },
     { id: 'nain', name: 'Nain', description: 'nain details', image: undefined }
+  ]);
+  assert.deepEqual(backgroundsFallback, [
+    { id: 'acolyte', name: 'Acolyte', description: 'acolyte details', image: undefined },
+    { id: 'artisan', name: 'Artisan', description: 'artisan details', image: undefined },
+    { id: 'soldat', name: 'Soldat', description: 'soldat details', image: undefined }
   ]);
 
   const originalError = console.error;
@@ -130,10 +167,12 @@ export async function run() {
   setCatalogAdapter(new ErroringAdapter());
   const classesError = await classesHandler({} as any);
   const racesError = await racesHandler({} as any);
+  const backgroundsError = await backgroundsHandler({} as any);
 
   assert.deepEqual(classesError, []);
   assert.deepEqual(racesError, []);
-  assert.ok(loggedErrors >= 2, 'errors should be logged for each catalog handler');
+  assert.deepEqual(backgroundsError, []);
+  assert.ok(loggedErrors >= 3, 'errors should be logged for each catalog handler');
 
   console.error = originalError;
   setCatalogAdapter(null);

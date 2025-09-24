@@ -280,6 +280,8 @@ import { ref, reactive, computed } from 'vue';
 const placeholderCardImage =
   'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSczMjAnIGhlaWdodD0nMTgwJz4KICA8cmVjdCB3aWR0aD0nMzIwJyBoZWlnaHQ9JzE4MCcgZmlsbD0nIzJmMzY1ZicvPgogIDx0ZXh0IHg9JzUwJScgeT0nNTAlJyBkb21pbmFudC1iYXNlbGluZT0nbWlkZGxlJyB0ZXh0LWFuY2hvcj0nbWlkZGxlJyBmaWxsPScjZmZmZmZmJyBmb250LXNpemU9JzI4JyBmb250LWZhbWlseT0nc2Fucy1zZXJpZic+SW1hZ2U8L3RleHQ+Cjwvc3ZnPg==';
 
+type PrimarySelectionKey = 'class' | 'race' | 'background';
+
 type CatalogEntry = {
   id: string;
   name: string;
@@ -290,9 +292,11 @@ type CatalogEntry = {
 const classes = ref<CatalogEntry[]>([]);
 const races = ref<CatalogEntry[]>([]);
 const backgrounds = ref<CatalogEntry[]>([]);
-const selectedClass = ref<string>('');
-const selectedRace = ref<string>('');
-const selectedBackground = ref<string>('');
+const primarySelection = reactive<Record<PrimarySelectionKey, string>>({
+  class: '',
+  race: '',
+  background: ''
+});
 const niveau = ref<number>(1);
 const loading = ref(false);
 
@@ -304,7 +308,7 @@ type PrimaryOption = {
 };
 
 type PrimarySelectionGroup = {
-  id: 'class' | 'race' | 'background';
+  id: PrimarySelectionKey;
   title: string;
   options: PrimaryOption[];
   selected: string;
@@ -454,31 +458,25 @@ const primarySelectionGroups = computed<PrimarySelectionGroup[]>(() => [
     id: 'class',
     title: 'Classe',
     options: buildPrimaryOptions(classes.value, 'Classe'),
-    selected: selectedClass.value
+    selected: primarySelection.class
   },
   {
     id: 'race',
     title: 'Race',
     options: buildPrimaryOptions(races.value, 'Race'),
-    selected: selectedRace.value
+    selected: primarySelection.race
   },
   {
     id: 'background',
     title: 'Background',
     options: buildPrimaryOptions(backgrounds.value, 'Background'),
-    selected: selectedBackground.value
+    selected: primarySelection.background
   }
 ]);
 
 const selectPrimaryOption = (groupId: PrimarySelectionGroup['id'], optionId: string) => {
   if (!optionId) return;
-  if (groupId === 'class') {
-    selectedClass.value = optionId;
-  } else if (groupId === 'race') {
-    selectedRace.value = optionId;
-  } else if (groupId === 'background') {
-    selectedBackground.value = optionId;
-  }
+  primarySelection[groupId] = optionId;
 };
 
 const getPrimarySelectedLabel = (group: PrimarySelectionGroup): string => {
@@ -866,39 +864,40 @@ const appliedChoices = computed(() => {
 });
 
 const loadCatalog = async () => {
+  const ensureSelection = (values: CatalogEntry[], key: PrimarySelectionKey, fallbacks: string[]) => {
+    const list = values.length ? values : fallbackCatalogEntries(fallbacks);
+    if (key === 'class') classes.value = list;
+    if (key === 'race') races.value = list;
+    if (key === 'background') backgrounds.value = list;
+    if (!list.length) {
+      primarySelection[key] = '';
+      return;
+    }
+    const current = primarySelection[key];
+    if (!current || !list.some((entry) => entry.id === current)) {
+      primarySelection[key] = list[0].id;
+    }
+  };
+
   try {
     const c = await $fetch('/api/catalog/classes').catch(() => null);
-    const normalized = normalizeCatalogEntries(c);
-    classes.value = normalized.length ? normalized : fallbackCatalogEntries(['mage']);
+    ensureSelection(normalizeCatalogEntries(c), 'class', ['mage']);
   } catch (e) {
-    classes.value = fallbackCatalogEntries(['mage']);
+    ensureSelection([], 'class', ['mage']);
   }
 
   try {
     const r = await $fetch('/api/catalog/races').catch(() => null);
-    const normalized = normalizeCatalogEntries(r);
-    races.value = normalized.length ? normalized : fallbackCatalogEntries(['humain', 'elfe']);
+    ensureSelection(normalizeCatalogEntries(r), 'race', ['humain', 'elfe']);
   } catch (e) {
-    races.value = fallbackCatalogEntries(['humain', 'elfe']);
+    ensureSelection([], 'race', ['humain', 'elfe']);
   }
 
   try {
     const b = await $fetch('/api/catalog/backgrounds').catch(() => null);
-    const normalized = normalizeCatalogEntries(b);
-    backgrounds.value = normalized.length ? normalized : fallbackCatalogEntries(['acolyte', 'artisan']);
+    ensureSelection(normalizeCatalogEntries(b), 'background', ['acolyte', 'artisan']);
   } catch (e) {
-    backgrounds.value = fallbackCatalogEntries(['acolyte', 'artisan']);
-  }
-
-  // sensible defaults
-  if (!classes.value.some((entry) => entry.id === selectedClass.value) && classes.value.length) {
-    selectedClass.value = classes.value[0].id;
-  }
-  if (!races.value.some((entry) => entry.id === selectedRace.value) && races.value.length) {
-    selectedRace.value = races.value[0].id;
-  }
-  if (!backgrounds.value.some((entry) => entry.id === selectedBackground.value) && backgrounds.value.length) {
-    selectedBackground.value = backgrounds.value[0].id;
+    ensureSelection([], 'background', ['acolyte', 'artisan']);
   }
 };
 
@@ -910,9 +909,9 @@ const sendPreview = async () => {
   try {
     const body = {
       selection: {
-        class: selectedClass.value || null,
-        race: selectedRace.value || null,
-        background: selectedBackground.value || null,
+        class: primarySelection.class || null,
+        race: primarySelection.race || null,
+        background: primarySelection.background || null,
         niveau: Number(niveau.value || 1),
         manual_features: [],
         chosenOptions: { ...chosenOptions }
