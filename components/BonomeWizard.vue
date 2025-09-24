@@ -1,6 +1,6 @@
 <template>
   <div class="p-4 max-w-4xl mx-auto">
-    <h2 class="text-2xl font-semibold mb-4">Création de personnage — Wizard (light)</h2>
+    <h2 class="text-2xl font-semibold mb-4">Choix principaux</h2>
 
     <!-- Sélections -->
     <section class="mb-6 border rounded p-4 bg-white/80">
@@ -14,9 +14,7 @@
           <div class="flex items-center justify-between mb-3">
             <div>
               <h3 class="text-lg font-semibold">{{ group.title }}</h3>
-              <p class="text-sm text-gray-600">Choisir une option obligatoire.</p>
             </div>
-            <span class="text-xs uppercase tracking-wide text-gray-500">1 sélection</span>
           </div>
 
           <div v-if="group.options.length" class="-mx-1 px-1">
@@ -54,7 +52,7 @@
           <div v-else class="text-sm text-gray-500">Aucune option disponible pour l'instant.</div>
 
           <div class="mt-3 text-sm text-gray-600">
-            Option sélectionnée :
+            Classe sélectionnée :
             <span class="font-medium">{{ getPrimarySelectedLabel(group) }}</span>
           </div>
         </div>

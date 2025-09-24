@@ -2,7 +2,7 @@
   <div class="space-y-6">
     <section v-if="!showPreview" class="carte space-y-6">
       <header class="space-y-2">
-        <h1 class="h1">Création de votre bonôme</h1>
+        <h1 class="h1">Création de votre personnage</h1>
         <p class="text-sm text-[var(--texte-2)]">
           Parcourez l'assistant pour sélectionner la classe, la race et l'historique, ajustez vos caractéristiques puis appliquez
           les choix complémentaires proposés.
