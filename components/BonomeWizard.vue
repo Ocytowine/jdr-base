@@ -4,19 +4,54 @@
 
     <!-- Sélections -->
     <section class="mb-6 border rounded p-4 bg-white/80">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label class="block text-sm font-medium mb-1">Classe</label>
-          <select v-model="selectedClass" class="w-full border rounded p-2">
-            <option v-for="c in classes" :key="c" :value="c">{{ c }}</option>
-          </select>
-        </div>
+      <div class="space-y-6">
+        <div
+          v-for="group in primarySelectionGroups"
+          :key="group.id"
+          class="border border-slate-200/70 rounded-xl p-4 bg-white"
+        >
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-lg font-semibold">{{ group.title }}</h3>
+              <p class="text-sm text-gray-600">Choisir une option obligatoire.</p>
+            </div>
+            <span class="text-xs uppercase tracking-wide text-gray-500">1 sélection</span>
+          </div>
 
-        <div>
-          <label class="block text-sm font-medium mb-1">Race</label>
-          <select v-model="selectedRace" class="w-full border rounded p-2">
-            <option v-for="r in races" :key="r" :value="r">{{ r }}</option>
-          </select>
+          <div v-if="group.options.length" class="-mx-1 px-1">
+            <div class="flex gap-4 overflow-x-auto pb-2">
+              <button
+                v-for="option in group.options"
+                :key="option.id"
+                type="button"
+                class="flex-none w-64 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                :class="{
+                  'ring-2 ring-blue-500 border-blue-500 shadow-md': group.selected === option.id
+                }"
+                :aria-pressed="group.selected === option.id"
+                @click="selectPrimaryOption(group.id, option.id)"
+              >
+                <div class="h-32 w-full overflow-hidden rounded-lg bg-slate-200">
+                  <img
+                    :src="option.image"
+                    :alt="`Illustration ${option.label}`"
+                    class="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                </div>
+                <div class="mt-3 space-y-1">
+                  <div class="text-base font-medium text-slate-900">{{ option.label }}</div>
+                  <div class="text-sm leading-snug text-gray-600 min-h-[3.5rem]">{{ option.description }}</div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div v-else class="text-sm text-gray-500">Aucune option disponible pour l'instant.</div>
+
+          <div class="mt-3 text-sm text-gray-600">
+            Option sélectionnée :
+            <span class="font-medium">{{ getPrimarySelectedLabel(group) }}</span>
+          </div>
         </div>
 
         <div>
@@ -62,39 +97,44 @@
         <!-- selector -->
         <div class="mt-2">
           <template v-if="getChoiceOptions(choice).length">
-            <label class="block text-xs text-gray-600 mb-1">Options</label>
+            <label class="block text-xs text-gray-600 mb-2 uppercase tracking-wide">Options</label>
 
-            <!-- multiple selection if choose > 1 -->
-            <select
-              v-if="Number(choice.choose ?? 1) <= 1"
-              v-model="localChosen[getChoiceKey(choice, idx) ?? idx]"
-              class="w-full border rounded p-2"
-            >
-              <option value="">-- choisir --</option>
-              <option
-                v-for="(opt, optIdx) in getChoiceOptions(choice)"
-                :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
-                :value="opt.value"
-              >
-                {{ opt.label }}
-              </option>
-            </select>
-
-            <div v-else>
-              <label class="text-xs text-gray-500">Sélectionner {{ choice.choose }} éléments</label>
-              <select
-                multiple
-                v-model="localChosen[getChoiceKey(choice, idx) ?? idx]"
-                class="w-full border rounded p-2 h-28"
-              >
-                <option
+            <div class="-mx-1 px-1">
+              <div class="flex gap-4 overflow-x-auto pb-2">
+                <button
                   v-for="(opt, optIdx) in getChoiceOptions(choice)"
                   :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
-                  :value="opt.value"
+                  type="button"
+                  class="flex-none w-64 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  :class="{
+                    'ring-2 ring-blue-500 border-blue-500 shadow-md': isChoiceOptionSelected(choice, opt),
+                    'opacity-60 cursor-not-allowed': isChoiceOptionDisabled(choice, opt)
+                  }"
+                  :disabled="isChoiceOptionDisabled(choice, opt)"
+                  @click="handleChoiceOptionClick(choice, opt)"
                 >
-                  {{ opt.label }}
-                </option>
-              </select>
+                  <div class="h-32 w-full overflow-hidden rounded-lg bg-slate-200">
+                    <img
+                      :src="getChoiceOptionImage(opt)"
+                      :alt="`Illustration ${opt.label}`"
+                      class="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div class="mt-3 space-y-1">
+                    <div class="text-base font-medium text-slate-900">{{ opt.label }}</div>
+                    <div class="text-sm leading-snug text-gray-600 min-h-[3.5rem]">
+                      {{ getChoiceOptionDescription(opt) }}
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-2 text-xs text-gray-500">
+              Sélection :
+              {{ getLocalChoiceCount(choice) }} / {{ getChoiceRequirement(choice) }}
+              <span v-if="getChoiceRequirement(choice) > 1">(sélection multiple autorisée)</span>
             </div>
 
             <div class="mt-2 flex items-center gap-2">
@@ -235,12 +275,91 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue';
 
+const placeholderCardImage =
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSczMjAnIGhlaWdodD0nMTgwJz4KICA8cmVjdCB3aWR0aD0nMzIwJyBoZWlnaHQ9JzE4MCcgZmlsbD0nIzJmMzY1ZicvPgogIDx0ZXh0IHg9JzUwJScgeT0nNTAlJyBkb21pbmFudC1iYXNlbGluZT0nbWlkZGxlJyB0ZXh0LWFuY2hvcj0nbWlkZGxlJyBmaWxsPScjZmZmZmZmJyBmb250LXNpemU9JzI4JyBmb250LWZhbWlseT0nc2Fucy1zZXJpZic+SW1hZ2U8L3RleHQ+Cjwvc3ZnPg==';
+
 const classes = ref<string[]>([]);
 const races = ref<string[]>([]);
+const backgrounds = ref<string[]>([]);
 const selectedClass = ref<string>('');
 const selectedRace = ref<string>('');
+const selectedBackground = ref<string>('');
 const niveau = ref<number>(1);
 const loading = ref(false);
+
+type PrimaryOption = {
+  id: string;
+  label: string;
+  description: string;
+  image: string;
+};
+
+type PrimarySelectionGroup = {
+  id: 'class' | 'race' | 'background';
+  title: string;
+  options: PrimaryOption[];
+  selected: string;
+};
+
+const toTitleCase = (value: string): string => {
+  return value
+    .split(/[\s_-]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+};
+
+const buildPrimaryOptions = (values: string[], typeLabel: string): PrimaryOption[] => {
+  return values.map((value) => {
+    const label = toTitleCase(value);
+    return {
+      id: value,
+      label,
+      description: `Option de ${typeLabel.toLowerCase()} : ${label}.`,
+      image: placeholderCardImage
+    };
+  });
+};
+
+const primarySelectionGroups = computed<PrimarySelectionGroup[]>(() => [
+  {
+    id: 'class',
+    title: 'Classe',
+    options: buildPrimaryOptions(classes.value, 'Classe'),
+    selected: selectedClass.value
+  },
+  {
+    id: 'race',
+    title: 'Race',
+    options: buildPrimaryOptions(races.value, 'Race'),
+    selected: selectedRace.value
+  },
+  {
+    id: 'background',
+    title: 'Background',
+    options: buildPrimaryOptions(backgrounds.value, 'Background'),
+    selected: selectedBackground.value
+  }
+]);
+
+const selectPrimaryOption = (groupId: PrimarySelectionGroup['id'], optionId: string) => {
+  if (!optionId) return;
+  if (groupId === 'class') {
+    selectedClass.value = optionId;
+  } else if (groupId === 'race') {
+    selectedRace.value = optionId;
+  } else if (groupId === 'background') {
+    selectedBackground.value = optionId;
+  }
+};
+
+const getPrimarySelectedLabel = (group: PrimarySelectionGroup): string => {
+  const found = group.options.find((option) => option.id === group.selected);
+  if (found) {
+    return found.label;
+  }
+  return '—';
+};
 
 const baseStats = reactive({
   strength: 8,
@@ -264,7 +383,7 @@ const localChosen = reactive<Record<string, any>>({});
 const choiceOptionCache = reactive<Record<string, ChoiceOption[]>>({});
 const choiceMetadata = reactive<Record<string, { label: string }>>({});
 
-type ChoiceOption = { value: any; label: string };
+type ChoiceOption = { value: any; label: string; description?: string; image?: string };
 
 const extractChoiceFrom = (choice: any): any[] => {
   if (Array.isArray(choice?.from) && choice.from.length) {
@@ -312,6 +431,48 @@ const extractChoiceLabels = (choice: any): Record<string, string> => {
   return out;
 };
 
+const extractDescriptionFromValue = (value: any, fallbackLabel: string): string | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidates = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
+  for (const key of candidates) {
+    const candidate = (value as Record<string, any>)[key];
+    if (typeof candidate === 'string' && candidate.trim().length) {
+      return candidate.trim();
+    }
+  }
+  const entries = (value as Record<string, any>).entries;
+  if (Array.isArray(entries)) {
+    const firstText = entries.find((entry: any) => typeof entry === 'string');
+    if (typeof firstText === 'string' && firstText.trim().length) {
+      return firstText.trim();
+    }
+  }
+  const name = (value as Record<string, any>).name;
+  if (typeof name === 'string') {
+    const trimmed = name.trim();
+    if (trimmed.length && trimmed.toLowerCase() !== fallbackLabel.toLowerCase()) {
+      return trimmed;
+    }
+  }
+  return null;
+};
+
+const extractImageFromValue = (value: any): string | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const keys = ['image', 'img', 'icon'];
+  for (const key of keys) {
+    const candidate = (value as Record<string, any>)[key];
+    if (typeof candidate === 'string' && candidate.trim().length) {
+      return candidate.trim();
+    }
+  }
+  return null;
+};
+
 const getChoiceOptions = (choice: any): ChoiceOption[] => {
   const from = extractChoiceFrom(choice);
   if (!from.length) return [];
@@ -327,9 +488,13 @@ const getChoiceOptions = (choice: any): ChoiceOption[] => {
     if (!label) {
       label = typeof value === 'string' || typeof value === 'number' ? String(value) : JSON.stringify(value);
     }
+    const description = extractDescriptionFromValue(value, label);
+    const image = extractImageFromValue(value);
     return {
       value,
-      label
+      label,
+      description: description ?? undefined,
+      image: image ?? undefined
     };
   });
 };
@@ -419,6 +584,100 @@ const formatChoiceValue = (key: string, value: any): string => {
   return toLabel(value);
 };
 
+const getChoiceRequirement = (choice: any): number => {
+  const choose = Number(choice?.choose ?? 1);
+  if (!Number.isFinite(choose) || choose <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.floor(choose));
+};
+
+const choiceAllowsMultiple = (choice: any): boolean => getChoiceRequirement(choice) > 1;
+
+const getLocalChoiceCount = (choice: any): number => {
+  const key = getChoiceKey(choice);
+  if (!key) return 0;
+  const current = localChosen[key];
+  if (Array.isArray(current)) {
+    return current.length;
+  }
+  return valueExists(current) ? 1 : 0;
+};
+
+const isChoiceOptionSelected = (choice: any, option: ChoiceOption): boolean => {
+  const key = getChoiceKey(choice);
+  if (!key) return false;
+  const current = localChosen[key];
+  if (Array.isArray(current)) {
+    return current.some((entry) => isSameChoiceValue(entry, option.value));
+  }
+  return isSameChoiceValue(current, option.value);
+};
+
+const isChoiceOptionDisabled = (choice: any, option: ChoiceOption): boolean => {
+  if (!choiceAllowsMultiple(choice)) {
+    return false;
+  }
+  const key = getChoiceKey(choice);
+  if (!key) return false;
+  const current = Array.isArray(localChosen[key]) ? localChosen[key] : [];
+  if (current.some((entry) => isSameChoiceValue(entry, option.value))) {
+    return false;
+  }
+  const requirement = getChoiceRequirement(choice);
+  return Number.isFinite(requirement) && requirement > 0 && current.length >= requirement;
+};
+
+const handleChoiceOptionClick = (choice: any, option: ChoiceOption) => {
+  if (isChoiceOptionDisabled(choice, option)) {
+    return;
+  }
+  const key = getChoiceKey(choice);
+  if (!key) return;
+
+  if (!choiceAllowsMultiple(choice)) {
+    const current = localChosen[key];
+    if (isSameChoiceValue(current, option.value)) {
+      localChosen[key] = null;
+    } else {
+      localChosen[key] = option.value;
+    }
+    return;
+  }
+
+  const existing = Array.isArray(localChosen[key]) ? [...localChosen[key]] : [];
+  const index = existing.findIndex((entry) => isSameChoiceValue(entry, option.value));
+  if (index >= 0) {
+    existing.splice(index, 1);
+  } else {
+    const requirement = getChoiceRequirement(choice);
+    if (!Number.isFinite(requirement) || requirement <= 0 || existing.length < requirement) {
+      existing.push(option.value);
+    }
+  }
+  localChosen[key] = existing;
+};
+
+const getChoiceOptionDescription = (option: ChoiceOption): string => {
+  if (typeof option.description === 'string' && option.description.trim().length) {
+    return option.description.trim();
+  }
+  if (typeof option.value === 'string' && option.value.trim().length) {
+    return option.value.trim();
+  }
+  if (typeof option.value === 'number' || typeof option.value === 'boolean') {
+    return String(option.value);
+  }
+  return `Option disponible : ${option.label}`;
+};
+
+const getChoiceOptionImage = (option: ChoiceOption): string => {
+  if (typeof option.image === 'string' && option.image.trim().length) {
+    return option.image;
+  }
+  return placeholderCardImage;
+};
+
 const appliedChoices = computed(() => {
   return Object.entries(chosenOptions)
     .map(([id, value]) => {
@@ -452,9 +711,27 @@ const loadCatalog = async () => {
     races.value = ['humain','elfe'];
   }
 
+  try {
+    const b = await $fetch('/api/catalog/backgrounds').catch(() => null);
+    if (b && Array.isArray(b)) {
+      backgrounds.value = b;
+    } else {
+      backgrounds.value = ['acolyte', 'artisan'];
+    }
+  } catch (e) {
+    backgrounds.value = ['acolyte', 'artisan'];
+  }
+
   // sensible defaults
-  if (!selectedClass.value && classes.value.length) selectedClass.value = classes.value[0];
-  if (!selectedRace.value && races.value.length) selectedRace.value = races.value[0];
+  if (!classes.value.includes(selectedClass.value) && classes.value.length) {
+    selectedClass.value = classes.value[0];
+  }
+  if (!races.value.includes(selectedRace.value) && races.value.length) {
+    selectedRace.value = races.value[0];
+  }
+  if (!backgrounds.value.includes(selectedBackground.value) && backgrounds.value.length) {
+    selectedBackground.value = backgrounds.value[0];
+  }
 };
 
 // helper to create body and call preview endpoint
@@ -467,6 +744,7 @@ const sendPreview = async () => {
       selection: {
         class: selectedClass.value || null,
         race: selectedRace.value || null,
+        background: selectedBackground.value || null,
         niveau: Number(niveau.value || 1),
         manual_features: [],
         chosenOptions: { ...chosenOptions }
