@@ -5,32 +5,39 @@ import { setCatalogAdapter } from '../server/utils/catalogAdapter';
 class SuccessAdapter {
   async fetchJsonFromRepoPath(repoPath: string) {
     if (repoPath === 'classes/index.json') {
-      return ['Guerrier', { name: 'Mage' }, { id: 'roublard' }, 42, null];
+      return [
+        { id: 'wizard', label: 'Wizard', description: 'Maître des arcanes', image: 'https://cdn.test/wizard.png' },
+        { slug: 'fighter', desc: 'Guerrier polyvalent' },
+        'rogue'
+      ];
     }
     if (repoPath === 'races/index.json') {
-      return [{ name: 'Humain' }, { id: 'elfe' }, 'nain'];
+      return [
+        { id: 'humain', name: 'Humain', description: 'Polyvalent' },
+        { id: 'elfe', image: 'https://cdn.test/elfe.png' },
+        'nain'
+      ];
+    }
+    if (repoPath === 'backgrounds/index.json') {
+      return [
+        { key: 'acolyte', description: 'Serviteur du temple', image: 'https://cdn.test/acolyte.png' },
+        { id: 'artisan', label: 'Artisan' }
+      ];
     }
     throw new Error(`unexpected path: ${repoPath}`);
   }
 
-  async listFilesInPath() {
+  async listFilesInPath(_kind: string) {
     throw new Error('listFilesInPath should not be called in success scenario');
   }
 }
 
 class FallbackAdapter {
-  async fetchJsonFromRepoPath() {
+  async fetchJsonFromRepoPath(_repoPath: string) {
     throw new Error('index not available');
   }
 
   async listFilesInPath(kind: string) {
-    if (kind === 'races') {
-      return [
-        { type: 'file', name: 'elfe.json' },
-        { type: 'dir', name: 'subfolder' },
-        { type: 'file', path: 'races/nain.json' }
-      ];
-    }
     if (kind === 'classes') {
       return [
         { type: 'file', name: 'barbare.json' },
@@ -38,16 +45,29 @@ class FallbackAdapter {
         { type: 'file', path: 'classes/ensorceleur.json' }
       ];
     }
+    if (kind === 'races') {
+      return [
+        { type: 'file', name: 'elfe.json' },
+        { type: 'dir', name: 'subfolder' },
+        { type: 'file', path: 'races/nain.json' }
+      ];
+    }
+    if (kind === 'backgrounds') {
+      return [
+        { type: 'file', name: 'acolyte.json' },
+        { type: 'file', path: 'backgrounds/soldat.json' }
+      ];
+    }
     return [];
   }
 }
 
 class ErroringAdapter {
-  async fetchJsonFromRepoPath() {
+  async fetchJsonFromRepoPath(_repoPath: string) {
     throw new Error('cannot fetch index');
   }
 
-  async listFilesInPath() {
+  async listFilesInPath(_kind: string) {
     throw new Error('cannot list files');
   }
 }
@@ -61,22 +81,92 @@ export async function run() {
 
   const classesModule = await import('../server/api/catalog/classes.get');
   const racesModule = await import('../server/api/catalog/races.get');
+  const backgroundsModule = await import('../server/api/catalog/backgrounds.get');
+
   const classesHandler = classesModule.default;
   const racesHandler = racesModule.default;
+  const backgroundsHandler = backgroundsModule.default;
 
   setCatalogAdapter(new SuccessAdapter());
   const classesFromIndex = await classesHandler({} as any);
   const racesFromIndex = await racesHandler({} as any);
+  const backgroundsFromIndex = await backgroundsHandler({} as any);
 
-  assert.deepEqual(classesFromIndex, ['Guerrier', 'Mage', 'roublard', '42']);
-  assert.deepEqual(racesFromIndex, ['Humain', 'elfe', 'nain']);
+  assert.deepEqual(classesFromIndex, [
+    {
+      id: 'wizard',
+      name: 'Wizard',
+      description: 'Maître des arcanes',
+      image: 'https://cdn.test/wizard.png'
+    },
+    {
+      id: 'fighter',
+      name: 'Fighter',
+      description: 'Guerrier polyvalent',
+      image: null
+    },
+    {
+      id: 'rogue',
+      name: 'Rogue',
+      description: null,
+      image: null
+    }
+  ]);
+
+  assert.deepEqual(racesFromIndex, [
+    {
+      id: 'humain',
+      name: 'Humain',
+      description: 'Polyvalent',
+      image: null
+    },
+    {
+      id: 'elfe',
+      name: 'Elfe',
+      description: null,
+      image: 'https://cdn.test/elfe.png'
+    },
+    {
+      id: 'nain',
+      name: 'Nain',
+      description: null,
+      image: null
+    }
+  ]);
+
+  assert.deepEqual(backgroundsFromIndex, [
+    {
+      id: 'acolyte',
+      name: 'Acolyte',
+      description: 'Serviteur du temple',
+      image: 'https://cdn.test/acolyte.png'
+    },
+    {
+      id: 'artisan',
+      name: 'Artisan',
+      description: null,
+      image: null
+    }
+  ]);
 
   setCatalogAdapter(new FallbackAdapter());
   const classesFallback = await classesHandler({} as any);
   const racesFallback = await racesHandler({} as any);
+  const backgroundsFallback = await backgroundsHandler({} as any);
 
-  assert.deepEqual(classesFallback, ['barbare', 'barde', 'ensorceleur']);
-  assert.deepEqual(racesFallback, ['elfe', 'nain']);
+  assert.deepEqual(classesFallback, [
+    { id: 'barbare', name: 'Barbare', description: null, image: null },
+    { id: 'barde', name: 'Barde', description: null, image: null },
+    { id: 'ensorceleur', name: 'Ensorceleur', description: null, image: null }
+  ]);
+  assert.deepEqual(racesFallback, [
+    { id: 'elfe', name: 'Elfe', description: null, image: null },
+    { id: 'nain', name: 'Nain', description: null, image: null }
+  ]);
+  assert.deepEqual(backgroundsFallback, [
+    { id: 'acolyte', name: 'Acolyte', description: null, image: null },
+    { id: 'soldat', name: 'Soldat', description: null, image: null }
+  ]);
 
   const originalError = console.error;
   let loggedErrors = 0;
@@ -88,10 +178,12 @@ export async function run() {
   setCatalogAdapter(new ErroringAdapter());
   const classesError = await classesHandler({} as any);
   const racesError = await racesHandler({} as any);
+  const backgroundsError = await backgroundsHandler({} as any);
 
   assert.deepEqual(classesError, []);
   assert.deepEqual(racesError, []);
-  assert.ok(loggedErrors >= 2, 'errors should be logged for each catalog handler');
+  assert.deepEqual(backgroundsError, []);
+  assert.ok(loggedErrors >= 3, 'errors should be logged for each catalog handler');
 
   console.error = originalError;
   setCatalogAdapter(null);
