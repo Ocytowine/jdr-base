@@ -239,6 +239,7 @@ const isChoiceOptionSelected = creation.isChoiceOptionSelected;
 const handleChoiceOptionClick = creation.handleChoiceOptionClick;
 const isChoiceOptionDisabled = creation.isChoiceOptionDisabled;
 const hasLocalChoiceValue = creation.hasLocalChoiceValue;
+
 </script>
 
 <style scoped>
