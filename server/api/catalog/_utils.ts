@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import type { DataAdapterV2GitHub } from '~/utils/dataAdapterV2GitHub';
 import { getCatalogAdapter } from '~/server/utils/catalogAdapter';
 
-type CatalogKind = 'classes' | 'races';
+type CatalogKind = 'classes' | 'races' | 'backgrounds';
 
 type IndexEntry = string | number | boolean | { [key: string]: any } | null | undefined;
 
