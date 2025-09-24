@@ -461,21 +461,50 @@ const buildPrimaryOptions = (entries: CatalogEntry[], categoryLabel: string): Pr
     };
   });
 
+const primarySelectionGroups = computed<PrimarySelectionGroup[]>(() => [
+  {
+    id: 'class',
+    title: 'Classe',
+    options: buildPrimaryOptions(classes.value, 'Classe'),
+    selected: selectedClass.value
+  },
+  {
+    id: 'race',
+    title: 'Race',
+    options: buildPrimaryOptions(races.value, 'Race'),
+    selected: selectedRace.value
+  },
+  {
+    id: 'background',
+    title: 'Historique',
+    options: buildPrimaryOptions(backgrounds.value, 'Historique'),
+    selected: selectedBackground.value
+  }
+]);
 
+const selectPrimaryOption = (
+  groupId: PrimarySelectionGroup['id'],
+  optionId: string | null | undefined
+) => {
   if (!optionId) {
     return;
   }
+
+  const value = String(optionId);
+  if (!value.length) {
+    return;
+  }
+
   if (groupId === 'class') {
-    selectedClass.value = optionId;
+    selectedClass.value = value;
     return;
   }
   if (groupId === 'race') {
-    selectedRace.value = optionId;
+    selectedRace.value = value;
     return;
   }
   if (groupId === 'background') {
-
-    selectedBackground.value = optionId;
+    selectedBackground.value = value;
   }
 };
 
@@ -661,8 +690,25 @@ const getChoiceSourceLabel = (choice: any): string =>
   ]) ?? 'inconnue';
 
 const getChoiceOptionDescription = (option: ChoiceOption): string => {
-  const description = typeof option.description === 'string' ? option.description.trim() : '';
-  return description.length ? description : DEFAULT_CARD_DESCRIPTION;
+  if (typeof option.description === 'string') {
+    const trimmed = option.description.trim();
+    if (trimmed.length) {
+      return trimmed;
+    }
+  }
+
+  if (typeof option.value === 'string') {
+    const trimmed = option.value.trim();
+    if (trimmed.length) {
+      return trimmed;
+    }
+  }
+
+  if (typeof option.value === 'number' || typeof option.value === 'boolean') {
+    return String(option.value);
+  }
+
+  return option.label ? `Option disponible : ${option.label}` : DEFAULT_CARD_DESCRIPTION;
 };
 
 const getChoiceOptionImage = (option: ChoiceOption): string => ensureCardImage(option.image ?? null, option.label);
@@ -807,100 +853,6 @@ const formatChoiceValue = (key: string, value: any): string => {
   }
 
   return toLabel(value);
-};
-
-const getChoiceRequirement = (choice: any): number => {
-  const choose = Number(choice?.choose ?? 1);
-  if (!Number.isFinite(choose) || choose <= 0) {
-    return 1;
-  }
-  return Math.max(1, Math.floor(choose));
-};
-
-const choiceAllowsMultiple = (choice: any): boolean => getChoiceRequirement(choice) > 1;
-
-const getLocalChoiceCount = (choice: any): number => {
-  const key = getChoiceKey(choice);
-  if (!key) return 0;
-  const current = localChosen[key];
-  if (Array.isArray(current)) {
-    return current.length;
-  }
-  return valueExists(current) ? 1 : 0;
-};
-
-const isChoiceOptionSelected = (choice: any, option: ChoiceOption): boolean => {
-  const key = getChoiceKey(choice);
-  if (!key) return false;
-  const current = localChosen[key];
-  if (Array.isArray(current)) {
-    return current.some((entry) => isSameChoiceValue(entry, option.value));
-  }
-  return isSameChoiceValue(current, option.value);
-};
-
-const isChoiceOptionDisabled = (choice: any, option: ChoiceOption): boolean => {
-  if (!choiceAllowsMultiple(choice)) {
-    return false;
-  }
-  const key = getChoiceKey(choice);
-  if (!key) return false;
-  const current = Array.isArray(localChosen[key]) ? localChosen[key] : [];
-  if (current.some((entry) => isSameChoiceValue(entry, option.value))) {
-    return false;
-  }
-  const requirement = getChoiceRequirement(choice);
-  return Number.isFinite(requirement) && requirement > 0 && current.length >= requirement;
-};
-
-const handleChoiceOptionClick = (choice: any, option: ChoiceOption) => {
-  if (isChoiceOptionDisabled(choice, option)) {
-    return;
-  }
-  const key = getChoiceKey(choice);
-  if (!key) return;
-
-  if (!choiceAllowsMultiple(choice)) {
-    const current = localChosen[key];
-    if (isSameChoiceValue(current, option.value)) {
-      localChosen[key] = null;
-    } else {
-      localChosen[key] = option.value;
-    }
-    return;
-  }
-
-  const existing = Array.isArray(localChosen[key]) ? [...localChosen[key]] : [];
-  const index = existing.findIndex((entry) => isSameChoiceValue(entry, option.value));
-  if (index >= 0) {
-    existing.splice(index, 1);
-  } else {
-    const requirement = getChoiceRequirement(choice);
-    if (!Number.isFinite(requirement) || requirement <= 0 || existing.length < requirement) {
-      existing.push(option.value);
-    }
-  }
-  localChosen[key] = existing;
-};
-
-const getChoiceOptionDescription = (option: ChoiceOption): string => {
-  if (typeof option.description === 'string' && option.description.trim().length) {
-    return option.description.trim();
-  }
-  if (typeof option.value === 'string' && option.value.trim().length) {
-    return option.value.trim();
-  }
-  if (typeof option.value === 'number' || typeof option.value === 'boolean') {
-    return String(option.value);
-  }
-  return `Option disponible : ${option.label}`;
-};
-
-const getChoiceOptionImage = (option: ChoiceOption): string => {
-  if (typeof option.image === 'string' && option.image.trim().length) {
-    return option.image;
-  }
-  return placeholderCardImage;
 };
 
 const appliedChoices = computed(() => {
