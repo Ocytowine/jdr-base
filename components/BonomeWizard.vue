@@ -536,8 +536,6 @@ const localChosen = reactive<Record<string, any>>({});
 const choiceOptionCache = reactive<Record<string, ChoiceOption[]>>({});
 const choiceMetadata = reactive<Record<string, { label: string }>>({});
 
-type ChoiceOption = { value: any; label: string; description?: string; image?: string };
-
 const extractChoiceFrom = (choice: any): any[] => {
   if (Array.isArray(choice?.from) && choice.from.length) {
     return choice.from;
