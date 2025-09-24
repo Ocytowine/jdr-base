@@ -5,7 +5,11 @@
 import fs from 'fs/promises';
 import path from 'path';
 import EffectEngine from '~/engine/effectEngine';
-import { normalizeEffect, normalizeEffects, extractChoiceDescriptor } from '~/utils/normalizeEffect';
+import { normalizeEffect, extractChoiceDescriptor } from '~/utils/normalizeEffect';
+
+const TEXT_FIELDS = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
+const IMAGE_FIELDS = ['image', 'img', 'icon', 'art', 'avatar', 'illustration', 'picture', 'thumbnail'];
+const EFFECT_LABEL_FIELDS = ['effect_label', 'effectLabel', 'effect', 'summary', 'tagline', 'mecanique.effect_label', 'mecanique.effectLabel'];
 
 export type Selection = {
   class?: string | null;
@@ -272,13 +276,40 @@ export class CreationAdapterServer {
               if (!id) return null;
               const labelRaw = choice.label !== undefined && choice.label !== null ? choice.label : id;
               const label = String(labelRaw);
-              return { id, label };
+              const description =
+                choice.description !== undefined && choice.description !== null ? String(choice.description) : null;
+              const effectLabelRaw =
+                choice.effectLabel !== undefined && choice.effectLabel !== null
+                  ? choice.effectLabel
+                  : choice.effect_label !== undefined && choice.effect_label !== null
+                    ? choice.effect_label
+                    : null;
+              const effectLabel = effectLabelRaw !== null ? String(effectLabelRaw) : null;
+              const image = choice.image !== undefined && choice.image !== null ? String(choice.image) : null;
+              return { id, label, description, effectLabel, image };
             })
-            .filter((val): val is { id: string; label: string } => Boolean(val));
+            .filter(
+              (
+                val
+              ): val is {
+                id: string;
+                label: string;
+                description: string | null;
+                effectLabel: string | null;
+                image: string | null;
+              } => Boolean(val)
+            );
 
           if (normalized.length > 0) {
             const ids = normalized.map((item) => item.id);
-            const labels = normalized.map((item) => ({ id: item.id, label: item.label }));
+            const labels = normalized.map((item) => ({
+              id: item.id,
+              label: item.label,
+              description: item.description,
+              effectLabel: item.effectLabel,
+              effect_label: item.effectLabel,
+              image: item.image
+            }));
 
             cd.from = ids;
             cd.from_labels = labels;
@@ -297,7 +328,9 @@ export class CreationAdapterServer {
     pendingChoices.push(cd);
   }
 
-  async resolveAutoFromChoices(autoFrom: any): Promise<Array<{ id: string; label: string }>> {
+  async resolveAutoFromChoices(
+    autoFrom: any
+  ): Promise<Array<{ id: string; label: string; description?: string | null; effectLabel?: string | null; image?: string | null }>> {
     if (!autoFrom || typeof autoFrom !== 'object') return [];
     if (!this.adapter) return [];
 
@@ -427,17 +460,30 @@ export class CreationAdapterServer {
       return null;
     };
 
+    const pickFirstStringFromKeys = (entry: any, keys: string[]): string | null => {
+      for (const key of keys) {
+        const value = getNestedValue(entry, key);
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (trimmed.length) return trimmed;
+        }
+      }
+      return null;
+    };
+
     const seen = new Set<string>();
-    const mapped: Array<{ id: string; label: string }> = [];
+    const mapped: Array<{ id: string; label: string; description?: string | null; effectLabel?: string | null; image?: string | null }> = [];
     for (const entry of entries) {
       if (!entry || typeof entry !== 'object') continue;
       const id = pickFirstValue(entry, [...idFields, ...fallbackIdFields]);
       if (!id) continue;
-      const label =
-        pickFirstValue(entry, [...labelFields, ...fallbackLabelFields]) ?? id;
+      const label = pickFirstValue(entry, [...labelFields, ...fallbackLabelFields]) ?? id;
+      const description = pickFirstStringFromKeys(entry, TEXT_FIELDS);
+      const effectLabel = pickFirstStringFromKeys(entry, EFFECT_LABEL_FIELDS);
+      const image = pickFirstStringFromKeys(entry, IMAGE_FIELDS);
       if (seen.has(id)) continue;
       seen.add(id);
-      mapped.push({ id, label });
+      mapped.push({ id, label, description, effectLabel, image });
     }
 
     mapped.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));

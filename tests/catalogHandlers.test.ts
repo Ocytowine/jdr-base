@@ -11,6 +11,26 @@ class SuccessAdapter {
         'rogue'
       ];
     }
+    if (repoPath === 'classes/wizard.json') {
+      return {
+        id: 'wizard',
+        name: 'Wizard',
+        description: 'Maître des arcanes',
+        image: 'https://cdn.test/wizard.png',
+        effect_label: 'Réaction : +5 CA jusqu\'au prochain tour.'
+      };
+    }
+    if (repoPath === 'classes/fighter.json') {
+      return {
+        id: 'fighter',
+        name: 'Fighter',
+        description: 'Guerrier polyvalent',
+        effectLabel: 'Action bonus : Second souffle'
+      };
+    }
+    if (repoPath === 'classes/rogue.json') {
+      return { id: 'rogue', name: 'Rogue' };
+    }
     if (repoPath === 'races/index.json') {
       return [
         { id: 'humain', name: 'Humain', description: 'Polyvalent' },
@@ -18,11 +38,32 @@ class SuccessAdapter {
         'nain'
       ];
     }
+    if (repoPath === 'races/humain.json') {
+      return { id: 'humain', name: 'Humain', description: 'Polyvalent', effect_label: 'Polyvalence humaine' };
+    }
+    if (repoPath === 'races/elfe.json') {
+      return { id: 'elfe', name: 'Elfe', image: 'https://cdn.test/elfe.png' };
+    }
+    if (repoPath === 'races/nain.json') {
+      return { id: 'nain', name: 'Nain' };
+    }
     if (repoPath === 'backgrounds/index.json') {
       return [
         { key: 'acolyte', description: 'Serviteur du temple', image: 'https://cdn.test/acolyte.png' },
         { id: 'artisan', label: 'Artisan' }
       ];
+    }
+    if (repoPath === 'backgrounds/acolyte.json') {
+      return {
+        id: 'acolyte',
+        name: 'Acolyte',
+        description: 'Serviteur du temple',
+        image: 'https://cdn.test/acolyte.png',
+        effect_label: 'Compétences : Religion, Persuasion'
+      };
+    }
+    if (repoPath === 'backgrounds/artisan.json') {
+      return { id: 'artisan', name: 'Artisan' };
     }
     throw new Error(`unexpected path: ${repoPath}`);
   }
@@ -97,19 +138,25 @@ export async function run() {
       id: 'wizard',
       name: 'Wizard',
       description: 'Maître des arcanes',
-      image: 'https://cdn.test/wizard.png'
+      image: 'https://cdn.test/wizard.png',
+      effectLabel: "Réaction : +5 CA jusqu'au prochain tour.",
+      effect_label: "Réaction : +5 CA jusqu'au prochain tour."
     },
     {
       id: 'fighter',
       name: 'Fighter',
       description: 'Guerrier polyvalent',
-      image: null
+      image: null,
+      effectLabel: 'Action bonus : Second souffle',
+      effect_label: 'Action bonus : Second souffle'
     },
     {
       id: 'rogue',
       name: 'Rogue',
       description: null,
-      image: null
+      image: null,
+      effectLabel: null,
+      effect_label: null
     }
   ]);
 
@@ -118,19 +165,25 @@ export async function run() {
       id: 'humain',
       name: 'Humain',
       description: 'Polyvalent',
-      image: null
+      image: null,
+      effectLabel: 'Polyvalence humaine',
+      effect_label: 'Polyvalence humaine'
     },
     {
       id: 'elfe',
       name: 'Elfe',
       description: null,
-      image: 'https://cdn.test/elfe.png'
+      image: 'https://cdn.test/elfe.png',
+      effectLabel: null,
+      effect_label: null
     },
     {
       id: 'nain',
       name: 'Nain',
       description: null,
-      image: null
+      image: null,
+      effectLabel: null,
+      effect_label: null
     }
   ]);
 
@@ -139,13 +192,17 @@ export async function run() {
       id: 'acolyte',
       name: 'Acolyte',
       description: 'Serviteur du temple',
-      image: 'https://cdn.test/acolyte.png'
+      image: 'https://cdn.test/acolyte.png',
+      effectLabel: 'Compétences : Religion, Persuasion',
+      effect_label: 'Compétences : Religion, Persuasion'
     },
     {
       id: 'artisan',
       name: 'Artisan',
       description: null,
-      image: null
+      image: null,
+      effectLabel: null,
+      effect_label: null
     }
   ]);
 
@@ -155,17 +212,17 @@ export async function run() {
   const backgroundsFallback = await backgroundsHandler({} as any);
 
   assert.deepEqual(classesFallback, [
-    { id: 'barbare', name: 'Barbare', description: null, image: null },
-    { id: 'barde', name: 'Barde', description: null, image: null },
-    { id: 'ensorceleur', name: 'Ensorceleur', description: null, image: null }
+    { id: 'barbare', name: 'Barbare', description: null, image: null, effectLabel: null, effect_label: null },
+    { id: 'barde', name: 'Barde', description: null, image: null, effectLabel: null, effect_label: null },
+    { id: 'ensorceleur', name: 'Ensorceleur', description: null, image: null, effectLabel: null, effect_label: null }
   ]);
   assert.deepEqual(racesFallback, [
-    { id: 'elfe', name: 'Elfe', description: null, image: null },
-    { id: 'nain', name: 'Nain', description: null, image: null }
+    { id: 'elfe', name: 'Elfe', description: null, image: null, effectLabel: null, effect_label: null },
+    { id: 'nain', name: 'Nain', description: null, image: null, effectLabel: null, effect_label: null }
   ]);
   assert.deepEqual(backgroundsFallback, [
-    { id: 'acolyte', name: 'Acolyte', description: null, image: null },
-    { id: 'soldat', name: 'Soldat', description: null, image: null }
+    { id: 'acolyte', name: 'Acolyte', description: null, image: null, effectLabel: null, effect_label: null },
+    { id: 'soldat', name: 'Soldat', description: null, image: null, effectLabel: null, effect_label: null }
   ]);
 
   const originalError = console.error;
