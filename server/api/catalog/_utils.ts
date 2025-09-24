@@ -9,7 +9,7 @@ export type CatalogEntry = {
   description: string | null;
   image: string | null;
 };
-type CatalogKind = 'classes' | 'races' | 'backgrounds';
+type CatalogKind = 'classes' | 'races' | 'backgrounds' | 'spells';
 
 type IndexEntry = string | number | boolean | { [key: string]: any } | null | undefined;
 
