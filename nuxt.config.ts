@@ -2,6 +2,7 @@
 // Rôle : Configuration Nuxt. On active Pinia et on fixe des meta simples.
 export default defineNuxtConfig({
   modules: ['@pinia/nuxt'],
+  css: ['~/assets/css/tailwind.css'],
   devtools: { enabled: true },
   nitro: {
     compatibilityDate: '2025-09-15',
