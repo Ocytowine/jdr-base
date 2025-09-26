@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
-import { useNuxtApp } from '#app';
 
 export type CatalogEntry = {
   id: string;
@@ -295,7 +294,7 @@ const formatChoiceValue = (key: string, value: any, options: ChoiceOption[]): st
 };
 
 export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
-  const nuxtApp = useNuxtApp();
+  const requestFetch = useRequestFetch();
 
   const classes = ref<CatalogEntry[]>([]);
   const races = ref<CatalogEntry[]>([]);
@@ -675,21 +674,21 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     };
 
     try {
-      const response = await nuxtApp.$fetch('/api/catalog/classes').catch(() => null);
+      const response = await requestFetch('/api/catalog/classes').catch(() => null);
       assignCatalog(classes, response, ['mage']);
     } catch (error) {
       classes.value = fallbackCatalogEntries(['mage']);
     }
 
     try {
-      const response = await nuxtApp.$fetch('/api/catalog/races').catch(() => null);
+      const response = await requestFetch('/api/catalog/races').catch(() => null);
       assignCatalog(races, response, ['humain', 'elfe']);
     } catch (error) {
       races.value = fallbackCatalogEntries(['humain', 'elfe']);
     }
 
     try {
-      const response = await nuxtApp.$fetch('/api/catalog/backgrounds').catch(() => null);
+      const response = await requestFetch('/api/catalog/backgrounds').catch(() => null);
       assignCatalog(backgrounds, response, ['acolyte']);
     } catch (error) {
       backgrounds.value = fallbackCatalogEntries(['acolyte']);
@@ -721,7 +720,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         }
       };
 
-      const res = await nuxtApp.$fetch('/api/creation/preview', {
+      const res = await requestFetch('/api/creation/preview', {
         method: 'POST',
         body
       });
