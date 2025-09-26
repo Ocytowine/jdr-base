@@ -6,13 +6,16 @@ export default defineNuxtConfig({
   postcss: {
     plugins: {
       '@tailwindcss/postcss': {},
-      'autoprefixer': {}
+      'autoprefixer': {},
     }
   },
 
+  // <-- AJOUT: modules
+  modules: ['@pinia/nuxt'],
+
   devtools: { enabled: true },
   nitro: {
-    compatibilityDate: '2025-09-15',
+    compatibilityDate: '2025-09-26',
   },
   app: {
     head: {

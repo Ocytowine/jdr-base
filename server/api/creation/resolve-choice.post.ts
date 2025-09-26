@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
     try {
       mod = await import('~/utils/dataAdapterV2GitHub');
     } catch (e) {
-      mod = await import('../../../utils/dataAdapterV2GitHub');
+      mod = await import('~/utils/dataAdapterV2GitHub');
     }
     const DataAdapterV2GitHub = mod?.DataAdapterV2GitHub || mod?.default || mod;
     if (!DataAdapterV2GitHub) throw new Error('DataAdapterV2GitHub not found');
