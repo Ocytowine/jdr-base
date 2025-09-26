@@ -312,6 +312,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const rawText = ref<string>('');
   const showRaw = ref(false);
   const initialized = ref(false);
+  const hasRestoredSelections = ref(false);
 
   const baseStats = reactive({
     strength: 8,
@@ -637,7 +638,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   };
 
   const restoreSelections = () => {
-    if (!process.client) return;
+    if (!process.client || hasRestoredSelections.value) return;
     try {
       const raw = localStorage.getItem('bonome_creation_state');
       if (!raw) return;
@@ -658,6 +659,8 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       }
     } catch (err) {
       console.warn('Restore selections failed', err);
+    } finally {
+      hasRestoredSelections.value = true;
     }
   };
 
@@ -839,9 +842,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   });
 
   const initialize = async () => {
+    restoreSelections();
     if (initialized.value) return;
     initialized.value = true;
-    restoreSelections();
     await loadCatalog();
     await sendPreview();
   };

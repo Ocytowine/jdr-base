@@ -30,7 +30,8 @@ for (const file of testFiles) {
     logLevel: 'silent',
     alias: {
       '~': projectRoot,
-      '@': projectRoot
+      '@': projectRoot,
+      '#app': path.join(projectRoot, 'tests/stubs/nuxtApp.ts')
     }
   });
 
