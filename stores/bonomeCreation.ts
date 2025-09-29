@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
+import type { Personnage } from './personnage';
 
 import { usePersonnage, type Personnage } from './personnage';
 
@@ -842,81 +843,128 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     return out;
   });
 
-  const createPersonnagePayload = (): Personnage | null => {
-    if (!preview.value?.ok || !preview.value?.previewCharacter) {
-      return null;
+  const createPersonnagePayload = async (): Promise<Personnage> => {
+    if (!preview.value?.ok) {
+      throw new Error('Aucune prévisualisation valide disponible.');
     }
 
-    const personnageStore = usePersonnage();
-    const basePersonnage = personnageStore?.perso ?? ({} as Personnage);
-    const previewCharacter = preview.value.previewCharacter as any;
-    const finalStats = (previewCharacter?.final_stats ?? {}) as Record<string, unknown>;
-    type EnglishStat = keyof typeof baseStats;
-    const STAT_MAP: Record<EnglishStat, keyof Personnage['caracs']> = {
-      strength: 'force',
-      dexterity: 'dexterite',
-      constitution: 'constitution',
-      intelligence: 'intelligence',
-      wisdom: 'sagesse',
-      charisma: 'charisme'
+    const previewCharacter = (preview.value?.previewCharacter ?? {}) as Record<string, any>;
+
+    const statsSource = {
+      ...(previewCharacter.base_stats_before_race ?? {}),
+      ...(previewCharacter.final_stats ?? {})
+    } as Record<string, unknown>;
+
+    const ensureNumber = (value: unknown, fallback = 0): number => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
     };
 
-    const defaultCaracs: Personnage['caracs'] = {
-      force: 0,
-      dexterite: 0,
-      constitution: 0,
-      intelligence: 0,
-      sagesse: 0,
-      charisme: 0
+    const getStat = (key: keyof typeof baseStats) => {
+      if (key in statsSource) {
+        const candidate = statsSource[key];
+        if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+          return candidate;
+        }
+      }
+      const fallback = baseStats[key];
+      return typeof fallback === 'number' && Number.isFinite(fallback) ? fallback : 0;
     };
-    const caracs = {
-      ...defaultCaracs,
-      ...(basePersonnage?.caracs ?? {})
-    } as Personnage['caracs'];
-    (Object.keys(STAT_MAP) as EnglishStat[]).forEach((key) => {
-      const mappedKey = STAT_MAP[key];
-      const raw = finalStats?.[key];
-      if (typeof raw === 'number') {
-        caracs[mappedKey] = raw;
-        return;
-      }
-      const baseValue = baseStats[key];
-      if (typeof baseValue === 'number') {
-        caracs[mappedKey] = baseValue;
-        return;
-      }
-      caracs[mappedKey] = basePersonnage?.caracs?.[mappedKey] ?? 0;
-    });
 
-    const availableCompetences = personnageStore?.listeCompetences ?? [];
-    const proficiencies = Array.isArray(previewCharacter?.proficiencies)
-      ? (previewCharacter.proficiencies as unknown[])
-      : [];
-    const proficiencySet = new Set(
-      proficiencies.filter((entry): entry is string => typeof entry === 'string')
-    );
+    const statMap: Array<{ target: keyof Personnage['caracs']; source: keyof typeof baseStats }> = [
+      { target: 'force', source: 'strength' },
+      { target: 'dexterite', source: 'dexterity' },
+      { target: 'constitution', source: 'constitution' },
+      { target: 'intelligence', source: 'intelligence' },
+      { target: 'sagesse', source: 'wisdom' },
+      { target: 'charisme', source: 'charisma' }
+    ];
 
-    const competences: Record<string, boolean> = {};
-    for (const competence of availableCompetences) {
-      competences[competence.id] = proficiencySet.has(competence.id);
-    }
-    for (const extra of proficiencySet) {
-      if (!(extra in competences)) {
-        competences[extra] = true;
+    const caracs = statMap.reduce((acc, entry) => {
+      acc[entry.target] = getStat(entry.source);
+      return acc;
+    }, {} as Personnage['caracs']);
+
+    const identityLabels = identitySummary.value.reduce<Record<string, string>>((acc, entry) => {
+      acc[entry.id] = entry.name;
+      return acc;
+    }, {});
+
+    const toDisplayString = (value: unknown, fallback = ''): string => {
+      if (typeof value === 'string' && value.trim().length) {
+        return value.trim();
       }
-    }
+      return fallback;
+    };
 
-    const trimmedName = characterName.value.trim();
-    const baseNiveau = typeof basePersonnage?.niveau === 'number' ? basePersonnage.niveau : 1;
+    const toList = (value: unknown): string[] => {
+      if (!Array.isArray(value)) {
+        return [];
+      }
+      return value
+        .map((entry) => {
+          if (typeof entry === 'string') {
+            return entry;
+          }
+          if (entry && typeof entry === 'object') {
+            if ('label' in entry && typeof entry.label === 'string') {
+              return entry.label;
+            }
+            if ('name' in entry && typeof entry.name === 'string') {
+              return entry.name;
+            }
+          }
+          try {
+            return JSON.stringify(entry);
+          } catch (err) {
+            return String(entry);
+          }
+        })
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+    };
+
+    const proficiencies = toList(previewCharacter.proficiencies).reduce<Record<string, boolean>>((acc, entry) => {
+      acc[entry] = true;
+      return acc;
+    }, {});
+
+    const languages = toList(previewCharacter.languages);
+    const equipment = toList(previewCharacter.equipment);
+
     const personnage: Personnage = {
-      ...basePersonnage,
-      nom: trimmedName.length ? trimmedName : displayCharacterName.value,
-      lignee: selectedRace.value || basePersonnage?.lignee || '',
-      historique: selectedBackground.value || basePersonnage?.historique || '',
-      classe: selectedClass.value || basePersonnage?.classe || '',
-      niveau: Number.isFinite(Number(niveau.value)) ? Number(niveau.value) : baseNiveau,
+      id: toDisplayString(previewCharacter.id, `pj_${Date.now()}`),
+      nom: displayCharacterName.value,
+      lignee: toDisplayString(identityLabels.race, '—'),
+      age: ensureNumber(previewCharacter.age, 18),
+      alignement: toDisplayString(previewCharacter.alignement, 'Neutre'),
+      historique: toDisplayString(identityLabels.background, ''),
+      classe: toDisplayString(identityLabels.class, ''),
+      sousClasse: toDisplayString(previewCharacter.subclass ?? previewCharacter.sousClasse, ''),
+      niveau: ensureNumber(previewCharacter.niveau ?? niveau.value, 1),
+      dv: ensureNumber(previewCharacter.dv ?? previewCharacter.hit_dice, 0),
+      pvActuels: ensureNumber(
+        previewCharacter.pvActuels ??
+          previewCharacter.hp?.current ??
+          previewCharacter.final_stats?.hp ??
+          previewCharacter.hp,
+        0
+      ),
       caracs,
-      competences
+      competences: proficiencies,
+      langues: languages.length ? languages.join(', ') : 'Commun',
+      equipement: equipment.join(', '),
+      armure: { type: 'aucune' },
+      bouclier: Boolean(previewCharacter.bouclier ?? false),
+      monture: {
+        nom: toDisplayString(previewCharacter.monture?.nom ?? ''),
+        vitesse: toDisplayString(previewCharacter.monture?.vitesse ?? ''),
+        notes: toDisplayString(previewCharacter.monture?.notes ?? '')
+      },
+      inspiration: Boolean(previewCharacter.inspiration ?? false)
     };
 
     return personnage;
@@ -976,6 +1024,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     appliedChoices,
     sendPreview,
     loadCatalog,
-    initialize
+    initialize,
+    createPersonnagePayload
   };
 });
