@@ -25,7 +25,7 @@
                 v-for="option in group.options"
                 :key="option.id"
                 type="button"
-                class="snap-center w-full text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                class="snap-center w-[360px] min-w-[360px] max-w-[360px] shrink-0 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 :aria-pressed="group.selected === option.id"
                 @click="selectPrimaryOption(group.id, option.id)"
               >
@@ -104,7 +104,7 @@
                   v-for="(opt, optIdx) in getChoiceOptions(choice)"
                   :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
                   type="button"
-                  class="snap-center w-full text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  class="snap-center w-[360px] min-w-[360px] max-w-[360px] shrink-0 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   :class="{
                     'cursor-not-allowed opacity-60': isChoiceOptionDisabled(choice, opt)
                   }"
