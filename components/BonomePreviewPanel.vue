@@ -129,15 +129,66 @@
     </div>
 
     <div v-else class="text-sm text-gray-600">Lancez une prévisualisation pour voir un aperçu détaillé du personnage.</div>
+
+    <div class="pt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <p v-if="saveError" class="text-sm text-red-600">{{ saveError }}</p>
+      <button
+        class="btn self-end sm:self-auto"
+        type="button"
+        @click="handleSave"
+        :disabled="saving || !canSave"
+      >
+        <span v-if="saving">Sauvegarde…</span>
+        <span v-else>Sauvegarder ce personnage</span>
+      </button>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useRouter } from '#app';
 import { useBonomeCreationStore } from '@/stores/bonomeCreation';
+import { usePersonnage } from '@/stores/personnage';
 
+const router = useRouter();
 const creation = useBonomeCreationStore();
+const personnageStore = usePersonnage();
+
 const { preview, identitySummary, displayCharacterName, previewPortrait, displayStats } = storeToRefs(creation);
+
+const canSave = computed(() => preview.value?.ok && !(preview.value?.errors?.length));
+const saving = ref(false);
+const saveError = ref<string | null>(null);
+
+async function handleSave() {
+  if (!canSave.value || saving.value) {
+    return;
+  }
+
+  saving.value = true;
+  saveError.value = null;
+
+  try {
+    const payload = await creation.createPersonnagePayload();
+    if (!payload) {
+      throw new Error("La génération du personnage n'a retourné aucune donnée.");
+    }
+
+    personnageStore.perso = payload;
+    personnageStore.sauvegarderLocal();
+
+    await router.push('/aventure');
+  } catch (err: any) {
+    // eslint-disable-next-line no-console
+    console.error('[BonomePreviewPanel] handleSave failed', err);
+    const message = err?.message ?? err;
+    saveError.value = message ? `Impossible de sauvegarder la fiche : ${String(message)}` : 'Impossible de sauvegarder la fiche.';
+  } finally {
+    saving.value = false;
+  }
+}
 </script>
 
 <style scoped>
