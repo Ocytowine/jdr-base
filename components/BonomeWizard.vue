@@ -28,18 +28,18 @@
                 :description="option.description"
                 :effact-label="option.effectLabel ?? undefined"
                 :image="option.image"
-                :show-actions="false"
                 role="option"
                 :aria-selected="group.selected === option.id"
-                :cta="group.selected === option.id ? 'Sélectionné' : 'Choisir'"
-                :cta-variant="group.selected === option.id ? 'secondary' : 'primary'"
+                :selection-state="group.selected === option.id ? 'write' : 'none'"
                 :class="[
                   'snap-center focus-within:ring-2 focus-within:ring-blue-500',
                   group.selected === option.id
                     ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
                     : 'hover:border-slate-300 hover:shadow'
                 ]"
-                @select="selectPrimaryOption(group.id, option.id)"
+                @write="selectPrimaryOption(group.id, option.id)"
+                @write-prepare="selectPrimaryOption(group.id, option.id)"
+                @reset="resetPrimarySelection(group.id, option.id)"
               />
             </div>
           </div>
@@ -106,12 +106,9 @@
                   :description="getChoiceOptionDescription(opt)"
                   :effact-label="opt.effectLabel ?? opt.effect_label ?? undefined"
                   :image="getChoiceOptionImage(opt)"
-                  :show-actions="false"
                   role="option"
                   :aria-selected="isChoiceOptionSelected(choice, opt)"
-                  :cta="isChoiceOptionSelected(choice, opt) ? 'Sélectionné' : 'Choisir'"
-                  :cta-variant="isChoiceOptionSelected(choice, opt) ? 'secondary' : 'primary'"
-                  :cta-disabled="isChoiceOptionDisabled(choice, opt)"
+                  :selection-state="isChoiceOptionSelected(choice, opt) ? 'write' : 'none'"
                   :class="[
                     'snap-center focus-within:ring-2 focus-within:ring-blue-500',
                     isChoiceOptionSelected(choice, opt)
@@ -119,7 +116,9 @@
                       : 'hover:border-slate-300 hover:shadow',
                     isChoiceOptionDisabled(choice, opt) ? 'cursor-not-allowed opacity-60' : ''
                   ]"
-                  @select="handleChoiceOptionClick(choice, opt)"
+                  @write="handleChoiceOptionClick(choice, opt)"
+                  @write-prepare="handleChoiceOptionClick(choice, opt)"
+                  @reset="resetChoiceOption(choice, opt)"
                 />
               </div>
             </div>
@@ -187,8 +186,27 @@ const {
   niveau,
   baseStats,
   preview,
-  appliedChoices
+  appliedChoices,
+  selectedClass,
+  selectedRace,
+  selectedBackground
 } = storeToRefs(creation);
+
+const resetPrimarySelection = (
+  groupId: 'class' | 'race' | 'background',
+  optionId: string
+) => {
+  const map = {
+    class: selectedClass,
+    race: selectedRace,
+    background: selectedBackground
+  } as const;
+  const target = map[groupId];
+  if (!target) return;
+  if (target.value === optionId) {
+    target.value = '';
+  }
+};
 
 const {
   getPrimarySelectedLabel,
@@ -211,6 +229,12 @@ const {
   resetChosenOptions,
   resetChoiceById
 } = creation;
+
+const resetChoiceOption = (choice: any, option: any) => {
+  if (isChoiceOptionSelected(choice, option)) {
+    handleChoiceOptionClick(choice, option);
+  }
+};
 
 onMounted(() => {
   creation.initialize();

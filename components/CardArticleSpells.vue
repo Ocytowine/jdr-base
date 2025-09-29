@@ -1,21 +1,15 @@
 <template>
-  <article
-    :class="cardClass"
-    @mouseenter="hovering = true"
-    @mouseleave="hovering = false"
-  >
-    <!-- Image -->
-      <img
-        :src="props.image || '/images/card.jpg'"
-        :alt="props.imageAlt"
-        class="h-48 w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-        loading="lazy"
-      />
+  <article :class="cardClass">
+    <img
+      :src="props.image || '/images/card.jpg'"
+      :alt="props.imageAlt"
+      class="h-48 w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+      loading="lazy"
+    />
 
-    <!-- Body -->
     <div class="p-6 flex-1 overflow-hidden">
       <h3 class="text-2xl font-extrabold leading-tight text-slate-50">
-          {{ props.title }}
+        {{ props.title }}
       </h3>
 
       <p class="mt-3 text-slate-200 line-clamp-6 break-words whitespace-pre-line">
@@ -23,19 +17,13 @@
       </p>
     </div>
 
-    <!-- Footer (badge + fixed-size button) -->
-    <footer
-      v-if="props.showActions || hasCta"
-      class="px-6 py-4 border-t border-slate-800 relative bg-gradient-to-t from-transparent to-transparent"
-    >
+    <footer class="px-6 py-4 border-t border-slate-800 relative bg-gradient-to-t from-transparent to-transparent">
       <div class="flex items-center justify-between gap-4">
         <div class="text-sm text-slate-300">
           <slot name="meta"></slot>
         </div>
 
-        <!-- right group: badge (flex-1) + fixed button -->
         <div class="flex items-center gap-3 min-w-0">
-          <!-- badge container: take remaining space, allow wrap, won't push button -->
           <div class="flex-1 min-w-0">
             <span
               v-if="props.effactLabel"
@@ -48,21 +36,29 @@
             </span>
           </div>
 
-          <!-- Action button (FIXED size) -->
-          <div v-if="props.showActions" class="relative" ref="btnWrapper">
+          <div class="relative" ref="btnWrapper">
             <button
+              type="button"
               @click="toggleMenu"
               :aria-expanded="isOpen"
               class="w-36 h-10 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 font-medium text-sm bg-slate-700 text-white hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500 transition-colors truncate"
             >
-              <!-- label truncated if too long, button won’t change size -->
               <span class="truncate max-w-[10rem]">{{ buttonLabel }}</span>
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.293l3.71-4.063a.75.75 0 011.1 1.02l-4.25 4.657a.75.75 0 01-1.1 0L5.25 8.27a.75.75 0 01-.02-1.06z" clip-rule="evenodd" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-4 h-4 shrink-0"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.293l3.71-4.063a.75.75 0 0 1 1.1 1.02l-4.25 4.657a.75.75 0 0 1-1.1 0L5.25 8.27a.75.75 0 0 1-.02-1.06z"
+                  clip-rule="evenodd"
+                />
               </svg>
             </button>
 
-            <!-- Dropdown (position absolute; n'affecte pas la taille) -->
             <div
               v-if="isOpen"
               ref="menu"
@@ -71,6 +67,7 @@
               <ul class="py-2">
                 <li>
                   <button
+                    type="button"
                     @click="choose('write')"
                     class="w-full text-left px-4 py-2 hover:bg-slate-700"
                   >
@@ -79,6 +76,7 @@
                 </li>
                 <li>
                   <button
+                    type="button"
                     @click="choose('write-prepare')"
                     class="w-full text-left px-4 py-2 hover:bg-slate-700"
                   >
@@ -87,6 +85,7 @@
                 </li>
                 <li>
                   <button
+                    type="button"
                     @click="resetSelection"
                     class="w-full text-left px-4 py-2 hover:bg-slate-700 text-amber-300"
                   >
@@ -96,19 +95,6 @@
               </ul>
             </div>
           </div>
-
-          <div v-else-if="hasCta">
-            <button
-              type="button"
-              class="w-36 h-10 inline-flex items-center justify-center rounded-xl px-4 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 transition-colors truncate"
-              :class="ctaButtonClass"
-              :disabled="props.ctaDisabled"
-              :aria-label="props.cta"
-              @click="emit('select')"
-            >
-              <span class="truncate max-w-[10rem]">{{ props.cta }}</span>
-            </button>
-          </div>
         </div>
       </div>
     </footer>
@@ -116,12 +102,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 
-/* emits */
-const emit = defineEmits(['write', 'write-prepare', 'reset', 'select'])
+const emit = defineEmits(['write', 'write-prepare', 'reset'])
 
-/* props */
 const props = withDefaults(defineProps<{
   title: string
   description?: string
@@ -130,29 +114,30 @@ const props = withDefaults(defineProps<{
   href?: string
   effactLabel?: string
   effactVariant?: 'primary' | 'light' | 'outline'
-  showActions?: boolean
-  cta?: string
-  ctaVariant?: 'primary' | 'secondary'
-  ctaDisabled?: boolean
+  selectionState?: 'none' | 'write' | 'write-prepare'
 }>(), {
   description: '',
   imageAlt: 'Card image',
   href: '#',
   effactVariant: 'primary',
-  showActions: true,
-  ctaVariant: 'primary',
-  ctaDisabled: false
+  selectionState: 'none'
 })
 
-/* state */
 const isOpen = ref(false)
-const selected = ref<'none' | 'write' | 'write-prepare'>('none')
+const selected = ref<'none' | 'write' | 'write-prepare'>(props.selectionState)
 const btnWrapper = ref<HTMLElement | null>(null)
-const hovering = ref(false)
 
-const hasCta = computed(() => Boolean(props.cta))
+watch(
+  () => props.selectionState,
+  (state) => {
+    const nextState = state ?? 'none'
+    if (selected.value !== nextState) {
+      selected.value = nextState
+    }
+  },
+  { immediate: true }
+)
 
-/* interactions */
 function toggleMenu() {
   isOpen.value = !isOpen.value
 }
@@ -170,16 +155,16 @@ function resetSelection() {
   emit('reset', { title: props.title })
 }
 
-/* close on outside click */
 function handleClickOutside(e: MouseEvent) {
   const t = e.target as Node
   if (!btnWrapper.value) return
   if (!btnWrapper.value.contains(t)) isOpen.value = false
 }
+
 onMounted(() => document.addEventListener('click', handleClickOutside))
+
 onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
 
-/* badge classes */
 const badgeClass = computed(() => {
   const base = 'inline-flex items-center gap-2 px-3 py-1 text-sm font-semibold rounded-full shadow-sm transition-all'
   const variants: Record<string, string> = {
@@ -190,36 +175,22 @@ const badgeClass = computed(() => {
   return `${base} ${variants[props.effactVariant || 'primary']}`
 })
 
-/* fixed button label (can change) */
 const buttonLabel = computed(() => {
   if (selected.value === 'write') return 'Écrit ✔'
   if (selected.value === 'write-prepare') return 'Écrit & Préparé ✔'
   return 'Actions'
 })
 
-const ctaButtonClass = computed(() => {
-  const base = 'bg-slate-700 text-white hover:bg-slate-600 disabled:bg-slate-600/70 disabled:text-slate-200/70 disabled:cursor-not-allowed'
-  const secondary = 'bg-white/10 text-slate-100 hover:bg-white/20 disabled:bg-white/10 disabled:text-slate-200/70 disabled:cursor-not-allowed'
-  return props.ctaVariant === 'secondary' ? secondary : base
-})
-
-/* CARD classes:
-   - taille figée (w + h)
-   - hover animation toujours active
-   - glow appliqué à la card (et n'affecte pas la taille du layout)
-*/
 const cardClass = computed(() => {
-  const width = 'w-[360px] min-w-[360px] max-w-[360px] shrink-0'      // fixe largeur
-  const height = 'h-[460px]'     // fixe hauteur
+  const width = 'w-[360px] min-w-[360px] max-w-[360px] shrink-0'
+  const height = 'h-[460px]'
   const surfaceColors = 'bg-[#0f1330] text-slate-100'
   const base = `relative ${width} ${height} rounded-2xl overflow-hidden ${surfaceColors} group flex flex-col transform-gpu transition-transform duration-300`
   const hoverEffect = 'hover:-translate-y-2 hover:scale-[1.01] hover:shadow-2xl'
-  // border according to selection: none -> transparent, write-prepare -> blue, write -> green
   const borderClasses =
     selected.value === 'write-prepare' ? 'border-2 border-sky-500' :
     selected.value === 'write' ? 'border-2 border-emerald-400' :
     'border border-transparent'
-  // optional glow/ring to emphasize selection (kept subtle)
   const glow =
     selected.value === 'write-prepare' ? 'ring-2 ring-sky-400/30 shadow-[0_12px_40px_rgba(59,130,246,0.08)]' :
     selected.value === 'write' ? 'ring-2 ring-emerald-400/20 shadow-[0_10px_30px_rgba(52,211,153,0.06)]' :
