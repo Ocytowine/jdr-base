@@ -14,11 +14,11 @@
 
     <!-- Body -->
     <div class="p-6 flex-1 overflow-hidden">
-      <h3 class="text-2xl font-extrabold leading-tight text-slate-100">
+      <h3 class="text-2xl font-extrabold leading-tight text-slate-50">
           {{ props.title }}
       </h3>
 
-      <p class="mt-3 text-slate-300 line-clamp-6">
+      <p class="mt-3 text-slate-200 line-clamp-6">
         {{ props.description }}
       </p>
     </div>
@@ -185,7 +185,8 @@ const buttonLabel = computed(() => {
 const cardClass = computed(() => {
   const width = 'w-[360px]'      // fixe largeur
   const height = 'h-[460px]'     // fixe hauteur
-  const base = `relative ${width} ${height} rounded-2xl overflow-hidden bg-[#0f1330] text-slate-100 group flex flex-col transform-gpu transition-transform duration-300`
+  const surfaceColors = 'bg-[#0f1330] text-slate-100'
+  const base = `relative ${width} ${height} rounded-2xl overflow-hidden ${surfaceColors} group flex flex-col transform-gpu transition-transform duration-300`
   const hoverEffect = 'hover:-translate-y-2 hover:scale-[1.01] hover:shadow-2xl'
   // border according to selection: none -> transparent, write-prepare -> blue, write -> green
   const borderClasses =
