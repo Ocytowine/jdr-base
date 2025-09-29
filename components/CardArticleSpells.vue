@@ -18,7 +18,7 @@
           {{ props.title }}
       </h3>
 
-      <p class="mt-3 text-slate-200 line-clamp-6">
+      <p class="mt-3 text-slate-200 line-clamp-6 break-words whitespace-pre-line">
         {{ props.description }}
       </p>
     </div>
