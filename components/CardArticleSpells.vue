@@ -25,7 +25,7 @@
 
     <!-- Footer (badge + fixed-size button) -->
     <footer
-      v-if="props.showActions"
+      v-if="props.showActions || hasCta"
       class="px-6 py-4 border-t border-slate-800 relative bg-gradient-to-t from-transparent to-transparent"
     >
       <div class="flex items-center justify-between gap-4">
@@ -49,7 +49,7 @@
           </div>
 
           <!-- Action button (FIXED size) -->
-          <div class="relative" ref="btnWrapper">
+          <div v-if="props.showActions" class="relative" ref="btnWrapper">
             <button
               @click="toggleMenu"
               :aria-expanded="isOpen"
@@ -96,6 +96,19 @@
               </ul>
             </div>
           </div>
+
+          <div v-else-if="hasCta">
+            <button
+              type="button"
+              class="w-36 h-10 inline-flex items-center justify-center rounded-xl px-4 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 transition-colors truncate"
+              :class="ctaButtonClass"
+              :disabled="props.ctaDisabled"
+              :aria-label="props.cta"
+              @click="emit('select')"
+            >
+              <span class="truncate max-w-[10rem]">{{ props.cta }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </footer>
@@ -106,7 +119,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 
 /* emits */
-const emit = defineEmits(['write', 'write-prepare', 'reset'])
+const emit = defineEmits(['write', 'write-prepare', 'reset', 'select'])
 
 /* props */
 const props = withDefaults(defineProps<{
@@ -118,12 +131,17 @@ const props = withDefaults(defineProps<{
   effactLabel?: string
   effactVariant?: 'primary' | 'light' | 'outline'
   showActions?: boolean
+  cta?: string
+  ctaVariant?: 'primary' | 'secondary'
+  ctaDisabled?: boolean
 }>(), {
   description: '',
   imageAlt: 'Card image',
   href: '#',
   effactVariant: 'primary',
-  showActions: true
+  showActions: true,
+  ctaVariant: 'primary',
+  ctaDisabled: false
 })
 
 /* state */
@@ -131,6 +149,8 @@ const isOpen = ref(false)
 const selected = ref<'none' | 'write' | 'write-prepare'>('none')
 const btnWrapper = ref<HTMLElement | null>(null)
 const hovering = ref(false)
+
+const hasCta = computed(() => Boolean(props.cta))
 
 /* interactions */
 function toggleMenu() {
@@ -175,6 +195,12 @@ const buttonLabel = computed(() => {
   if (selected.value === 'write') return 'Écrit ✔'
   if (selected.value === 'write-prepare') return 'Écrit & Préparé ✔'
   return 'Actions'
+})
+
+const ctaButtonClass = computed(() => {
+  const base = 'bg-slate-700 text-white hover:bg-slate-600 disabled:bg-slate-600/70 disabled:text-slate-200/70 disabled:cursor-not-allowed'
+  const secondary = 'bg-white/10 text-slate-100 hover:bg-white/20 disabled:bg-white/10 disabled:text-slate-200/70 disabled:cursor-not-allowed'
+  return props.ctaVariant === 'secondary' ? secondary : base
 })
 
 /* CARD classes:
