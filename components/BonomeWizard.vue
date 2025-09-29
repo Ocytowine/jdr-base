@@ -21,27 +21,26 @@
             <div
               class="grid grid-flow-col auto-cols-[360px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
             >
-              <button
+              <CardArticleSpells
                 v-for="option in group.options"
                 :key="option.id"
-                type="button"
-                class="snap-center w-[360px] min-w-[360px] max-w-[360px] shrink-0 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                :aria-pressed="group.selected === option.id"
-                @click="selectPrimaryOption(group.id, option.id)"
-              >
-                <CardArticleSpells
-                  :title="option.label"
-                  :description="option.description"
-                  :effact-label="option.effectLabel ?? undefined"
-                  :image="option.image"
-                  :show-actions="false"
-                  :class="[
-                    group.selected === option.id
-                      ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
-                      : 'hover:border-slate-300 hover:shadow'
-                  ]"
-                />
-              </button>
+                :title="option.label"
+                :description="option.description"
+                :effact-label="option.effectLabel ?? undefined"
+                :image="option.image"
+                :show-actions="false"
+                role="option"
+                :aria-selected="group.selected === option.id"
+                :cta="group.selected === option.id ? 'Sélectionné' : 'Choisir'"
+                :cta-variant="group.selected === option.id ? 'secondary' : 'primary'"
+                :class="[
+                  'snap-center focus-within:ring-2 focus-within:ring-blue-500',
+                  group.selected === option.id
+                    ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
+                    : 'hover:border-slate-300 hover:shadow'
+                ]"
+                @select="selectPrimaryOption(group.id, option.id)"
+              />
             </div>
           </div>
           <div v-else class="text-sm text-gray-500">Aucune option disponible pour l'instant.</div>
@@ -100,30 +99,28 @@
               <div
                 class="grid grid-flow-col auto-cols-[360px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
               >
-                <button
+                <CardArticleSpells
                   v-for="(opt, optIdx) in getChoiceOptions(choice)"
                   :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
-                  type="button"
-                  class="snap-center w-[360px] min-w-[360px] max-w-[360px] shrink-0 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  :class="{
-                    'cursor-not-allowed opacity-60': isChoiceOptionDisabled(choice, opt)
-                  }"
-                  :disabled="isChoiceOptionDisabled(choice, opt)"
-                  @click="handleChoiceOptionClick(choice, opt)"
-                >
-                  <CardArticleSpells
-                    :title="opt.label"
-                    :description="getChoiceOptionDescription(opt)"
-                    :effact-label="opt.effectLabel ?? opt.effect_label ?? undefined"
-                    :image="getChoiceOptionImage(opt)"
-                    :show-actions="false"
-                    :class="[
-                      isChoiceOptionSelected(choice, opt)
-                        ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
-                        : 'hover:border-slate-300 hover:shadow'
-                    ]"
-                  />
-                </button>
+                  :title="opt.label"
+                  :description="getChoiceOptionDescription(opt)"
+                  :effact-label="opt.effectLabel ?? opt.effect_label ?? undefined"
+                  :image="getChoiceOptionImage(opt)"
+                  :show-actions="false"
+                  role="option"
+                  :aria-selected="isChoiceOptionSelected(choice, opt)"
+                  :cta="isChoiceOptionSelected(choice, opt) ? 'Sélectionné' : 'Choisir'"
+                  :cta-variant="isChoiceOptionSelected(choice, opt) ? 'secondary' : 'primary'"
+                  :cta-disabled="isChoiceOptionDisabled(choice, opt)"
+                  :class="[
+                    'snap-center focus-within:ring-2 focus-within:ring-blue-500',
+                    isChoiceOptionSelected(choice, opt)
+                      ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
+                      : 'hover:border-slate-300 hover:shadow',
+                    isChoiceOptionDisabled(choice, opt) ? 'cursor-not-allowed opacity-60' : ''
+                  ]"
+                  @select="handleChoiceOptionClick(choice, opt)"
+                />
               </div>
             </div>
 
