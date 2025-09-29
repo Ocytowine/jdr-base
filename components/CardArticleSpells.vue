@@ -24,7 +24,10 @@
     </div>
 
     <!-- Footer (badge + fixed-size button) -->
-    <footer class="px-6 py-4 border-t border-slate-800 relative bg-gradient-to-t from-transparent to-transparent">
+    <footer
+      v-if="props.showActions"
+      class="px-6 py-4 border-t border-slate-800 relative bg-gradient-to-t from-transparent to-transparent"
+    >
       <div class="flex items-center justify-between gap-4">
         <div class="text-sm text-slate-400">
           <slot name="meta"></slot>
@@ -114,11 +117,13 @@ const props = withDefaults(defineProps<{
   href?: string
   effactLabel?: string
   effactVariant?: 'primary' | 'light' | 'outline'
+  showActions?: boolean
 }>(), {
   description: '',
   imageAlt: 'Card image',
   href: '#',
-  effactVariant: 'primary'
+  effactVariant: 'primary',
+  showActions: true
 })
 
 /* state */
