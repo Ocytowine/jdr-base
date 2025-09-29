@@ -14,7 +14,7 @@
 
     <!-- Body -->
     <div class="p-6 flex-1 overflow-hidden">
-      <h3 class="text-2xl font-extrabold leading-tight">
+      <h3 class="text-2xl font-extrabold leading-tight text-slate-100">
           {{ props.title }}
       </h3>
 
@@ -29,7 +29,7 @@
       class="px-6 py-4 border-t border-slate-800 relative bg-gradient-to-t from-transparent to-transparent"
     >
       <div class="flex items-center justify-between gap-4">
-        <div class="text-sm text-slate-400">
+        <div class="text-sm text-slate-300">
           <slot name="meta"></slot>
         </div>
 
@@ -185,7 +185,7 @@ const buttonLabel = computed(() => {
 const cardClass = computed(() => {
   const width = 'w-[360px]'      // fixe largeur
   const height = 'h-[460px]'     // fixe hauteur
-  const base = `relative ${width} ${height} rounded-2xl overflow-hidden bg-white dark:bg-slate-900 group flex flex-col transform-gpu transition-transform duration-300`
+  const base = `relative ${width} ${height} rounded-2xl overflow-hidden bg-[#0f1330] text-slate-100 group flex flex-col transform-gpu transition-transform duration-300`
   const hoverEffect = 'hover:-translate-y-2 hover:scale-[1.01] hover:shadow-2xl'
   // border according to selection: none -> transparent, write-prepare -> blue, write -> green
   const borderClasses =
