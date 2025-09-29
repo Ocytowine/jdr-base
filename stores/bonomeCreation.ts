@@ -159,13 +159,39 @@ const normalizeCatalogEntries = (payload: unknown): CatalogEntry[] => {
   return Array.from(entries.values());
 };
 
-const fallbackCatalogEntries = (ids: string[]): CatalogEntry[] =>
-  ids.map((id) => ({
-    id,
-    name: humanizeLabel(id),
-    description: null,
-    image: null
-  }));
+const fallbackCatalogEntries = (entries: Array<string | Partial<CatalogEntry>>): CatalogEntry[] =>
+  entries
+    .map((entry, index) => {
+      if (typeof entry === 'string') {
+        const id = normalizeId(entry);
+        if (!id) return null;
+        return {
+          id,
+          name: humanizeLabel(id),
+          description: null,
+          image: null
+        } satisfies CatalogEntry;
+      }
+
+      if (entry && typeof entry === 'object') {
+        const id = normalizeId(entry.id ?? entry.name ?? `fallback_${index}`);
+        if (!id) return null;
+
+        const name = typeof entry.name === 'string' && entry.name.trim().length ? entry.name.trim() : humanizeLabel(id);
+        const description = typeof entry.description === 'string' && entry.description.trim().length ? entry.description.trim() : null;
+        const image = typeof entry.image === 'string' && entry.image.trim().length ? entry.image.trim() : null;
+
+        return {
+          id,
+          name,
+          description,
+          image
+        } satisfies CatalogEntry;
+      }
+
+      return null;
+    })
+    .filter((entry): entry is CatalogEntry => Boolean(entry));
 
 const extractChoiceFrom = (choice: any): any[] => {
   if (Array.isArray(choice?.from) && choice.from.length) {
@@ -670,31 +696,127 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     const assignCatalog = (
       target: { value: CatalogEntry[] },
       payload: unknown,
-      fallbackIds: string[]
+      fallbackEntries: Array<string | Partial<CatalogEntry>>
     ) => {
       const normalized = normalizeCatalogEntries(payload);
-      target.value = normalized.length ? normalized : fallbackCatalogEntries(fallbackIds);
+      target.value = normalized.length ? normalized : fallbackCatalogEntries(fallbackEntries);
     };
 
     try {
       const response = await requestFetch('/api/catalog/classes').catch(() => null);
-      assignCatalog(classes, response, ['mage']);
+      assignCatalog(classes, response, [
+        {
+          id: 'mage',
+          name: 'Mage',
+          description: 'Maîtres des arcanes, les mages manipulent les énergies mystiques pour façonner la réalité.'
+        },
+        {
+          id: 'guerrier',
+          name: 'Guerrier',
+          description: 'Combattants polyvalents et endurcis, les guerriers excellent sur tous les champs de bataille.'
+        },
+        {
+          id: 'rodeur',
+          name: 'Rôdeur',
+          description: 'Silencieux et précis, les rôdeurs allient talents de pisteur et maîtrise martiale.'
+        }
+      ]);
     } catch (error) {
-      classes.value = fallbackCatalogEntries(['mage']);
+      classes.value = fallbackCatalogEntries([
+        {
+          id: 'mage',
+          name: 'Mage',
+          description: 'Maîtres des arcanes, les mages manipulent les énergies mystiques pour façonner la réalité.'
+        },
+        {
+          id: 'guerrier',
+          name: 'Guerrier',
+          description: 'Combattants polyvalents et endurcis, les guerriers excellent sur tous les champs de bataille.'
+        },
+        {
+          id: 'rodeur',
+          name: 'Rôdeur',
+          description: 'Silencieux et précis, les rôdeurs allient talents de pisteur et maîtrise martiale.'
+        }
+      ]);
     }
 
     try {
       const response = await requestFetch('/api/catalog/races').catch(() => null);
-      assignCatalog(races, response, ['humain', 'elfe']);
+      assignCatalog(races, response, [
+        {
+          id: 'humain',
+          name: 'Humain',
+          description: 'Adaptables et ambitieux, les humains se retrouvent dans toutes les régions du monde.'
+        },
+        {
+          id: 'elfe',
+          name: 'Elfe',
+          description: 'Gracieux et proches de la nature, les elfes vivent selon des traditions millénaires.'
+        },
+        {
+          id: 'nain',
+          name: 'Nain',
+          description: 'Forgerons et bâtisseurs inégalés, les nains valorisent honneur et artisanat.'
+        }
+      ]);
     } catch (error) {
-      races.value = fallbackCatalogEntries(['humain', 'elfe']);
+      races.value = fallbackCatalogEntries([
+        {
+          id: 'humain',
+          name: 'Humain',
+          description: 'Adaptables et ambitieux, les humains se retrouvent dans toutes les régions du monde.'
+        },
+        {
+          id: 'elfe',
+          name: 'Elfe',
+          description: 'Gracieux et proches de la nature, les elfes vivent selon des traditions millénaires.'
+        },
+        {
+          id: 'nain',
+          name: 'Nain',
+          description: 'Forgerons et bâtisseurs inégalés, les nains valorisent honneur et artisanat.'
+        }
+      ]);
     }
 
     try {
       const response = await requestFetch('/api/catalog/backgrounds').catch(() => null);
-      assignCatalog(backgrounds, response, ['acolyte']);
+      assignCatalog(backgrounds, response, [
+        {
+          id: 'acolyte',
+          name: 'Acolyte',
+          description: 'Élevé dans un temple, l’acolyte porte les traditions sacrées et la sagesse de sa foi.'
+        },
+        {
+          id: 'aventurier',
+          name: 'Aventurier',
+          description: 'Toujours en quête de découvertes, l’aventurier parcourt le monde en quête de gloire.'
+        },
+        {
+          id: 'erudit',
+          name: 'Érudit',
+          description: 'Passionné par le savoir, l’érudit a passé des années plongé dans les livres et les archives.'
+        }
+      ]);
     } catch (error) {
-      backgrounds.value = fallbackCatalogEntries(['acolyte']);
+      backgrounds.value = fallbackCatalogEntries([
+        {
+          id: 'acolyte',
+          name: 'Acolyte',
+          description: 'Élevé dans un temple, l’acolyte porte les traditions sacrées et la sagesse de sa foi.'
+        },
+        {
+          id: 'aventurier',
+          name: 'Aventurier',
+          description: 'Toujours en quête de découvertes, l’aventurier parcourt le monde en quête de gloire.'
+        },
+        {
+          id: 'erudit',
+          name: 'Érudit',
+          description: 'Passionné par le savoir, l’érudit a passé des années plongé dans les livres et les archives.'
+        }
+      ]);
     }
 
     if (!selectedClass.value && classes.value.length) selectedClass.value = classes.value[0].id;
