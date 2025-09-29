@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 
+import { usePersonnage, type Personnage } from './personnage';
+
 export type CatalogEntry = {
   id: string;
   name: string;
@@ -840,6 +842,86 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     return out;
   });
 
+  const createPersonnagePayload = (): Personnage | null => {
+    if (!preview.value?.ok || !preview.value?.previewCharacter) {
+      return null;
+    }
+
+    const personnageStore = usePersonnage();
+    const basePersonnage = personnageStore?.perso ?? ({} as Personnage);
+    const previewCharacter = preview.value.previewCharacter as any;
+    const finalStats = (previewCharacter?.final_stats ?? {}) as Record<string, unknown>;
+    type EnglishStat = keyof typeof baseStats;
+    const STAT_MAP: Record<EnglishStat, keyof Personnage['caracs']> = {
+      strength: 'force',
+      dexterity: 'dexterite',
+      constitution: 'constitution',
+      intelligence: 'intelligence',
+      wisdom: 'sagesse',
+      charisma: 'charisme'
+    };
+
+    const defaultCaracs: Personnage['caracs'] = {
+      force: 0,
+      dexterite: 0,
+      constitution: 0,
+      intelligence: 0,
+      sagesse: 0,
+      charisme: 0
+    };
+    const caracs = {
+      ...defaultCaracs,
+      ...(basePersonnage?.caracs ?? {})
+    } as Personnage['caracs'];
+    (Object.keys(STAT_MAP) as EnglishStat[]).forEach((key) => {
+      const mappedKey = STAT_MAP[key];
+      const raw = finalStats?.[key];
+      if (typeof raw === 'number') {
+        caracs[mappedKey] = raw;
+        return;
+      }
+      const baseValue = baseStats[key];
+      if (typeof baseValue === 'number') {
+        caracs[mappedKey] = baseValue;
+        return;
+      }
+      caracs[mappedKey] = basePersonnage?.caracs?.[mappedKey] ?? 0;
+    });
+
+    const availableCompetences = personnageStore?.listeCompetences ?? [];
+    const proficiencies = Array.isArray(previewCharacter?.proficiencies)
+      ? (previewCharacter.proficiencies as unknown[])
+      : [];
+    const proficiencySet = new Set(
+      proficiencies.filter((entry): entry is string => typeof entry === 'string')
+    );
+
+    const competences: Record<string, boolean> = {};
+    for (const competence of availableCompetences) {
+      competences[competence.id] = proficiencySet.has(competence.id);
+    }
+    for (const extra of proficiencySet) {
+      if (!(extra in competences)) {
+        competences[extra] = true;
+      }
+    }
+
+    const trimmedName = characterName.value.trim();
+    const baseNiveau = typeof basePersonnage?.niveau === 'number' ? basePersonnage.niveau : 1;
+    const personnage: Personnage = {
+      ...basePersonnage,
+      nom: trimmedName.length ? trimmedName : displayCharacterName.value,
+      lignee: selectedRace.value || basePersonnage?.lignee || '',
+      historique: selectedBackground.value || basePersonnage?.historique || '',
+      classe: selectedClass.value || basePersonnage?.classe || '',
+      niveau: Number.isFinite(Number(niveau.value)) ? Number(niveau.value) : baseNiveau,
+      caracs,
+      competences
+    };
+
+    return personnage;
+  };
+
   const initialize = async () => {
     restoreSelections();
     if (initialized.value) return;
@@ -888,6 +970,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     resetChosenOptions,
     resetChoiceById,
     displayStats,
+    createPersonnagePayload,
     choiceOptionCache,
     choiceMetadata,
     appliedChoices,
