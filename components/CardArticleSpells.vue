@@ -183,7 +183,7 @@ const buttonLabel = computed(() => {
    - glow appliqué à la card (et n'affecte pas la taille du layout)
 */
 const cardClass = computed(() => {
-  const width = 'w-[360px]'      // fixe largeur
+  const width = 'w-[360px] min-w-[360px] max-w-[360px] shrink-0'      // fixe largeur
   const height = 'h-[460px]'     // fixe hauteur
   const surfaceColors = 'bg-[#0f1330] text-slate-100'
   const base = `relative ${width} ${height} rounded-2xl overflow-hidden ${surfaceColors} group flex flex-col transform-gpu transition-transform duration-300`
