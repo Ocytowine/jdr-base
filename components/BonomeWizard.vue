@@ -19,7 +19,7 @@
 
           <div v-if="group.options.length" class="-mx-1 px-1">
             <div
-              class="grid grid-flow-col auto-cols-[minmax(18rem,1fr)] lg:auto-cols-[18rem] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
+              class="grid grid-flow-col auto-cols-[360px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
             >
               <button
                 v-for="option in group.options"
@@ -29,13 +29,13 @@
                 :aria-pressed="group.selected === option.id"
                 @click="selectPrimaryOption(group.id, option.id)"
               >
-                <BookCardTailwind
-                  :name="option.label"
+                <CardArticleSpells
+                  :title="option.label"
                   :description="option.description"
-                  :effect-label="option.effectLabel ?? null"
+                  :effact-label="option.effectLabel ?? undefined"
                   :image="option.image"
+                  :show-actions="false"
                   :class="[
-                    'h-full',
                     group.selected === option.id
                       ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
                       : 'hover:border-slate-300 hover:shadow'
@@ -98,7 +98,7 @@
 
             <div class="-mx-1 px-1">
               <div
-                class="grid grid-flow-col auto-cols-[minmax(18rem,1fr)] lg:auto-cols-[18rem] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
+                class="grid grid-flow-col auto-cols-[360px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
               >
                 <button
                   v-for="(opt, optIdx) in getChoiceOptions(choice)"
@@ -111,13 +111,13 @@
                   :disabled="isChoiceOptionDisabled(choice, opt)"
                   @click="handleChoiceOptionClick(choice, opt)"
                 >
-                  <BookCardTailwind
-                    :name="opt.label"
+                  <CardArticleSpells
+                    :title="opt.label"
                     :description="getChoiceOptionDescription(opt)"
-                    :effect-label="opt.effectLabel ?? opt.effect_label ?? null"
+                    :effact-label="opt.effectLabel ?? opt.effect_label ?? undefined"
                     :image="getChoiceOptionImage(opt)"
+                    :show-actions="false"
                     :class="[
-                      'h-full',
                       isChoiceOptionSelected(choice, opt)
                         ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
                         : 'hover:border-slate-300 hover:shadow'
@@ -180,7 +180,7 @@
 import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 
-import BookCardTailwind from '~/components/BookCardTailwind.vue';
+import CardArticleSpells from '~/components/CardArticleSpells.vue';
 import { useBonomeCreationStore } from '~/stores/bonomeCreation';
 
 const creation = useBonomeCreationStore();
