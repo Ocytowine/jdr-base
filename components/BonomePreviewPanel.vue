@@ -36,7 +36,7 @@
                   <div class="text-xs uppercase tracking-wide text-gray-500">{{ summary.title }}</div>
                   <div class="text-sm font-medium text-slate-900">{{ summary.name }}</div>
                 </div>
-                <p class="text-xs leading-snug text-gray-600 min-h-[3rem]">{{ summary.description }}</p>
+                <p class="text-xs leading-snug text-gray-600 line-clamp-6">{{ summary.description }}</p>
               </div>
             </article>
           </div>
