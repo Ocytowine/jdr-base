@@ -2,6 +2,8 @@ import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
 import type { Personnage } from './personnage';
 
+import { usePersonnage, type Personnage } from './personnage';
+
 export type CatalogEntry = {
   id: string;
   name: string;
@@ -1016,6 +1018,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     resetChosenOptions,
     resetChoiceById,
     displayStats,
+    createPersonnagePayload,
     choiceOptionCache,
     choiceMetadata,
     appliedChoices,
