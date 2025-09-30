@@ -232,11 +232,14 @@ const hasNameParts = computed(
 const trimmedFullName = computed(() => fullCharacterName.value.trim());
 
 const materialSummary = computed(() =>
-  equipmentSlots.map((slot) => ({
-    id: slot.id,
-    label: slot.label,
-    value: materialPlan[slot.id].trim()
-  }))
+  equipmentSlots.map((slot) => {
+    const value = materialPlan[slot.id];
+    return {
+      id: slot.id,
+      label: slot.label,
+      value: typeof value === 'string' ? value.trim() : ''
+    };
+  })
 );
 
 const narrativeSummary = computed(() =>
@@ -247,7 +250,9 @@ const narrativeSummary = computed(() =>
   }))
 );
 
-const materialNotesDisplay = computed(() => materialPlan.notes.trim());
+const materialNotesDisplay = computed(() =>
+  typeof materialPlan.notes === 'string' ? materialPlan.notes.trim() : ''
+);
 
 const canSave = computed(() => preview.value?.ok && !(preview.value?.errors?.length));
 const saving = ref(false);
