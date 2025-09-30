@@ -126,6 +126,40 @@
         </div>
       </div>
 
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-4">
+        <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h4 class="font-medium mb-2">Préparation du matériel</h4>
+          <div class="space-y-2">
+            <div
+              v-for="entry in materialSummary"
+              :key="entry.id"
+              class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+            >
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
+              <p class="mt-1 text-sm text-slate-700">{{ entry.value || 'À définir' }}</p>
+            </div>
+          </div>
+          <div class="mt-3 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes complémentaires</p>
+            <p class="mt-1 whitespace-pre-line">{{ materialNotesDisplay || 'Aucune note pour le moment.' }}</p>
+          </div>
+        </section>
+
+        <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h4 class="font-medium mb-2">Portrait narratif</h4>
+          <div class="space-y-2">
+            <div
+              v-for="entry in narrativeSummary"
+              :key="entry.id"
+              class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+            >
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
+              <p class="mt-1 whitespace-pre-line text-sm text-slate-700">{{ entry.value || 'À préciser' }}</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
       <div v-if="preview?.errors && preview.errors.length" class="p-3 border rounded bg-red-50 text-sm text-red-700">
         <div class="font-medium">Erreurs détectées</div>
         <ul class="list-disc ml-5">
@@ -155,7 +189,13 @@
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from '#app';
-import { useBonomeCreationStore } from '@/stores/bonomeCreation';
+import {
+  DESCRIPTION_FIELD_DEFINITIONS,
+  MATERIAL_SLOT_DEFINITIONS,
+  useBonomeCreationStore,
+  type DescriptionFields,
+  type MaterialPlan
+} from '@/stores/bonomeCreation';
 import { usePersonnage } from '@/stores/personnage';
 
 const router = useRouter();
@@ -174,6 +214,12 @@ const {
   fullCharacterName
 } = storeToRefs(creation);
 
+const materialPlan = creation.materialPlan as MaterialPlan;
+const descriptionFields = creation.descriptionFields as DescriptionFields;
+
+const equipmentSlots = MATERIAL_SLOT_DEFINITIONS;
+const descriptionFieldDefinitions = DESCRIPTION_FIELD_DEFINITIONS;
+
 const trimmedFirstName = computed(() => firstName.value.trim());
 const trimmedLastName = computed(() => lastName.value.trim());
 const trimmedNickname = computed(() => nickname.value.trim());
@@ -184,6 +230,24 @@ const hasNameParts = computed(
     Boolean(trimmedNickname.value)
 );
 const trimmedFullName = computed(() => fullCharacterName.value.trim());
+
+const materialSummary = computed(() =>
+  equipmentSlots.map((slot) => ({
+    id: slot.id,
+    label: slot.label,
+    value: materialPlan[slot.id].trim()
+  }))
+);
+
+const narrativeSummary = computed(() =>
+  descriptionFieldDefinitions.map((field) => ({
+    id: field.id,
+    label: field.label,
+    value: descriptionFields[field.id].trim()
+  }))
+);
+
+const materialNotesDisplay = computed(() => materialPlan.notes.trim());
 
 const canSave = computed(() => preview.value?.ok && !(preview.value?.errors?.length));
 const saving = ref(false);

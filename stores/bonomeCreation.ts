@@ -1,9 +1,8 @@
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, watch } from 'vue';
 import { useNuxtApp } from '#app';
-import type { Personnage } from './personnage';
 
-import { usePersonnage, type Personnage } from './personnage';
+import type { Personnage } from './personnage';
 
 export type CatalogEntry = {
   id: string;
@@ -40,6 +39,104 @@ export type IdentitySummaryEntry = {
   description: string;
   image: string;
 };
+
+export type MaterialPlan = {
+  primaryWeapon: string;
+  secondaryWeapon: string;
+  protection: string;
+  pack: string;
+  accessories: string;
+  notes: string;
+};
+
+export type DescriptionFields = {
+  bio: string;
+  physique: string;
+  personnalite: string;
+  objectifs: string;
+  relations: string;
+  defauts: string;
+};
+
+export type MaterialSlotKey = keyof MaterialPlan;
+export type NarrativeFieldKey = keyof DescriptionFields;
+
+export const MATERIAL_SLOT_DEFINITIONS: ReadonlyArray<{
+  id: MaterialSlotKey;
+  label: string;
+  hint: string;
+  placeholder: string;
+}> = [
+  {
+    id: 'primaryWeapon',
+    label: 'Arme principale',
+    hint: "L’équipement offensif qui définit votre style.",
+    placeholder: 'Ex. Épée longue gravée'
+  },
+  {
+    id: 'secondaryWeapon',
+    label: 'Arme secondaire',
+    hint: 'Un outil de secours ou une arme légère.',
+    placeholder: 'Ex. Dague dissimulée'
+  },
+  {
+    id: 'protection',
+    label: 'Protection',
+    hint: 'Armure, parades magiques ou vêtements renforcés.',
+    placeholder: 'Ex. Cuir clouté souple'
+  },
+  {
+    id: 'pack',
+    label: 'Paquetage',
+    hint: 'Sacs, kits d’aventuriers et ressources de voyage.',
+    placeholder: 'Ex. Sac d’explorateur allégé'
+  },
+  {
+    id: 'accessories',
+    label: 'Accessoires',
+    hint: 'Objets spéciaux, talismans ou gadgets.',
+    placeholder: 'Ex. Amulette porte-bonheur'
+  }
+];
+
+export const DESCRIPTION_FIELD_DEFINITIONS: ReadonlyArray<{
+  id: NarrativeFieldKey;
+  label: string;
+  placeholder: string;
+  hint?: string;
+}> = [
+  {
+    id: 'bio',
+    label: 'Biographie',
+    placeholder: 'Résumez les grandes lignes de son histoire.'
+  },
+  {
+    id: 'physique',
+    label: 'Physique',
+    placeholder: 'Décrivez sa silhouette, ses traits et son allure.'
+  },
+  {
+    id: 'personnalite',
+    label: 'Personnalité',
+    placeholder: 'Quelles attitudes, quelles valeurs le définissent ?'
+  },
+  {
+    id: 'objectifs',
+    label: 'Objectifs',
+    placeholder: 'Quels rêves, quêtes ou ambitions poursuit-il ?'
+  },
+  {
+    id: 'relations',
+    label: 'Relations',
+    placeholder: 'Alliés, mentors, familles ou rivaux marquants.'
+  },
+  {
+    id: 'defauts',
+    label: 'Faiblesses',
+    placeholder: 'Ses failles, travers ou secrets encombrants.',
+    hint: 'Ces détails alimenteront les tensions narratives.'
+  }
+];
 
 const TEXT_FIELDS = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
 const IMAGE_FIELDS = ['image', 'img', 'icon', 'art', 'avatar', 'illustration', 'picture', 'thumbnail'];
@@ -597,6 +694,24 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   });
 
   const previewPortrait = computed(() => createCardPlaceholder(displayCharacterName.value));
+
+  const materialPlan = reactive<MaterialPlan>({
+    primaryWeapon: '',
+    secondaryWeapon: '',
+    protection: '',
+    pack: '',
+    accessories: '',
+    notes: ''
+  });
+
+  const descriptionFields = reactive<DescriptionFields>({
+    bio: '',
+    physique: '',
+    personnalite: '',
+    objectifs: '',
+    relations: '',
+    defauts: ''
+  });
 
   const getPrimarySelectedLabel = (group: PrimarySelectionGroup): string => {
     const found = group.options.find((option) => option.id === group.selected);
@@ -1295,6 +1410,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     const languages = toList(previewCharacter.languages);
     const equipment = toList(previewCharacter.equipment);
 
+    const trimValue = (value: string): string => value.trim();
+    const toNullableString = (value: string): string | null => {
+      const trimmed = value.trim();
+      return trimmed.length ? trimmed : null;
+    };
+
     const personnage: Personnage = {
       id: toDisplayString(previewCharacter.id, `pj_${Date.now()}`),
       nom: displayCharacterName.value,
@@ -1324,7 +1445,23 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         vitesse: toDisplayString(previewCharacter.monture?.vitesse ?? ''),
         notes: toDisplayString(previewCharacter.monture?.notes ?? '')
       },
-      inspiration: Boolean(previewCharacter.inspiration ?? false)
+      inspiration: Boolean(previewCharacter.inspiration ?? false),
+      materielPersonnalise: {
+        armePrincipale: toNullableString(materialPlan.primaryWeapon),
+        armeSecondaire: toNullableString(materialPlan.secondaryWeapon),
+        protection: toNullableString(materialPlan.protection),
+        paquetage: toNullableString(materialPlan.pack),
+        accessoires: toNullableString(materialPlan.accessories),
+        notes: trimValue(materialPlan.notes)
+      },
+      descriptionDetaillee: {
+        bio: trimValue(descriptionFields.bio),
+        physique: trimValue(descriptionFields.physique),
+        personnalite: trimValue(descriptionFields.personnalite),
+        objectifs: trimValue(descriptionFields.objectifs),
+        relations: trimValue(descriptionFields.relations),
+        defauts: trimValue(descriptionFields.defauts)
+      }
     };
 
     return personnage;
@@ -1401,6 +1538,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     sendPreview,
     loadCatalog,
     initialize,
-    createPersonnagePayload
+    materialPlan,
+    descriptionFields
   };
 });

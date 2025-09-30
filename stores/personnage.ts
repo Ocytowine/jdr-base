@@ -31,6 +31,22 @@ export type Personnage = {
   bouclier?: boolean
   monture: { nom: string, vitesse: string, notes: string }
   inspiration: boolean
+  materielPersonnalise: {
+    armePrincipale: string | null
+    armeSecondaire: string | null
+    protection: string | null
+    paquetage: string | null
+    accessoires: string | null
+    notes: string
+  }
+  descriptionDetaillee: {
+    bio: string
+    physique: string
+    personnalite: string
+    objectifs: string
+    relations: string
+    defauts: string
+  }
 }
 
 const DEF_COMPETENCES: CompetenceDef[] = [
@@ -82,6 +98,22 @@ export const usePersonnage = defineStore('personnage', {
       bouclier: false,
       monture: { nom:'', vitesse:'', notes:'' },
       inspiration: false,
+      materielPersonnalise: {
+        armePrincipale: null,
+        armeSecondaire: null,
+        protection: null,
+        paquetage: null,
+        accessoires: null,
+        notes: ''
+      },
+      descriptionDetaillee: {
+        bio: '',
+        physique: '',
+        personnalite: '',
+        objectifs: '',
+        relations: '',
+        defauts: ''
+      }
     } as Personnage,
   }),
   getters: {
