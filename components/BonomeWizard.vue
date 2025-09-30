@@ -426,14 +426,50 @@
     >
       <div class="space-y-2">
         <h3 class="text-lg font-semibold text-slate-900">Matériel</h3>
-        <p class="text-sm text-slate-600">Placeholder pour la future sélection de matériel.</p>
+        <p class="text-sm text-slate-600">
+          Réservez les emplacements clés de l’équipement : chaque bloc sera enrichi par la suite par
+          l’assistant ou vos choix manuels.
+        </p>
       </div>
-      <textarea
-        v-model="materialNotes"
-        rows="6"
-        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-        placeholder="Listez ici les idées de matériel à intégrer plus tard."
-      ></textarea>
+      <div class="grid gap-4 md:grid-cols-2">
+        <article
+          v-for="slot in equipmentSlots"
+          :key="slot.id"
+          class="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+        >
+          <header class="flex items-start justify-between gap-3">
+            <div>
+              <h4 class="text-sm font-semibold text-slate-900">{{ slot.label }}</h4>
+              <p class="text-xs text-slate-500">{{ slot.hint }}</p>
+            </div>
+            <button
+              type="button"
+              class="cursor-not-allowed rounded-full border border-dashed border-slate-300 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-400"
+              disabled
+            >
+              À venir
+            </button>
+          </header>
+          <input
+            v-model="materialPlan[slot.id]"
+            type="text"
+            :placeholder="slot.placeholder"
+            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          />
+        </article>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700">Notes complémentaires</label>
+        <textarea
+          v-model="materialPlan.notes"
+          rows="4"
+          class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          placeholder="Consignez les ajustements libres : munitions, potions, objets uniques…"
+        ></textarea>
+        <p class="mt-1 text-xs text-slate-500">
+          Ces informations seront ajoutées à la fiche finale du personnage.
+        </p>
+      </div>
       <div class="flex justify-end gap-3">
         <button type="button" class="rounded-lg border border-slate-200 px-4 py-2 text-sm" @click="handleCancel">Annuler</button>
         <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white" @click="handleValidate">
@@ -448,17 +484,29 @@
       class="space-y-6 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm"
     >
       <div class="space-y-2">
-        <h3 class="text-lg font-semibold text-slate-900">Description</h3>
+        <h3 class="text-lg font-semibold text-slate-900">Description narrative</h3>
         <p class="text-sm text-slate-600">
-          Rédigez quelques lignes sur l'histoire, la personnalité ou les objectifs de votre personnage.
+          Renseignez les repères narratifs clés : ces éléments complètent la fiche pour donner vie au personnage.
         </p>
       </div>
-      <textarea
-        v-model="descriptionNotes"
-        rows="8"
-        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-        placeholder="Décrivez l'allure, les motivations et les traits marquants de votre bonôme."
-      ></textarea>
+      <div class="grid gap-4 md:grid-cols-2">
+        <article
+          v-for="field in descriptionFieldDefinitions"
+          :key="field.id"
+          class="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+        >
+          <div>
+            <label class="block text-sm font-semibold text-slate-800">{{ field.label }}</label>
+            <p v-if="field.hint" class="mt-1 text-xs text-slate-500">{{ field.hint }}</p>
+          </div>
+          <textarea
+            v-model="descriptionFields[field.id]"
+            rows="4"
+            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            :placeholder="field.placeholder"
+          ></textarea>
+        </article>
+      </div>
       <div class="flex justify-end gap-3">
         <button type="button" class="rounded-lg border border-slate-200 px-4 py-2 text-sm" @click="handleCancel">Annuler</button>
         <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white" @click="handleValidate">
@@ -474,31 +522,51 @@
     >
       <div class="space-y-3">
         <h3 class="text-lg font-semibold text-slate-900">Récapitulatif</h3>
-        <p class="text-sm text-slate-600">Vérifiez les informations avant la génération finale du personnage.</p>
+        <p class="text-sm text-slate-600">
+          Vérifiez les informations, ajustez vos notes et sauvegardez votre bonôme pour rejoindre l’aventure.
+        </p>
       </div>
 
-      <div class="grid gap-4 md:grid-cols-2">
-        <div class="space-y-3">
-          <h4 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Identité</h4>
-          <ul class="space-y-2 text-sm text-slate-700">
-            <li><span class="font-medium">Nom :</span> {{ displayCharacterName }}</li>
-            <li
-              v-for="entry in identitySummary"
+      <BonomePreviewPanel />
+
+      <div class="grid gap-4 lg:grid-cols-2">
+        <section class="space-y-3 rounded-xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+          <header class="space-y-1">
+            <h4 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Plan de matériel</h4>
+            <p class="text-xs text-slate-500">Anticipez la dotation initiale pour faciliter la prochaine session.</p>
+          </header>
+          <div class="space-y-2">
+            <div
+              v-for="entry in materialSummary"
               :key="entry.id"
+              class="rounded-lg border border-slate-200 bg-white px-3 py-2"
             >
-              <span class="font-medium">{{ entry.title }} :</span> {{ entry.name }}
-            </li>
-          </ul>
-        </div>
-        <div class="space-y-3">
-          <h4 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Caractéristiques</h4>
-          <ul class="grid grid-cols-2 gap-2 text-sm text-slate-700">
-            <li v-for="(value, key) in displayStats" :key="key" class="rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <span class="font-medium uppercase">{{ key }}</span>
-              <span class="ml-2">{{ value }}</span>
-            </li>
-          </ul>
-        </div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
+              <p class="mt-1 text-sm text-slate-700">{{ entry.value || 'À définir' }}</p>
+            </div>
+          </div>
+          <div class="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes complémentaires</p>
+            <p class="mt-1 whitespace-pre-line">{{ materialNotesDisplay || 'Aucune note particulière pour le moment.' }}</p>
+          </div>
+        </section>
+
+        <section class="space-y-3 rounded-xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+          <header class="space-y-1">
+            <h4 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Portrait narratif</h4>
+            <p class="text-xs text-slate-500">Ces éléments nourriront le jeu de rôle et les interactions.</p>
+          </header>
+          <div class="space-y-2">
+            <div
+              v-for="entry in descriptionSummary"
+              :key="entry.id"
+              class="rounded-lg border border-slate-200 bg-white px-3 py-2"
+            >
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
+              <p class="mt-1 whitespace-pre-line text-sm text-slate-700">{{ entry.value || 'À préciser' }}</p>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div class="space-y-3">
@@ -511,22 +579,14 @@
         <p v-else class="text-sm text-slate-500">Aucun choix complémentaire appliqué.</p>
       </div>
 
-      <div class="space-y-3">
-        <h4 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Notes personnelles</h4>
-        <div class="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-          <p class="font-semibold text-slate-800">Matériel</p>
-          <p class="text-slate-600">{{ materialNotes || 'Aucun matériel personnalisé noté.' }}</p>
-        </div>
-        <div class="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-          <p class="font-semibold text-slate-800">Description</p>
-          <p class="text-slate-600 whitespace-pre-line">{{ descriptionNotes || 'Aucune description fournie.' }}</p>
-        </div>
-      </div>
-
-      <div class="flex justify-end gap-3">
-        <button type="button" class="rounded-lg border border-slate-200 px-4 py-2 text-sm" @click="handleCancel">Annuler</button>
-        <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white" @click="handleValidate">
-          Valider
+      <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <button type="button" class="rounded-lg border border-slate-200 px-4 py-2 text-sm" @click="handleCancel">Revenir</button>
+        <button
+          type="button"
+          class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700"
+          @click="refreshPreview"
+        >
+          Rafraîchir la prévisualisation
         </button>
       </div>
     </section>
@@ -538,7 +598,14 @@ import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 
 import CardArticleSpells from '~/components/CardArticleSpells.vue';
-import { useBonomeCreationStore } from '~/stores/bonomeCreation';
+import BonomePreviewPanel from '~/components/BonomePreviewPanel.vue';
+import {
+  DESCRIPTION_FIELD_DEFINITIONS,
+  MATERIAL_SLOT_DEFINITIONS,
+  useBonomeCreationStore,
+  type DescriptionFields,
+  type MaterialPlan
+} from '~/stores/bonomeCreation';
 
 type StepId =
   | 'identity'
@@ -574,9 +641,7 @@ const {
   lastName,
   nickname,
   fullCharacterName,
-  identitySummary,
   displayCharacterName,
-  displayStats,
   pointBuyBudget,
   pointBuyRemaining,
   pointBuySpent,
@@ -589,13 +654,34 @@ const fullNamePreview = computed(() => fullCharacterName.value.trim());
 
 const baseStats = creation.baseStats;
 const { pointBuyCostFor } = creation;
-const materialNotes = ref('');
-const descriptionNotes = ref('');
+const materialPlan = creation.materialPlan as MaterialPlan;
+const descriptionFields = creation.descriptionFields as DescriptionFields;
 const currentStep = ref<number>(0);
 
 type BaseStatKey = keyof typeof baseStats;
 
 const baseStatKeys = computed(() => Object.keys(baseStats) as BaseStatKey[]);
+
+const equipmentSlots = MATERIAL_SLOT_DEFINITIONS;
+const descriptionFieldDefinitions = DESCRIPTION_FIELD_DEFINITIONS;
+
+const materialSummary = computed(() =>
+  equipmentSlots.map((slot) => ({
+    id: slot.id,
+    label: slot.label,
+    value: materialPlan[slot.id].trim()
+  }))
+);
+
+const descriptionSummary = computed(() =>
+  descriptionFieldDefinitions.map((field) => ({
+    id: field.id,
+    label: field.label,
+    value: descriptionFields[field.id].trim()
+  }))
+);
+
+const materialNotesDisplay = computed(() => materialPlan.notes.trim());
 
 const pointBuyStatus = computed(() => {
   const remaining = pointBuyRemaining.value;
@@ -676,11 +762,16 @@ const resetComplementaryChoices = async () => {
 };
 
 const resetEquipment = () => {
-  materialNotes.value = '';
+  equipmentSlots.forEach(({ id }) => {
+    materialPlan[id] = '';
+  });
+  materialPlan.notes = '';
 };
 
 const resetDescription = () => {
-  descriptionNotes.value = '';
+  descriptionFieldDefinitions.forEach(({ id }) => {
+    descriptionFields[id] = '';
+  });
 };
 
 const steps: StepDefinition[] = [
