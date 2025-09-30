@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useNuxtApp } from '#app';
 import type { Personnage } from './personnage';
 
@@ -338,7 +338,36 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const selectedClass = ref<string>('');
   const selectedRace = ref<string>('');
   const selectedBackground = ref<string>('');
-  const niveau = ref<number>(1);
+  const MIN_LEVEL = 1;
+  const MAX_LEVEL = 3;
+
+  const POINT_BUY_MIN = 8;
+  const POINT_BUY_MAX = 15;
+  const POINT_BUY_BUDGET = 27;
+  const POINT_BUY_COST_TABLE: Record<number, number> = {
+    8: 0,
+    9: 1,
+    10: 2,
+    11: 3,
+    12: 4,
+    13: 5,
+    14: 7,
+    15: 9
+  };
+
+  const BASE_STAT_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'] as const;
+  type BaseStatKey = (typeof BASE_STAT_KEYS)[number];
+
+  const defaultBaseStats: Record<BaseStatKey, number> = {
+    strength: 15,
+    dexterity: 14,
+    constitution: 13,
+    intelligence: 12,
+    wisdom: 10,
+    charisma: 8
+  };
+
+  const niveau = ref<number>(MIN_LEVEL);
   const loading = ref(false);
   const characterName = ref<string>('');
   const firstName = ref<string>('');
@@ -351,14 +380,135 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const initialized = ref(false);
   const hasRestoredSelections = ref(false);
 
-  const baseStats = reactive({
-    strength: 8,
-    dexterity: 14,
-    constitution: 12,
-    intelligence: 16,
-    wisdom: 10,
-    charisma: 11
-  });
+  const baseStats = reactive<Record<BaseStatKey, number>>({ ...defaultBaseStats });
+
+  const clampLevelValue = (value: unknown): number => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return MIN_LEVEL;
+    }
+    return Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, Math.round(numeric)));
+  };
+
+  const clampBaseStatValue = (value: unknown): number => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return POINT_BUY_MIN;
+    }
+    const rounded = Math.round(numeric);
+    if (rounded < POINT_BUY_MIN) {
+      return POINT_BUY_MIN;
+    }
+    if (rounded > POINT_BUY_MAX) {
+      return POINT_BUY_MAX;
+    }
+    return rounded;
+  };
+
+  const getPointBuyCost = (score: number): number => {
+    const rounded = Math.round(score);
+    return POINT_BUY_COST_TABLE[rounded] ?? Number.POSITIVE_INFINITY;
+  };
+
+  const calculatePointBuySpent = (stats: Record<BaseStatKey, number>): number =>
+    BASE_STAT_KEYS.reduce((total, key) => total + getPointBuyCost(stats[key]), 0);
+
+  const normalizePointBuyStats = (
+    stats: Partial<Record<BaseStatKey, unknown>>
+  ): Record<BaseStatKey, number> => {
+    const normalized = {} as Record<BaseStatKey, number>;
+    for (const key of BASE_STAT_KEYS) {
+      normalized[key] = clampBaseStatValue(stats[key] ?? baseStats[key] ?? defaultBaseStats[key]);
+    }
+
+    let spent = calculatePointBuySpent(normalized);
+    if (!Number.isFinite(spent)) {
+      spent = calculatePointBuySpent(defaultBaseStats);
+    }
+
+    if (spent > POINT_BUY_BUDGET) {
+      const sortedKeys = [...BASE_STAT_KEYS].sort((a, b) => normalized[b] - normalized[a]);
+      while (spent > POINT_BUY_BUDGET) {
+        let adjusted = false;
+        for (const key of sortedKeys) {
+          if (normalized[key] <= POINT_BUY_MIN) continue;
+          const nextValue = normalized[key] - 1;
+          const currentCost = getPointBuyCost(normalized[key]);
+          const nextCost = getPointBuyCost(nextValue);
+          if (!Number.isFinite(nextCost)) continue;
+          normalized[key] = nextValue;
+          spent -= currentCost - nextCost;
+          adjusted = true;
+          if (spent <= POINT_BUY_BUDGET) break;
+        }
+        if (!adjusted) {
+          break;
+        }
+      }
+
+      if (spent > POINT_BUY_BUDGET) {
+        for (const key of BASE_STAT_KEYS) {
+          normalized[key] = defaultBaseStats[key];
+        }
+      }
+    }
+
+    return normalized;
+  };
+
+  const cloneBaseStats = (): Record<BaseStatKey, number> => {
+    return BASE_STAT_KEYS.reduce((acc, key) => {
+      acc[key] = baseStats[key];
+      return acc;
+    }, {} as Record<BaseStatKey, number>);
+  };
+
+  const pointBuyBudget = computed(() => POINT_BUY_BUDGET);
+  const pointBuyMin = computed(() => POINT_BUY_MIN);
+  const pointBuyMax = computed(() => POINT_BUY_MAX);
+  const pointBuySpent = computed(() => calculatePointBuySpent(baseStats));
+  const pointBuyRemaining = computed(() => POINT_BUY_BUDGET - pointBuySpent.value);
+  const isPointBuyBalanced = computed(() => pointBuyRemaining.value === 0);
+
+  const pointBuyCostFor = (score: number): number => getPointBuyCost(score);
+
+  const canIncreaseBaseStat = (key: BaseStatKey): boolean => {
+    const current = baseStats[key];
+    if (current >= POINT_BUY_MAX) {
+      return false;
+    }
+    const currentCost = getPointBuyCost(current);
+    const nextCost = getPointBuyCost(current + 1);
+    if (!Number.isFinite(nextCost)) {
+      return false;
+    }
+    const projectedSpent = pointBuySpent.value - currentCost + nextCost;
+    return projectedSpent <= POINT_BUY_BUDGET;
+  };
+
+  const canDecreaseBaseStat = (key: BaseStatKey): boolean => baseStats[key] > POINT_BUY_MIN;
+
+  const increaseBaseStat = (key: BaseStatKey): boolean => {
+    if (!canIncreaseBaseStat(key)) {
+      return false;
+    }
+    baseStats[key] = clampBaseStatValue(baseStats[key] + 1);
+    return true;
+  };
+
+  const decreaseBaseStat = (key: BaseStatKey): boolean => {
+    if (!canDecreaseBaseStat(key)) {
+      return false;
+    }
+    baseStats[key] = clampBaseStatValue(baseStats[key] - 1);
+    return true;
+  };
+
+  const resetBaseStats = () => {
+    for (const key of BASE_STAT_KEYS) {
+      baseStats[key] = defaultBaseStats[key];
+    }
+  };
 
   const chosenOptions = reactive<Record<string, any>>({});
   const localChosen = reactive<Record<string, any>>({});
@@ -690,7 +840,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       firstName: firstName.value,
       lastName: lastName.value,
       nickname: nickname.value,
-      baseStats: { ...baseStats },
+      baseStats: cloneBaseStats(),
       chosenOptions: JSON.parse(JSON.stringify(chosenOptions))
     };
     try {
@@ -710,7 +860,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         selectedClass.value = parsed.selectedClass ?? selectedClass.value;
         selectedRace.value = parsed.selectedRace ?? selectedRace.value;
         selectedBackground.value = parsed.selectedBackground ?? selectedBackground.value;
-        niveau.value = Number(parsed.niveau ?? niveau.value) || niveau.value;
+        niveau.value = clampLevelValue(parsed.niveau ?? niveau.value);
         characterName.value = parsed.characterName ?? characterName.value;
         firstName.value = parsed.firstName ?? firstName.value;
         lastName.value = parsed.lastName ?? lastName.value;
@@ -719,7 +869,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
           firstName.value = parsed.characterName;
         }
         if (parsed.baseStats && typeof parsed.baseStats === 'object') {
-          Object.assign(baseStats, parsed.baseStats);
+          const normalized = normalizePointBuyStats(parsed.baseStats as Partial<Record<BaseStatKey, unknown>>);
+          for (const key of BASE_STAT_KEYS) {
+            baseStats[key] = normalized[key];
+          }
         }
         if (parsed.chosenOptions && typeof parsed.chosenOptions === 'object') {
           Object.assign(chosenOptions, parsed.chosenOptions);
@@ -732,6 +885,39 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       hasRestoredSelections.value = true;
     }
   };
+
+  watch(niveau, (value, oldValue) => {
+    const clamped = clampLevelValue(value);
+    if (clamped !== value) {
+      niveau.value = clamped;
+      return;
+    }
+    if (value !== oldValue) {
+      persistSelections();
+    }
+  });
+
+  let isNormalizingBaseStats = false;
+  watch(
+    baseStats,
+    (current) => {
+      if (isNormalizingBaseStats) {
+        isNormalizingBaseStats = false;
+        return;
+      }
+      const normalized = normalizePointBuyStats(current as Partial<Record<BaseStatKey, unknown>>);
+      const hasChanges = BASE_STAT_KEYS.some((key) => normalized[key] !== baseStats[key]);
+      if (hasChanges) {
+        isNormalizingBaseStats = true;
+        for (const key of BASE_STAT_KEYS) {
+          baseStats[key] = normalized[key];
+        }
+        return;
+      }
+      persistSelections();
+    },
+    { deep: true }
+  );
 
   const loadCatalog = async () => {
     const assignCatalog = (
@@ -1171,6 +1357,18 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     baseStats,
     chosenOptions,
     localChosen,
+    pointBuyBudget,
+    pointBuyMin,
+    pointBuyMax,
+    pointBuySpent,
+    pointBuyRemaining,
+    isPointBuyBalanced,
+    pointBuyCostFor,
+    canIncreaseBaseStat,
+    canDecreaseBaseStat,
+    increaseBaseStat,
+    decreaseBaseStat,
+    resetBaseStats,
     primarySelectionGroups,
     identitySummary,
     displayCharacterName,
