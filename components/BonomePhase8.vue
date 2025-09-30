@@ -110,11 +110,14 @@ const equipmentSlots = MATERIAL_SLOT_DEFINITIONS;
 const descriptionFieldDefinitions = DESCRIPTION_FIELD_DEFINITIONS;
 
 const materialSummary = computed(() =>
-  equipmentSlots.map((slot) => ({
-    id: slot.id,
-    label: slot.label,
-    value: materialPlan[slot.id].trim()
-  }))
+  equipmentSlots.map((slot) => {
+    const value = materialPlan[slot.id];
+    return {
+      id: slot.id,
+      label: slot.label,
+      value: typeof value === 'string' ? value.trim() : ''
+    };
+  })
 );
 
 const descriptionSummary = computed(() =>
@@ -125,7 +128,9 @@ const descriptionSummary = computed(() =>
   }))
 );
 
-const materialNotesDisplay = computed(() => materialPlan.notes.trim());
+const materialNotesDisplay = computed(() =>
+  typeof materialPlan.notes === 'string' ? materialPlan.notes.trim() : ''
+);
 
 const stepMeta = computed(() => props.stepMeta);
 
