@@ -103,9 +103,9 @@ export async function run() {
     selectedBackground: 'sage',
     niveau: 3,
     characterName: 'Archimage',
-    firstName: 'Aldara',
-    lastName: 'Sombrelune',
-    nickname: 'La Ruse',
+    characterFirstName: 'Aldara',
+    characterLastName: 'Sombrelune',
+    characterNickname: 'La Ruse',
     baseStats: {
       strength: 15,
       dexterity: 14,
@@ -147,9 +147,21 @@ export async function run() {
     assert.equal(unwrap(store.selectedBackground), savedState.selectedBackground, 'background should be restored');
     assert.equal(unwrap(store.niveau), savedState.niveau, 'niveau should be restored');
     assert.equal(unwrap(store.characterName), savedState.characterName, 'character name should be restored');
-    assert.equal(unwrap(store.firstName), savedState.firstName, 'first name should be restored');
-    assert.equal(unwrap(store.lastName), savedState.lastName, 'last name should be restored');
-    assert.equal(unwrap(store.nickname), savedState.nickname, 'nickname should be restored');
+    assert.equal(
+      unwrap(store.characterFirstName),
+      savedState.characterFirstName,
+      'first name should be restored'
+    );
+    assert.equal(
+      unwrap(store.characterLastName),
+      savedState.characterLastName,
+      'last name should be restored'
+    );
+    assert.equal(
+      unwrap(store.characterNickname),
+      savedState.characterNickname,
+      'nickname should be restored'
+    );
     assert.deepEqual(
       serializeReactive(store.baseStats),
       savedState.baseStats,
@@ -178,6 +190,22 @@ export async function run() {
 
     const persistedState = JSON.parse(
       (globalThis as any).localStorage.getItem('bonome_creation_state') ?? '{}'
+    );
+
+    assert.equal(
+      persistedState.characterFirstName,
+      savedState.characterFirstName,
+      'persisted state should store first name'
+    );
+    assert.equal(
+      persistedState.characterLastName,
+      savedState.characterLastName,
+      'persisted state should store last name'
+    );
+    assert.equal(
+      persistedState.characterNickname,
+      savedState.characterNickname,
+      'persisted state should store nickname'
     );
 
     fetchLog.length = 0;
@@ -212,18 +240,18 @@ export async function run() {
       'reloaded store should keep character name'
     );
     assert.equal(
-      unwrap(reloadedStore.firstName),
-      savedState.firstName,
+      unwrap(reloadedStore.characterFirstName),
+      savedState.characterFirstName,
       'reloaded store should keep first name'
     );
     assert.equal(
-      unwrap(reloadedStore.lastName),
-      savedState.lastName,
+      unwrap(reloadedStore.characterLastName),
+      savedState.characterLastName,
       'reloaded store should keep last name'
     );
     assert.equal(
-      unwrap(reloadedStore.nickname),
-      savedState.nickname,
+      unwrap(reloadedStore.characterNickname),
+      savedState.characterNickname,
       'reloaded store should keep nickname'
     );
     assert.equal(unwrap(reloadedStore.pointBuyRemaining), 0, 'reloaded store should keep balanced point buy');
@@ -244,17 +272,17 @@ export async function run() {
     assert.ok(previewCall, 'preview call should be logged after reload');
     assert.equal(
       previewCall?.options?.body?.baseCharacter?.first_name,
-      savedState.firstName,
+      savedState.characterFirstName,
       'preview should include first name'
     );
     assert.equal(
       previewCall?.options?.body?.baseCharacter?.last_name,
-      savedState.lastName,
+      savedState.characterLastName,
       'preview should include last name'
     );
     assert.equal(
       previewCall?.options?.body?.baseCharacter?.nickname,
-      savedState.nickname,
+      savedState.characterNickname,
       'preview should include nickname'
     );
     assert.equal(

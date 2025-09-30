@@ -467,9 +467,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const niveau = ref<number>(MIN_LEVEL);
   const loading = ref(false);
   const characterName = ref<string>('');
-  const firstName = ref<string>('');
-  const lastName = ref<string>('');
-  const nickname = ref<string>('');
+  const characterFirstName = ref<string>('');
+  const characterLastName = ref<string>('');
+  const characterNickname = ref<string>('');
 
   const preview = ref<any | null>(null);
   const rawText = ref<string>('');
@@ -661,9 +661,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const normalizeNamePart = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
   const fullCharacterName = computed(() => {
-    const first = normalizeNamePart(firstName.value);
-    const last = normalizeNamePart(lastName.value);
-    const nick = normalizeNamePart(nickname.value);
+    const first = normalizeNamePart(characterFirstName.value);
+    const last = normalizeNamePart(characterLastName.value);
+    const nick = normalizeNamePart(characterNickname.value);
 
     const segments: string[] = [];
     if (first.length) segments.push(first);
@@ -952,9 +952,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       selectedBackground: selectedBackground.value,
       niveau: niveau.value,
       characterName: fullCharacterName.value.trim() || characterName.value,
-      firstName: firstName.value,
-      lastName: lastName.value,
-      nickname: nickname.value,
+      characterFirstName: characterFirstName.value,
+      characterLastName: characterLastName.value,
+      characterNickname: characterNickname.value,
       baseStats: cloneBaseStats(),
       chosenOptions: JSON.parse(JSON.stringify(chosenOptions))
     };
@@ -977,11 +977,19 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         selectedBackground.value = parsed.selectedBackground ?? selectedBackground.value;
         niveau.value = clampLevelValue(parsed.niveau ?? niveau.value);
         characterName.value = parsed.characterName ?? characterName.value;
-        firstName.value = parsed.firstName ?? firstName.value;
-        lastName.value = parsed.lastName ?? lastName.value;
-        nickname.value = parsed.nickname ?? nickname.value;
-        if (!firstName.value && !lastName.value && !nickname.value && parsed.characterName) {
-          firstName.value = parsed.characterName;
+        characterFirstName.value =
+          parsed.characterFirstName ?? parsed.firstName ?? characterFirstName.value;
+        characterLastName.value =
+          parsed.characterLastName ?? parsed.lastName ?? characterLastName.value;
+        characterNickname.value =
+          parsed.characterNickname ?? parsed.nickname ?? characterNickname.value;
+        if (
+          !characterFirstName.value &&
+          !characterLastName.value &&
+          !characterNickname.value &&
+          parsed.characterName
+        ) {
+          characterFirstName.value = parsed.characterName;
         }
         if (parsed.baseStats && typeof parsed.baseStats === 'object') {
           const normalized = normalizePointBuyStats(parsed.baseStats as Partial<Record<BaseStatKey, unknown>>);
@@ -1174,9 +1182,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       const trimmedFullName = fullCharacterName.value.trim();
       const trimmedLegacyName = characterName.value.trim();
       const primaryName = trimmedFullName.length ? trimmedFullName : trimmedLegacyName;
-      const trimmedFirstName = normalizeNamePart(firstName.value);
-      const trimmedLastName = normalizeNamePart(lastName.value);
-      const trimmedNickname = normalizeNamePart(nickname.value);
+      const trimmedFirstName = normalizeNamePart(characterFirstName.value);
+      const trimmedLastName = normalizeNamePart(characterLastName.value);
+      const trimmedNickname = normalizeNamePart(characterNickname.value);
       const body = {
         selection: {
           class: selectedClass.value || null,
@@ -1278,9 +1286,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       delete choiceMetadata[k];
     }
     characterName.value = '';
-    firstName.value = '';
-    lastName.value = '';
-    nickname.value = '';
+    characterFirstName.value = '';
+    characterLastName.value = '';
+    characterNickname.value = '';
     await sendPreview();
   };
 
@@ -1485,9 +1493,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     niveau,
     loading,
     characterName,
-    firstName,
-    lastName,
-    nickname,
+    characterFirstName,
+    characterLastName,
+    characterNickname,
     preview,
     rawText,
     showRaw,
