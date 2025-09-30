@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, watch } from 'vue';
-import { useNuxtApp } from '#app';
+import { useRequestFetch } from '#app';
 
 import type { Personnage } from './personnage';
 
@@ -384,11 +384,6 @@ const formatChoiceValue = (key: string, value: any, options: ChoiceOption[]): st
   }
 
   return toLabel(value);
-};
-
-const useRequestFetch = () => {
-  const nuxtApp = useNuxtApp();
-  return nuxtApp.$fetch;
 };
 
 export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
