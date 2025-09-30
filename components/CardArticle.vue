@@ -66,7 +66,7 @@ const props = withDefaults(
 
 const articleClass = computed(() => {
   const base =
-    'group relative flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-white/90 text-left shadow transition-all duration-200 focus:outline-none';
+    'group relative flex h-full w-full max-w-xs md:max-w-sm flex-col overflow-hidden rounded-2xl border bg-white/90 text-left shadow transition-all duration-200 focus:outline-none';
   const interactive = props.disabled
     ? 'opacity-60 cursor-not-allowed'
     : 'cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:-translate-y-1 hover:shadow-lg';
