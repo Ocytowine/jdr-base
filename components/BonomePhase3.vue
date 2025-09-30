@@ -4,10 +4,10 @@
       <h3 class="text-lg font-semibold text-slate-900">Choix de la classe</h3>
       <p class="text-sm text-slate-600">Sélectionnez la classe principale de votre bonôme.</p>
     </div>
-    <div v-if="classGroup" class="-mx-1 space-y-4 px-1">
+    <div v-if="classGroup" class="space-y-4">
       <div
         v-if="classGroup.options.length"
-        class="grid grid-flow-col auto-cols-[320px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
+        class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4"
       >
         <CardArticle
           v-for="option in classGroup.options"
@@ -18,7 +18,7 @@
           role="option"
           :aria-selected="classGroup.selected === option.id"
           :class="[
-            'snap-center focus-within:ring-2 focus-within:ring-blue-500',
+            'h-full w-full max-w-none focus-within:ring-2 focus-within:ring-blue-500',
             classGroup.selected === option.id
               ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
               : 'hover:border-slate-300 hover:shadow'
