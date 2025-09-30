@@ -24,8 +24,8 @@
         </header>
 
         <div class="space-y-4">
-          <div v-if="getChoiceOptions(choice).length" class="-mx-1 px-1">
-            <div class="grid grid-flow-col auto-cols-[320px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
+          <div v-if="getChoiceOptions(choice).length">
+            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
               <CardArticle
                 v-for="(opt, optIdx) in getChoiceOptions(choice)"
                 :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
@@ -35,7 +35,7 @@
                 role="option"
                 :aria-selected="isChoiceOptionSelected(choice, opt)"
                 :class="[
-                  'snap-center focus-within:ring-2 focus-within:ring-blue-500',
+                  'h-full w-full max-w-none focus-within:ring-2 focus-within:ring-blue-500',
                   isChoiceOptionSelected(choice, opt)
                     ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
                     : 'hover:border-slate-300 hover:shadow',

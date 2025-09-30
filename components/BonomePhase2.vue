@@ -4,10 +4,10 @@
       <h3 class="text-lg font-semibold text-slate-900">Choix de la race</h3>
       <p class="text-sm text-slate-600">Sélectionnez la race correspondant à votre personnage.</p>
     </div>
-    <div v-if="raceGroup" class="-mx-1 space-y-4 px-1">
+    <div v-if="raceGroup" class="space-y-4">
       <div
         v-if="raceGroup.options.length"
-        class="grid grid-flow-col auto-cols-[320px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
+        class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4"
       >
         <CardArticle
           v-for="option in raceGroup.options"
@@ -18,8 +18,10 @@
           role="option"
           :aria-selected="raceGroup.selected === option.id"
           :class="[
-            'snap-center focus-within:ring-2 focus-within:ring-blue-500',
-            raceGroup.selected === option.id ? 'ring-2 ring-blue-500 border-blue-500 shadow-md' : 'hover:border-slate-300 hover:shadow'
+            'h-full w-full max-w-none focus-within:ring-2 focus-within:ring-blue-500',
+            raceGroup.selected === option.id
+              ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
+              : 'hover:border-slate-300 hover:shadow'
           ]"
           :selected="raceGroup.selected === option.id"
           @select="handleRaceSelection(option.id, $event)"
