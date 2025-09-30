@@ -208,9 +208,9 @@ const {
   displayCharacterName,
   previewPortrait,
   displayStats,
-  firstName,
-  lastName,
-  nickname,
+  characterFirstName,
+  characterLastName,
+  characterNickname,
   fullCharacterName
 } = storeToRefs(creation);
 
@@ -220,9 +220,9 @@ const descriptionFields = creation.descriptionFields as DescriptionFields;
 const equipmentSlots = MATERIAL_SLOT_DEFINITIONS;
 const descriptionFieldDefinitions = DESCRIPTION_FIELD_DEFINITIONS;
 
-const trimmedFirstName = computed(() => firstName.value.trim());
-const trimmedLastName = computed(() => lastName.value.trim());
-const trimmedNickname = computed(() => nickname.value.trim());
+const trimmedFirstName = computed(() => characterFirstName.value.trim());
+const trimmedLastName = computed(() => characterLastName.value.trim());
+const trimmedNickname = computed(() => characterNickname.value.trim());
 const hasNameParts = computed(
   () =>
     Boolean(trimmedFirstName.value) ||

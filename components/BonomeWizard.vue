@@ -42,37 +42,35 @@
       v-if="isCurrentStep('identity')"
       class="space-y-6 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm"
     >
-      <form class="grid gap-4 md:grid-cols-2" @submit.prevent>
+      <form class="grid gap-6 md:grid-cols-2" @submit.prevent>
         <div class="space-y-4">
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <label class="block text-sm font-medium text-slate-700">Prénom</label>
-              <input
-                v-model="firstName"
-                type="text"
-                placeholder="Ex. Lina"
-                class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-700">Nom</label>
-              <input
-                v-model="lastName"
-                type="text"
-                placeholder="Ex. Morcant"
-                class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-            <div class="sm:col-span-2 lg:col-span-1">
-              <label class="block text-sm font-medium text-slate-700">Surnom</label>
-              <input
-                v-model="nickname"
-                type="text"
-                placeholder="Ex. L'Éclair"
-                class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-              />
-              <p class="mt-1 text-xs text-slate-500">Optionnel : sera affiché entre guillemets.</p>
-            </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Prénom</label>
+            <input
+              v-model="characterFirstName"
+              type="text"
+              placeholder="Ex. Lina"
+              class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Nom</label>
+            <input
+              v-model="characterLastName"
+              type="text"
+              placeholder="Ex. Morcant"
+              class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Surnom</label>
+            <input
+              v-model="characterNickname"
+              type="text"
+              placeholder="Ex. L'Éclair"
+              class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            />
+            <p class="mt-1 text-xs text-slate-500">Optionnel : sera affiché entre guillemets.</p>
           </div>
         </div>
         <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
@@ -93,40 +91,6 @@
           </dl>
         </div>
       </form>
-
-      <div v-if="backgroundGroup" class="space-y-4">
-        <div class="flex items-center justify-between">
-          <h3 class="text-lg font-semibold text-slate-900">Historique</h3>
-          <span class="text-sm text-slate-600">
-            Sélection actuelle :
-            {{ backgroundGroup ? getPrimarySelectedLabel(backgroundGroup) : '—' }}
-          </span>
-        </div>
-        <div class="-mx-1 px-1">
-          <div class="grid grid-flow-col auto-cols-[280px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
-            <CardArticleSpells
-              v-for="option in backgroundGroup.options"
-              :key="option.id"
-              :title="option.label"
-              :description="option.description"
-              :effact-label="option.effectLabel ?? undefined"
-              :image="option.image"
-              role="option"
-              :aria-selected="backgroundGroup.selected === option.id"
-              :selection-state="backgroundGroup.selected === option.id ? 'write' : 'none'"
-              :class="[
-                'snap-center focus-within:ring-2 focus-within:ring-blue-500',
-                backgroundGroup.selected === option.id
-                  ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
-                  : 'hover:border-slate-300 hover:shadow'
-              ]"
-              @write="selectPrimaryOption('background', option.id)"
-              @write-prepare="selectPrimaryOption('background', option.id)"
-              @reset="resetPrimarySelection('background', option.id)"
-            />
-          </div>
-        </div>
-      </div>
 
       <div class="flex justify-end gap-3">
         <button type="button" class="rounded-lg border border-slate-200 px-4 py-2 text-sm" @click="handleCancel">Annuler</button>
@@ -636,10 +600,9 @@ const {
   selectedClass,
   selectedRace,
   selectedBackground,
-  characterName,
-  firstName,
-  lastName,
-  nickname,
+  characterFirstName,
+  characterLastName,
+  characterNickname,
   fullCharacterName,
   displayCharacterName,
   pointBuyBudget,
@@ -710,11 +673,9 @@ const refreshPreview = async () => {
 };
 
 const resetIdentity = async () => {
-  characterName.value = '';
-  firstName.value = '';
-  lastName.value = '';
-  nickname.value = '';
-  selectedBackground.value = '';
+  characterFirstName.value = '';
+  characterLastName.value = '';
+  characterNickname.value = '';
   await refreshPreview();
 };
 
@@ -779,7 +740,7 @@ const steps: StepDefinition[] = [
     id: 'identity',
     title: 'Identité du personnage',
     shortTitle: 'Identité',
-    description: "Définissez le nom et l'historique de votre bonôme.",
+    description: 'Définissez le nom complet de votre bonôme.',
     onValidate: refreshPreview,
     onReset: resetIdentity
   },
@@ -840,7 +801,6 @@ const steps: StepDefinition[] = [
 
 const activeStep = computed(() => steps[currentStep.value] ?? steps[0]);
 
-const backgroundGroup = computed(() => primarySelectionGroups.value.find((group) => group.id === 'background') ?? null);
 const raceGroup = computed(() => primarySelectionGroups.value.find((group) => group.id === 'race') ?? null);
 const classGroup = computed(() => primarySelectionGroups.value.find((group) => group.id === 'class') ?? null);
 
