@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, reactive, ref } from 'vue';
+import { useNuxtApp } from '#app';
 import type { Personnage } from './personnage';
 
 import { usePersonnage, type Personnage } from './personnage';
@@ -322,6 +323,11 @@ const formatChoiceValue = (key: string, value: any, options: ChoiceOption[]): st
   return toLabel(value);
 };
 
+const useRequestFetch = () => {
+  const nuxtApp = useNuxtApp();
+  return nuxtApp.$fetch;
+};
+
 export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const requestFetch = useRequestFetch();
 
@@ -335,6 +341,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const niveau = ref<number>(1);
   const loading = ref(false);
   const characterName = ref<string>('');
+  const firstName = ref<string>('');
+  const lastName = ref<string>('');
+  const nickname = ref<string>('');
 
   const preview = ref<any | null>(null);
   const rawText = ref<string>('');
@@ -402,7 +411,30 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     })
   );
 
+  const normalizeNamePart = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+  const fullCharacterName = computed(() => {
+    const first = normalizeNamePart(firstName.value);
+    const last = normalizeNamePart(lastName.value);
+    const nick = normalizeNamePart(nickname.value);
+
+    const segments: string[] = [];
+    if (first.length) segments.push(first);
+    if (last.length) segments.push(last);
+
+    const base = segments.join(' ').trim();
+    if (nick.length) {
+      return base.length ? `${base} « ${nick} »` : `« ${nick} »`;
+    }
+
+    return base;
+  });
+
   const displayCharacterName = computed(() => {
+    const full = fullCharacterName.value.trim();
+    if (full.length) {
+      return full;
+    }
     const trimmed = characterName.value.trim();
     if (trimmed.length) {
       return trimmed;
@@ -654,7 +686,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       selectedRace: selectedRace.value,
       selectedBackground: selectedBackground.value,
       niveau: niveau.value,
-      characterName: characterName.value,
+      characterName: fullCharacterName.value.trim() || characterName.value,
+      firstName: firstName.value,
+      lastName: lastName.value,
+      nickname: nickname.value,
       baseStats: { ...baseStats },
       chosenOptions: JSON.parse(JSON.stringify(chosenOptions))
     };
@@ -677,6 +712,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         selectedBackground.value = parsed.selectedBackground ?? selectedBackground.value;
         niveau.value = Number(parsed.niveau ?? niveau.value) || niveau.value;
         characterName.value = parsed.characterName ?? characterName.value;
+        firstName.value = parsed.firstName ?? firstName.value;
+        lastName.value = parsed.lastName ?? lastName.value;
+        nickname.value = parsed.nickname ?? nickname.value;
+        if (!firstName.value && !lastName.value && !nickname.value && parsed.characterName) {
+          firstName.value = parsed.characterName;
+        }
         if (parsed.baseStats && typeof parsed.baseStats === 'object') {
           Object.assign(baseStats, parsed.baseStats);
         }
@@ -829,7 +870,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     preview.value = null;
     rawText.value = '';
     try {
-      const trimmedName = characterName.value.trim();
+      const trimmedFullName = fullCharacterName.value.trim();
+      const trimmedLegacyName = characterName.value.trim();
+      const primaryName = trimmedFullName.length ? trimmedFullName : trimmedLegacyName;
+      const trimmedFirstName = normalizeNamePart(firstName.value);
+      const trimmedLastName = normalizeNamePart(lastName.value);
+      const trimmedNickname = normalizeNamePart(nickname.value);
       const body = {
         selection: {
           class: selectedClass.value || null,
@@ -840,7 +886,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
           chosenOptions: { ...chosenOptions }
         },
         baseCharacter: {
-          name: trimmedName.length ? trimmedName : null,
+          name: primaryName.length ? primaryName : null,
+          first_name: trimmedFirstName.length ? trimmedFirstName : null,
+          last_name: trimmedLastName.length ? trimmedLastName : null,
+          nickname: trimmedNickname.length ? trimmedNickname : null,
           base_stats_before_race: { ...baseStats }
         }
       };
@@ -928,6 +977,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       delete choiceMetadata[k];
     }
     characterName.value = '';
+    firstName.value = '';
+    lastName.value = '';
+    nickname.value = '';
     await sendPreview();
   };
 
@@ -1110,6 +1162,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     niveau,
     loading,
     characterName,
+    firstName,
+    lastName,
+    nickname,
     preview,
     rawText,
     showRaw,
@@ -1119,6 +1174,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     primarySelectionGroups,
     identitySummary,
     displayCharacterName,
+    fullCharacterName,
     previewPortrait,
     getPrimarySelectedLabel,
     selectPrimaryOption,

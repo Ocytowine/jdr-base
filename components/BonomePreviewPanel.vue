@@ -13,9 +13,15 @@
           </div>
         </div>
         <div class="flex-1 space-y-4">
-          <div>
+          <div class="space-y-2">
             <div class="text-xs uppercase tracking-wide text-gray-500">Nom du personnage</div>
             <div class="text-xl font-semibold text-slate-900">{{ displayCharacterName }}</div>
+            <div v-if="hasNameParts" class="space-y-1 text-sm text-slate-600">
+              <p v-if="trimmedFirstName"><span class="font-medium text-slate-700">Prénom :</span> {{ trimmedFirstName }}</p>
+              <p v-if="trimmedLastName"><span class="font-medium text-slate-700">Nom :</span> {{ trimmedLastName }}</p>
+              <p v-if="trimmedNickname"><span class="font-medium text-slate-700">Surnom :</span> {{ trimmedNickname }}</p>
+            </div>
+            <p v-else-if="trimmedFullName" class="text-sm text-slate-600">Nom complet : {{ trimmedFullName }}</p>
           </div>
           <div class="grid gap-3 sm:grid-cols-2">
             <article
@@ -156,7 +162,28 @@ const router = useRouter();
 const creation = useBonomeCreationStore();
 const personnageStore = usePersonnage();
 
-const { preview, identitySummary, displayCharacterName, previewPortrait, displayStats } = storeToRefs(creation);
+const {
+  preview,
+  identitySummary,
+  displayCharacterName,
+  previewPortrait,
+  displayStats,
+  firstName,
+  lastName,
+  nickname,
+  fullCharacterName
+} = storeToRefs(creation);
+
+const trimmedFirstName = computed(() => firstName.value.trim());
+const trimmedLastName = computed(() => lastName.value.trim());
+const trimmedNickname = computed(() => nickname.value.trim());
+const hasNameParts = computed(
+  () =>
+    Boolean(trimmedFirstName.value) ||
+    Boolean(trimmedLastName.value) ||
+    Boolean(trimmedNickname.value)
+);
+const trimmedFullName = computed(() => fullCharacterName.value.trim());
 
 const canSave = computed(() => preview.value?.ok && !(preview.value?.errors?.length));
 const saving = ref(false);
