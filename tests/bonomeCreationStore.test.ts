@@ -102,6 +102,9 @@ export async function run() {
     selectedBackground: 'sage',
     niveau: 7,
     characterName: 'Archimage',
+    firstName: 'Aldara',
+    lastName: 'Sombrelune',
+    nickname: 'La Ruse',
     baseStats: {
       strength: 12,
       dexterity: 13,
@@ -143,6 +146,9 @@ export async function run() {
     assert.equal(unwrap(store.selectedBackground), savedState.selectedBackground, 'background should be restored');
     assert.equal(unwrap(store.niveau), savedState.niveau, 'niveau should be restored');
     assert.equal(unwrap(store.characterName), savedState.characterName, 'character name should be restored');
+    assert.equal(unwrap(store.firstName), savedState.firstName, 'first name should be restored');
+    assert.equal(unwrap(store.lastName), savedState.lastName, 'last name should be restored');
+    assert.equal(unwrap(store.nickname), savedState.nickname, 'nickname should be restored');
     assert.deepEqual(
       serializeReactive(store.baseStats),
       savedState.baseStats,
@@ -190,6 +196,21 @@ export async function run() {
       savedState.characterName,
       'reloaded store should keep character name'
     );
+    assert.equal(
+      unwrap(reloadedStore.firstName),
+      savedState.firstName,
+      'reloaded store should keep first name'
+    );
+    assert.equal(
+      unwrap(reloadedStore.lastName),
+      savedState.lastName,
+      'reloaded store should keep last name'
+    );
+    assert.equal(
+      unwrap(reloadedStore.nickname),
+      savedState.nickname,
+      'reloaded store should keep nickname'
+    );
     assert.deepEqual(
       serializeReactive(reloadedStore.chosenOptions),
       savedState.chosenOptions,
@@ -200,6 +221,29 @@ export async function run() {
         unwrap(reloadedStore.races).length > 0 &&
         unwrap(reloadedStore.backgrounds).length > 0,
       'reloaded store should populate catalog entries'
+    );
+
+    const previewCall = fetchLog.find((call) => call.url === '/api/creation/preview');
+    assert.ok(previewCall, 'preview call should be logged after reload');
+    assert.equal(
+      previewCall?.options?.body?.baseCharacter?.first_name,
+      savedState.firstName,
+      'preview should include first name'
+    );
+    assert.equal(
+      previewCall?.options?.body?.baseCharacter?.last_name,
+      savedState.lastName,
+      'preview should include last name'
+    );
+    assert.equal(
+      previewCall?.options?.body?.baseCharacter?.nickname,
+      savedState.nickname,
+      'preview should include nickname'
+    );
+    assert.equal(
+      previewCall?.options?.body?.baseCharacter?.name,
+      'Aldara Sombrelune « La Ruse »',
+      'preview should include combined full name'
     );
   } finally {
     if (originalProcessClient === undefined) {

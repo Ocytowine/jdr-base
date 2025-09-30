@@ -42,22 +42,57 @@
       v-if="isCurrentStep('identity')"
       class="space-y-6 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm"
     >
-      <div class="grid gap-4 md:grid-cols-2">
-        <div>
-          <label class="block text-sm font-medium text-slate-700">Nom du personnage</label>
-          <input
-            v-model="characterName"
-            type="text"
-            placeholder="Aventurier sans nom"
-            class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-          />
+      <form class="grid gap-4 md:grid-cols-2" @submit.prevent>
+        <div class="space-y-4">
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label class="block text-sm font-medium text-slate-700">Prénom</label>
+              <input
+                v-model="firstName"
+                type="text"
+                placeholder="Ex. Lina"
+                class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700">Nom</label>
+              <input
+                v-model="lastName"
+                type="text"
+                placeholder="Ex. Morcant"
+                class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+            <div class="sm:col-span-2 lg:col-span-1">
+              <label class="block text-sm font-medium text-slate-700">Surnom</label>
+              <input
+                v-model="nickname"
+                type="text"
+                placeholder="Ex. L'Éclair"
+                class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              />
+              <p class="mt-1 text-xs text-slate-500">Optionnel : sera affiché entre guillemets.</p>
+            </div>
+          </div>
         </div>
         <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
           <p class="font-semibold text-slate-700">Aperçu rapide</p>
-          <p class="mt-2">Nom affiché : {{ displayCharacterName }}</p>
-          <p>Portrait généré : {{ displayCharacterName }}</p>
+          <dl class="mt-2 space-y-2">
+            <div>
+              <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Nom complet</dt>
+              <dd class="text-sm text-slate-700">{{ fullNamePreview || '—' }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Nom affiché</dt>
+              <dd class="text-sm text-slate-700">{{ displayCharacterName }}</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Portrait généré</dt>
+              <dd class="text-sm text-slate-700">{{ displayCharacterName }}</dd>
+            </div>
+          </dl>
         </div>
-      </div>
+      </form>
 
       <div v-if="backgroundGroup" class="space-y-4">
         <div class="flex items-center justify-between">
@@ -497,10 +532,16 @@ const {
   selectedRace,
   selectedBackground,
   characterName,
+  firstName,
+  lastName,
+  nickname,
+  fullCharacterName,
   identitySummary,
   displayCharacterName,
   displayStats
 } = storeToRefs(creation);
+
+const fullNamePreview = computed(() => fullCharacterName.value.trim());
 
 const baseStats = creation.baseStats;
 const materialNotes = ref('');
@@ -522,6 +563,9 @@ const refreshPreview = async () => {
 
 const resetIdentity = async () => {
   characterName.value = '';
+  firstName.value = '';
+  lastName.value = '';
+  nickname.value = '';
   selectedBackground.value = '';
   await refreshPreview();
 };
