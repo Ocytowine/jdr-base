@@ -9,26 +9,29 @@
         v-if="classGroup.options.length"
         class="grid grid-flow-col auto-cols-[320px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory"
       >
-        <CardArticleSpells
+        <CardArticle
           v-for="option in classGroup.options"
           :key="option.id"
           :title="option.label"
           :description="option.description"
-          :effact-label="option.effectLabel ?? undefined"
           :image="option.image"
           role="option"
           :aria-selected="classGroup.selected === option.id"
-          :selection-state="classGroup.selected === option.id ? 'write' : 'none'"
           :class="[
             'snap-center focus-within:ring-2 focus-within:ring-blue-500',
             classGroup.selected === option.id
               ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
               : 'hover:border-slate-300 hover:shadow'
           ]"
-          @write="selectPrimaryOption('class', option.id)"
-          @write-prepare="selectPrimaryOption('class', option.id)"
-          @reset="resetPrimarySelection(option.id)"
-        />
+          :selected="classGroup.selected === option.id"
+          @select="handleClassSelection(option.id, $event)"
+        >
+          <template v-if="option.effectLabel" #footer>
+            <span class="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              {{ option.effectLabel }}
+            </span>
+          </template>
+        </CardArticle>
       </div>
       <p v-else class="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-600">
         Aucune classe n’est disponible pour le moment. Veuillez réessayer plus tard ou actualiser le catalogue.
@@ -59,7 +62,7 @@
 import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 
-import CardArticleSpells from '@/components/CardArticleSpells.vue';
+import CardArticle from '@/components/CardArticle.vue';
 import type { BonomePhaseMeta } from '@/components/bonomePhases';
 import type { PrimarySelectionGroup } from '@/stores/bonomeCreation';
 import { useBonomeCreationStore } from '@/stores/bonomeCreation';
@@ -80,6 +83,14 @@ const props = defineProps<{
 const creation = useBonomeCreationStore();
 const { selectedClass } = storeToRefs(creation);
 const { selectPrimaryOption } = creation;
+
+const handleClassSelection = (optionId: string, nextState: boolean) => {
+  if (nextState) {
+    selectPrimaryOption('class', optionId);
+  } else {
+    resetPrimarySelection(optionId);
+  }
+};
 
 const resetPrimarySelection = (optionId: string) => {
   if (selectedClass.value === optionId) {
