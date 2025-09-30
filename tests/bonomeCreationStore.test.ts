@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
 import { isRef } from 'vue';
 
 import { useBonomeCreationStore } from '../stores/bonomeCreation';
@@ -100,18 +101,18 @@ export async function run() {
     selectedClass: 'wizard',
     selectedRace: 'elf',
     selectedBackground: 'sage',
-    niveau: 7,
+    niveau: 3,
     characterName: 'Archimage',
     firstName: 'Aldara',
     lastName: 'Sombrelune',
     nickname: 'La Ruse',
     baseStats: {
-      strength: 12,
-      dexterity: 13,
-      constitution: 14,
-      intelligence: 18,
-      wisdom: 15,
-      charisma: 11
+      strength: 15,
+      dexterity: 14,
+      constitution: 13,
+      intelligence: 12,
+      wisdom: 10,
+      charisma: 8
     },
     chosenOptions: {
       wizard_spell_choice: ['spell_magic_missile']
@@ -154,6 +155,16 @@ export async function run() {
       savedState.baseStats,
       'base stats should be restored'
     );
+    assert.equal(unwrap(store.pointBuyRemaining), 0, 'point buy should be balanced after restore');
+    assert.equal(unwrap(store.isPointBuyBalanced), true, 'point buy budget should be balanced after restore');
+    store.niveau = 99;
+    await nextTick();
+    assert.equal(unwrap(store.niveau), 3, 'niveau should clamp to maximum level');
+    store.niveau = 0;
+    await nextTick();
+    assert.equal(unwrap(store.niveau), 1, 'niveau should clamp to minimum level');
+    store.niveau = savedState.niveau;
+    await nextTick();
     assert.deepEqual(
       serializeReactive(store.chosenOptions),
       savedState.chosenOptions,
@@ -163,6 +174,10 @@ export async function run() {
       serializeReactive(store.localChosen),
       savedState.chosenOptions,
       'local chosen options should mirror restored choices'
+    );
+
+    const persistedState = JSON.parse(
+      (globalThis as any).localStorage.getItem('bonome_creation_state') ?? '{}'
     );
 
     fetchLog.length = 0;
@@ -193,7 +208,7 @@ export async function run() {
     );
     assert.equal(
       unwrap(reloadedStore.characterName),
-      savedState.characterName,
+      persistedState.characterName ?? savedState.characterName,
       'reloaded store should keep character name'
     );
     assert.equal(
@@ -211,6 +226,8 @@ export async function run() {
       savedState.nickname,
       'reloaded store should keep nickname'
     );
+    assert.equal(unwrap(reloadedStore.pointBuyRemaining), 0, 'reloaded store should keep balanced point buy');
+    assert.equal(unwrap(reloadedStore.isPointBuyBalanced), true, 'reloaded store should report balanced point buy');
     assert.deepEqual(
       serializeReactive(reloadedStore.chosenOptions),
       savedState.chosenOptions,
