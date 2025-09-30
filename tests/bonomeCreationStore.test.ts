@@ -53,8 +53,22 @@ const unwrap = <T>(maybeRef: T | { value: T }): T => {
 
 const serializeReactive = (value: any) => JSON.parse(JSON.stringify(value));
 
-const createFetchStub = (log: Array<{ url: string; options?: any }>): FetchHandler => {
-  const catalogResponses: Record<string, any> = {
+type FetchStubOverride =
+  | any
+  | Error
+  | (() => any)
+  | (() => Promise<any>);
+
+type FetchStubOptions = {
+  catalog?: Partial<Record<string, FetchStubOverride>>;
+  preview?: FetchStubOverride;
+};
+
+const createFetchStub = (
+  log: Array<{ url: string; options?: any }>,
+  options: FetchStubOptions = {}
+): FetchHandler => {
+  const catalogResponses: Record<string, FetchStubOverride> = {
     '/api/catalog/classes': [
       { id: 'wizard', name: 'Mage' },
       { id: 'ranger', name: 'Rôdeur' }
@@ -65,10 +79,11 @@ const createFetchStub = (log: Array<{ url: string; options?: any }>): FetchHandl
     ],
     '/api/catalog/backgrounds': [
       { id: 'sage', name: 'Sage' }
-    ]
+    ],
+    ...(options.catalog ?? {})
   };
 
-  const previewResponse = {
+  const previewResponse: FetchStubOverride = options.preview ?? {
     ok: true,
     pendingChoices: [],
     previewCharacter: {
@@ -81,9 +96,22 @@ const createFetchStub = (log: Array<{ url: string; options?: any }>): FetchHandl
   return async (url: string, options?: any) => {
     log.push({ url, options });
     if (url in catalogResponses) {
-      return catalogResponses[url];
+      const response = catalogResponses[url];
+      if (typeof response === 'function') {
+        return await response();
+      }
+      if (response instanceof Error) {
+        throw response;
+      }
+      return response;
     }
     if (url === '/api/creation/preview') {
+      if (typeof previewResponse === 'function') {
+        return await previewResponse();
+      }
+      if (previewResponse instanceof Error) {
+        throw previewResponse;
+      }
       return previewResponse;
     }
     throw new Error(`Unhandled fetch to ${url}`);
@@ -267,6 +295,21 @@ export async function run() {
         unwrap(reloadedStore.backgrounds).length > 0,
       'reloaded store should populate catalog entries'
     );
+    assert.deepEqual(
+      unwrap(reloadedStore.classes).map((entry) => entry.id),
+      ['wizard', 'ranger'],
+      'reloaded store should use API-provided classes'
+    );
+    assert.deepEqual(
+      unwrap(reloadedStore.races).map((entry) => entry.id),
+      ['elf', 'human'],
+      'reloaded store should use API-provided races'
+    );
+    assert.deepEqual(
+      unwrap(reloadedStore.backgrounds).map((entry) => entry.id),
+      ['sage'],
+      'reloaded store should use API-provided backgrounds'
+    );
 
     const previewCall = fetchLog.find((call) => call.url === '/api/creation/preview');
     assert.ok(previewCall, 'preview call should be logged after reload');
@@ -289,6 +332,64 @@ export async function run() {
       previewCall?.options?.body?.baseCharacter?.name,
       'Aldara Sombrelune « La Ruse »',
       'preview should include combined full name'
+    );
+
+    fetchLog.length = 0;
+    __setNuxtAppStub({
+      $fetch: createFetchStub(fetchLog, {
+        catalog: {
+          '/api/catalog/classes': [],
+          '/api/catalog/races': [],
+          '/api/catalog/backgrounds': []
+        }
+      })
+    });
+    (process as any).client = false;
+    (globalThis as any).localStorage = createLocalStorageMock();
+    setActivePinia(createPinia());
+    const emptyCatalogStore = useBonomeCreationStore();
+
+    await emptyCatalogStore.initialize();
+
+    assert.deepEqual(
+      unwrap(emptyCatalogStore.classes),
+      [],
+      'store should keep classes empty when API returns no data'
+    );
+    assert.deepEqual(
+      unwrap(emptyCatalogStore.races),
+      [],
+      'store should keep races empty when API returns no data'
+    );
+    assert.deepEqual(
+      unwrap(emptyCatalogStore.backgrounds),
+      [],
+      'store should keep backgrounds empty when API returns no data'
+    );
+    assert.equal(
+      unwrap(emptyCatalogStore.selectedClass),
+      '',
+      'class selection should reset when no options are available'
+    );
+    assert.equal(
+      unwrap(emptyCatalogStore.selectedRace),
+      '',
+      'race selection should reset when no options are available'
+    );
+    assert.equal(
+      unwrap(emptyCatalogStore.selectedBackground),
+      '',
+      'background selection should reset when no options are available'
+    );
+    assert.equal(
+      fetchLog.filter((call) => call.url.startsWith('/api/catalog/')).length,
+      3,
+      'empty catalog initialization should still call each catalog endpoint once'
+    );
+    assert.equal(
+      fetchLog.filter((call) => call.url === '/api/creation/preview').length,
+      1,
+      'empty catalog initialization should still trigger a preview request'
     );
   } finally {
     if (originalProcessClient === undefined) {
