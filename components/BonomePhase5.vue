@@ -26,16 +26,14 @@
         <div class="space-y-4">
           <div v-if="getChoiceOptions(choice).length" class="-mx-1 px-1">
             <div class="grid grid-flow-col auto-cols-[320px] gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
-              <CardArticleSpells
+              <CardArticle
                 v-for="(opt, optIdx) in getChoiceOptions(choice)"
                 :key="typeof opt.value === 'object' ? optIdx : (opt.value ?? optIdx)"
                 :title="opt.label"
                 :description="getChoiceOptionDescription(opt)"
-                :effact-label="opt.effectLabel ?? opt.effect_label ?? undefined"
                 :image="getChoiceOptionImage(opt)"
                 role="option"
                 :aria-selected="isChoiceOptionSelected(choice, opt)"
-                :selection-state="isChoiceOptionSelected(choice, opt) ? 'write' : 'none'"
                 :class="[
                   'snap-center focus-within:ring-2 focus-within:ring-blue-500',
                   isChoiceOptionSelected(choice, opt)
@@ -43,10 +41,16 @@
                     : 'hover:border-slate-300 hover:shadow',
                   isChoiceOptionDisabled(choice, opt) ? 'cursor-not-allowed opacity-60' : ''
                 ]"
-                @write="handleChoiceOptionClick(choice, opt)"
-                @write-prepare="handleChoiceOptionClick(choice, opt)"
-                @reset="resetChoiceOption(choice, opt)"
-              />
+                :selected="isChoiceOptionSelected(choice, opt)"
+                :disabled="isChoiceOptionDisabled(choice, opt)"
+                @select="handleChoiceOptionClick(choice, opt)"
+              >
+                <template v-if="opt.effectLabel || opt.effect_label" #footer>
+                  <span class="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                    {{ opt.effectLabel ?? opt.effect_label }}
+                  </span>
+                </template>
+              </CardArticle>
             </div>
           </div>
           <p v-else class="text-sm italic text-slate-500">
@@ -120,7 +124,7 @@
 import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 
-import CardArticleSpells from '@/components/CardArticleSpells.vue';
+import CardArticle from '@/components/CardArticle.vue';
 import type { BonomePhaseMeta } from '@/components/bonomePhases';
 import { useBonomeCreationStore } from '@/stores/bonomeCreation';
 
@@ -158,12 +162,6 @@ const {
   hasLocalChoiceValue,
   resetChoiceById
 } = creation;
-
-const resetChoiceOption = (choice: any, option: any) => {
-  if (isChoiceOptionSelected(choice, option)) {
-    handleChoiceOptionClick(choice, option);
-  }
-};
 
 const stepMeta = computed(() => props.stepMeta);
 const preview = computed(() => props.preview ?? storePreview.value ?? null);
