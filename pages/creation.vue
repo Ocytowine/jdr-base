@@ -4,8 +4,8 @@
       <header class="space-y-2">
         <h1 class="h1">Création de votre personnage</h1>
         <p class="text-sm text-[var(--texte-2)]">
-          Parcourez l'assistant pour sélectionner la classe, la race et l'historique, ajustez vos caractéristiques puis appliquez
-          les choix complémentaires proposés.
+          Parcourez les huit étapes de l'assistant pour définir l'identité, la race et la classe de votre bonôme, ajuster ses
+          caractéristiques puis appliquer les choix complémentaires avant de finaliser la fiche.
         </p>
       </header>
 
