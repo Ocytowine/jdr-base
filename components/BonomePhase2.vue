@@ -7,7 +7,7 @@
     <div v-if="raceGroup" class="space-y-4">
       <div
         v-if="raceGroup.options.length"
-        class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4"
+        class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4 auto-rows-fr"
       >
         <CardArticle
           v-for="option in raceGroup.options"
@@ -17,12 +17,6 @@
           :image="option.image"
           role="option"
           :aria-selected="raceGroup.selected === option.id"
-          :class="[
-            'h-full w-full max-w-none focus-within:ring-2 focus-within:ring-blue-500',
-            raceGroup.selected === option.id
-              ? 'ring-2 ring-blue-500 border-blue-500 shadow-md'
-              : 'hover:border-slate-300 hover:shadow'
-          ]"
           :selected="raceGroup.selected === option.id"
           @select="handleRaceSelection(option.id, $event)"
         >

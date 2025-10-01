@@ -1,33 +1,49 @@
 <template>
   <section :data-step="stepMeta.id" class="space-y-6 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-    <div class="grid gap-6 md:grid-cols-2">
-      <div>
-        <label class="block text-sm font-medium text-slate-700">Niveau</label>
-        <input
-          v-model.number="niveau"
-          type="number"
-          min="1"
-          max="3"
-          class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-        />
-        <p class="mt-1 text-xs text-slate-500">Le niveau est limité entre 1 et 3.</p>
+    <div class="space-y-4">
+      <div class="space-y-2">
+        <h3 class="text-lg font-semibold text-slate-900">Choix du niveau</h3>
+        <p class="text-sm text-slate-600">Selectionnez le niveau de depart pour votre bonome.</p>
       </div>
-      <div class="space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-        <div>
-          <p class="font-semibold text-slate-700">Budget de points</p>
-          <p class="mt-1 text-xs text-slate-500">
-            Chaque caractéristique doit rester entre {{ pointBuyMin }} et {{ pointBuyMax }}.
-          </p>
-        </div>
-        <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Points restants</p>
-          <p :class="['text-base font-semibold', pointBuyStatusClass]">{{ pointBuyStatus.message }}</p>
-          <p class="text-xs text-slate-500">Coût total : {{ pointBuySpent }} / {{ pointBuyBudget }}</p>
-        </div>
-        <p class="text-xs text-slate-500">
-          Ajustez les caractéristiques en respectant votre budget de 27 points.
+      <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4 auto-rows-fr">
+        <CardArticle
+          v-for="option in levelOptions"
+          :key="option.value"
+          :title="option.title"
+          :description="option.description"
+          role="option"
+          :aria-selected="niveau === option.value"
+          :selected="niveau === option.value"
+          @select="handleLevelSelect(option.value, $event)"
+        >
+          <template v-if="option.badge" #footer>
+            <span class="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              {{ option.badge }}
+            </span>
+          </template>
+        </CardArticle>
+      </div>
+    </div>
+
+    <div class="space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+      <div>
+        <p class="font-semibold text-slate-700">Budget de points</p>
+        <p class="mt-1 text-xs text-slate-500">
+          Chaque caracteristique doit rester entre {{ pointBuyMin }} et {{ pointBuyMax }}.
         </p>
       </div>
+      <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Points restants</p>
+        <p :class="['text-base font-semibold', pointBuyStatusClass]">{{ pointBuyStatus.message }}</p>
+        <p class="text-xs text-slate-500">Cout total : {{ pointBuySpent }} / {{ pointBuyBudget }}</p>
+      </div>
+      <p class="text-xs text-slate-500">
+        Ajustez les caracteristiques en respectant votre budget de 27 points.
+      </p>
+      <p class="text-xs text-slate-500">
+        Niveau selectionne :
+        <span class="font-semibold text-slate-800">{{ niveau }}</span>
+      </p>
     </div>
 
     <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -81,6 +97,8 @@
 import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 
+import CardArticle from '@/components/CardArticle.vue';
+
 import type { BonomePhaseMeta } from '@/components/bonomePhases';
 import { useBonomeCreationStore } from '@/stores/bonomeCreation';
 
@@ -107,6 +125,37 @@ const {
 const baseStats = creation.baseStats;
 const { pointBuyCostFor } = creation;
 
+
+type LevelOption = {
+  value: number;
+  title: string;
+  description: string;
+  badge?: string;
+};
+
+const LEVEL_OPTIONS: readonly LevelOption[] = [
+  {
+    value: 1,
+    title: 'Niveau 1',
+    description: 'Debutant pret a explorer et a apprendre rapidement.',
+    badge: 'Debutant'
+  },
+  {
+    value: 2,
+    title: 'Niveau 2',
+    description: 'Aventurier confirme avec quelques exploits a son actif.',
+    badge: 'Confirme'
+  },
+  {
+    value: 3,
+    title: 'Niveau 3',
+    description: 'Hero aguerri pret pour des defis plus soutenus.',
+    badge: 'Expert'
+  }
+];
+
+const levelOptions = computed(() => LEVEL_OPTIONS);
+
 type BaseStatKey = keyof typeof baseStats;
 
 const baseStatKeys = computed(() => Object.keys(baseStats) as BaseStatKey[]);
@@ -132,6 +181,13 @@ const pointBuyStatusClass = computed(() => {
       return 'text-emerald-600';
   }
 });
+
+const handleLevelSelect = (value: number, nextState: boolean) => {
+  if (!nextState) {
+    return;
+  }
+  niveau.value = value;
+};
 
 const handleIncreaseStat = (key: BaseStatKey) => {
   creation.increaseBaseStat(key);

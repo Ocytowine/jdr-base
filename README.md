@@ -57,3 +57,36 @@ Le script `npm run test` compile et exécute les fichiers `tests/*.test.ts` via 
 - `schemas/effect.schema.json` : schéma JSON non consommé par le code actuel (aucune occurrence). 【F:schemas/effect.schema.json†L1-L40】【21862b†L1-L1】
 
 Ces éléments peuvent être supprimés ou archivés si vous ne prévoyez pas de les réutiliser.
+
+Exemple d'un fichier contenu dnas le repo github d'ou nous extrayons des informations via `DataAdapterV2GitHub`:
+{
+  "id": "mage_test",
+  "name": "Mage test (sort niveau 1 index auto)",
+  "description": "Lanceur d'art arcane basé sur l'intelligence",
+  "effects": [
+    {
+      "id": "classe_test_spellcasting",
+      "type": "spellcasting_feature",
+      "payload": {
+        "ability": "intelligence",
+        "slots_table": { "1": 2 }
+      }
+    },
+    {
+      "id": "classe_test_spell_choice",
+      "type": "choice",
+      "source": "Choix des sorts de niveau 1",
+      "payload": {
+        "ui_id": "classe_test_spell_choice",
+        "category": "spell",
+        "choose": 2,
+        "auto_from": {
+          "collection": "spells",
+          "filters": { "level": 1 },
+          "id_fields": ["id", "slug"],
+          "label_fields": ["name", "nom"]
+        }
+      }   
+    }
+  ]
+}
