@@ -5,7 +5,7 @@
         <h3 class="text-lg font-semibold text-slate-900">Choix du niveau</h3>
         <p class="text-sm text-slate-600">Selectionnez le niveau de depart pour votre bonome.</p>
       </div>
-      <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4 auto-rows-fr">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 justify-items-center">
         <CardArticle
           v-for="option in levelOptions"
           :key="option.value"

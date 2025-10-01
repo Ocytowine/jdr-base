@@ -7,7 +7,7 @@
     <div v-if="classGroup" class="space-y-4">
       <div
         v-if="classGroup.options.length"
-        class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4 auto-rows-fr"
+        class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 justify-items-center"
       >
         <CardArticle
           v-for="option in classGroup.options"
