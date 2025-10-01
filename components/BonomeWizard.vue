@@ -64,6 +64,7 @@ const {
   primarySelectionGroups,
   preview,
   selectedClass,
+  selectedBackground,
   selectedRace,
   characterFirstName,
   characterLastName,
@@ -91,6 +92,11 @@ const resetClass = async () => {
   selectedClass.value = '';
   await refreshPreview();
 };
+const resetBackground = async () => {
+  selectedBackground.value = '';
+  await refreshPreview();
+};
+
 
 const resetLevelAndStats = async () => {
   niveau.value = 1;
@@ -137,7 +143,7 @@ const steps: BonomePhaseMeta[] = [
   },
   {
     id: 'race',
-    title: 'Sélection de la race',
+    title: 'Selection de la race',
     shortTitle: 'Race',
     description: 'Choisissez la race principale pour votre personnage.',
     onValidate: refreshPreview,
@@ -145,17 +151,25 @@ const steps: BonomePhaseMeta[] = [
   },
   {
     id: 'class',
-    title: 'Sélection de la classe',
+    title: 'Selection de la classe',
     shortTitle: 'Classe',
-    description: 'Choisissez la classe principale de votre bonôme.',
+    description: 'Choisissez la classe principale de votre bonome.',
     onValidate: refreshPreview,
     onReset: resetClass
   },
   {
+    id: 'background',
+    title: "Selection de l'historique",
+    shortTitle: 'Historique',
+    description: "Choisissez l'historique principal de votre personnage.",
+    onValidate: refreshPreview,
+    onReset: resetBackground
+  },
+  {
     id: 'level',
-    title: 'Niveau et caractéristiques',
+    title: 'Niveau et caracteristiques',
     shortTitle: 'Caracs',
-    description: 'Ajustez le niveau et les valeurs de base de vos caractéristiques.',
+    description: 'Ajustez le niveau et les valeurs de base de vos caracteristiques.',
     onValidate: refreshPreview,
     onReset: resetLevelAndStats
   },
@@ -194,6 +208,7 @@ const phases: BonomePhaseComponentConfig[] = [
   { id: 'identity', component: defineAsyncComponent(() => import('@/components/BonomePhase1.vue')) },
   { id: 'race', component: defineAsyncComponent(() => import('@/components/BonomePhase2.vue')) },
   { id: 'class', component: defineAsyncComponent(() => import('@/components/BonomePhase3.vue')) },
+  { id: 'background', component: defineAsyncComponent(() => import('@/components/BonomePhaseBackground.vue')) },
   { id: 'level', component: defineAsyncComponent(() => import('@/components/BonomePhase4.vue')) },
   { id: 'choices', component: defineAsyncComponent(() => import('@/components/BonomePhase5.vue')) },
   { id: 'equipment', component: defineAsyncComponent(() => import('@/components/BonomePhase6.vue')) },
@@ -208,6 +223,7 @@ const activePhase = computed(() => phases.find((phase) => phase.id === activeSte
 
 const raceGroup = computed(() => primarySelectionGroups.value.find((group) => group.id === 'race') ?? null);
 const classGroup = computed(() => primarySelectionGroups.value.find((group) => group.id === 'class') ?? null);
+const backgroundGroup = computed(() => primarySelectionGroups.value.find((group) => group.id === 'background') ?? null);
 
 const phaseProps = computed<BonomePhaseProps>(() => {
   const base: BonomePhaseProps = { stepMeta: activeStep.value };
@@ -216,6 +232,8 @@ const phaseProps = computed<BonomePhaseProps>(() => {
       return { ...base, raceGroup: raceGroup.value };
     case 'class':
       return { ...base, classGroup: classGroup.value };
+    case 'background':
+      return { ...base, backgroundGroup: backgroundGroup.value };
     case 'choices':
       return { ...base, preview: preview.value };
     case 'recap':

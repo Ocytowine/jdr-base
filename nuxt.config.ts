@@ -11,7 +11,7 @@ export default defineNuxtConfig({
   },
 
   // <-- AJOUT: modules
-  modules: ['@pinia/nuxt'],
+  modules: ['@nuxtjs/tailwindcss', '@pinia/nuxt'],
 
   devtools: { enabled: true },
   nitro: {

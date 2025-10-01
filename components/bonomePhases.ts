@@ -6,6 +6,7 @@ export type BonomePhaseId =
   | 'identity'
   | 'race'
   | 'class'
+  | 'background'
   | 'level'
   | 'choices'
   | 'equipment'
@@ -30,5 +31,6 @@ export type BonomePhaseProps = {
   stepMeta: BonomePhaseMeta;
   raceGroup?: PrimarySelectionGroup | null;
   classGroup?: PrimarySelectionGroup | null;
+  backgroundGroup?: PrimarySelectionGroup | null;
   preview?: any | null;
 };
