@@ -5,23 +5,34 @@
         <h3 class="text-lg font-semibold text-slate-900">Choix du niveau</h3>
         <p class="text-sm text-slate-600">Selectionnez le niveau de depart pour votre bonome.</p>
       </div>
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 justify-items-center">
-        <CardArticle
-          v-for="option in levelOptions"
-          :key="option.value"
-          :title="option.title"
-          :description="option.description"
-          role="option"
-          :aria-selected="niveau === option.value"
-          :selected="niveau === option.value"
-          @select="handleLevelSelect(option.value, $event)"
-        >
-          <template v-if="option.badge" #footer>
-            <span class="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-              {{ option.badge }}
-            </span>
-          </template>
-        </CardArticle>
+      <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <p class="text-base font-semibold text-slate-900">Niveau</p>
+            <p class="text-xs text-slate-500">Entre 1 et 3</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-base font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              :aria-label="'Diminuer le niveau'"
+              :disabled="niveau <= 1"
+              @click="handleDecreaseLevel"
+            >
+              -
+            </button>
+            <span class="w-10 text-center text-lg font-semibold text-slate-900">{{ niveau }}</span>
+            <button
+              type="button"
+              class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-base font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              :aria-label="'Augmenter le niveau'"
+              :disabled="niveau >= 3"
+              @click="handleIncreaseLevel"
+            >
+              +
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -61,7 +72,7 @@
               :disabled="!canDecreaseStat(key)"
               @click="handleDecreaseStat(key)"
             >
-              −
+              -
             </button>
             <span class="w-10 text-center text-lg font-semibold text-slate-900">{{ baseStats[key] }}</span>
             <button
@@ -97,8 +108,6 @@
 import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 
-import CardArticle from '@/components/CardArticle.vue';
-
 import type { BonomePhaseMeta } from '@/components/bonomePhases';
 import { useBonomeCreationStore } from '@/stores/bonomeCreation';
 
@@ -126,36 +135,6 @@ const baseStats = creation.baseStats;
 const { pointBuyCostFor } = creation;
 
 
-type LevelOption = {
-  value: number;
-  title: string;
-  description: string;
-  badge?: string;
-};
-
-const LEVEL_OPTIONS: readonly LevelOption[] = [
-  {
-    value: 1,
-    title: 'Niveau 1',
-    description: 'Debutant pret a explorer et a apprendre rapidement.',
-    badge: 'Debutant'
-  },
-  {
-    value: 2,
-    title: 'Niveau 2',
-    description: 'Aventurier confirme avec quelques exploits a son actif.',
-    badge: 'Confirme'
-  },
-  {
-    value: 3,
-    title: 'Niveau 3',
-    description: 'Hero aguerri pret pour des defis plus soutenus.',
-    badge: 'Expert'
-  }
-];
-
-const levelOptions = computed(() => LEVEL_OPTIONS);
-
 type BaseStatKey = keyof typeof baseStats;
 
 const baseStatKeys = computed(() => Object.keys(baseStats) as BaseStatKey[]);
@@ -182,11 +161,14 @@ const pointBuyStatusClass = computed(() => {
   }
 });
 
-const handleLevelSelect = (value: number, nextState: boolean) => {
-  if (!nextState) {
-    return;
-  }
-  niveau.value = value;
+const handleIncreaseLevel = () => {
+  if (niveau.value >= 3) return;
+  niveau.value = Math.min(3, niveau.value + 1);
+};
+
+const handleDecreaseLevel = () => {
+  if (niveau.value <= 1) return;
+  niveau.value = Math.max(1, niveau.value - 1);
 };
 
 const handleIncreaseStat = (key: BaseStatKey) => {

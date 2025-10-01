@@ -154,7 +154,7 @@
               class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
             >
               <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
-              <p class="mt-1 whitespace-pre-line text-sm text-slate-700">{{ entry.value || 'À préciser' }}</p>
+              <p class="mt-1 whitespace-pre-line break-words text-sm text-slate-700">{{ entry.value || 'À préciser' }}</p>
             </div>
           </div>
         </section>

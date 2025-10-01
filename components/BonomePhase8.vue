@@ -13,46 +13,6 @@
 
     <BonomePreviewPanel />
 
-    <div class="grid gap-4 lg:grid-cols-2">
-      <section class="space-y-3 rounded-xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-        <header class="space-y-1">
-          <h4 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Plan de matériel</h4>
-          <p class="text-xs text-slate-500">Anticipez la dotation initiale pour faciliter la prochaine session.</p>
-        </header>
-        <div class="space-y-2">
-          <div
-            v-for="entry in materialSummary"
-            :key="entry.id"
-            class="rounded-lg border border-slate-200 bg-white px-3 py-2"
-          >
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
-            <p class="mt-1 text-sm text-slate-700">{{ entry.value || 'À définir' }}</p>
-          </div>
-        </div>
-        <div class="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes complémentaires</p>
-          <p class="mt-1 whitespace-pre-line">{{ materialNotesDisplay || 'Aucune note particulière pour le moment.' }}</p>
-        </div>
-      </section>
-
-      <section class="space-y-3 rounded-xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-        <header class="space-y-1">
-          <h4 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Portrait narratif</h4>
-          <p class="text-xs text-slate-500">Ces éléments nourriront le jeu de rôle et les interactions.</p>
-        </header>
-        <div class="space-y-2">
-          <div
-            v-for="entry in descriptionSummary"
-            :key="entry.id"
-            class="rounded-lg border border-slate-200 bg-white px-3 py-2"
-          >
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
-            <p class="mt-1 whitespace-pre-line text-sm text-slate-700">{{ entry.value || 'À préciser' }}</p>
-          </div>
-        </div>
-      </section>
-    </div>
-
     <div class="space-y-3">
       <h4 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Choix appliqués</h4>
       <ul v-if="appliedChoices.length" class="space-y-2 text-sm text-slate-700">
