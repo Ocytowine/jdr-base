@@ -1341,12 +1341,26 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     return personnage;
   };
 
-  const initialize = async () => {
-    restoreSelections();
-    if (initialized.value) return;
-    initialized.value = true;
-    await loadCatalog();
-    await sendPreview();
+  type InitializeOptions = {
+    restoreFromStorage?: boolean;
+  };
+
+  const initialize = async (options: InitializeOptions = {}) => {
+    const { restoreFromStorage = true } = options;
+
+    if (!initialized.value) {
+      initialized.value = true;
+      await loadCatalog();
+      await sendPreview();
+    }
+
+    if (restoreFromStorage && process.client) {
+      const wasRestored = hasRestoredSelections.value;
+      restoreSelections();
+      if (!wasRestored) {
+        await sendPreview();
+      }
+    }
   };
 
   return {

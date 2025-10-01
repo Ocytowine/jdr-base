@@ -65,7 +65,7 @@ import BonomePreviewPanel from '@/components/BonomePreviewPanel.vue';
 import { useBonomeCreationStore } from '@/stores/bonomeCreation';
 
 const creation = useBonomeCreationStore();
-await creation.initialize();
+await creation.initialize({ restoreFromStorage: false });
 
 const { preview, loading } = storeToRefs(creation);
 

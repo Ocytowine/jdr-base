@@ -262,6 +262,6 @@ const handleRefresh = async () => {
 };
 
 onMounted(() => {
-  creation.initialize();
+  creation.initialize({ restoreFromStorage: true });
 });
 </script>
