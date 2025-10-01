@@ -11,10 +11,11 @@
   >
     <div class="relative h-44 w-full">
       <img
-        :src="image || '/images/card.jpg'"
+        :src="currentImage"
         :alt="imageAlt"
         class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
         loading="lazy"
+        @error="handleImageError"
       />
       <div
         v-if="disabled"
@@ -38,11 +39,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, shallowRef, watch } from 'vue';
 
 const emit = defineEmits<{
   (event: 'select', nextState: boolean): void;
 }>();
+
+const DEFAULT_FALLBACK = '/images/card.jpg';
 
 const props = withDefaults(
   defineProps<{
@@ -50,6 +53,8 @@ const props = withDefaults(
     description?: string;
     image?: string;
     imageAlt?: string;
+    fallbackImage?: string;
+    imageCandidates?: string[];
     selected?: boolean;
     disabled?: boolean;
   }>(),
@@ -57,6 +62,8 @@ const props = withDefaults(
     description: '',
     image: undefined,
     imageAlt: 'Illustration',
+    fallbackImage: DEFAULT_FALLBACK,
+    imageCandidates: () => [],
     selected: false,
     disabled: false,
   },
@@ -74,10 +81,64 @@ const articleClass = computed(() => {
   return `${base} ${interactive} ${border}`;
 });
 
+const fallbackSrc = computed(() => {
+  if (typeof props.fallbackImage === 'string') {
+    const trimmed = props.fallbackImage.trim();
+    if (trimmed.length) {
+      return trimmed;
+    }
+  }
+  return DEFAULT_FALLBACK;
+});
+
+const candidateQueue = shallowRef<string[]>([]);
+const currentImage = shallowRef('');
+
+const rebuildQueue = () => {
+  const seen = new Set<string>();
+  const queue: string[] = [];
+  const pushCandidate = (value: unknown) => {
+    if (typeof value !== 'string') return;
+    const trimmed = value.trim();
+    if (!trimmed.length) return;
+    if (seen.has(trimmed)) return;
+    seen.add(trimmed);
+    queue.push(trimmed);
+  };
+
+  pushCandidate(props.image);
+  for (const candidate of props.imageCandidates ?? []) {
+    pushCandidate(candidate);
+  }
+  pushCandidate(fallbackSrc.value);
+
+  candidateQueue.value = queue.slice(1);
+  currentImage.value = queue[0] ?? fallbackSrc.value;
+};
+
+watch(
+  () => [props.image, props.imageCandidates, fallbackSrc.value],
+  rebuildQueue,
+  { immediate: true, deep: true },
+);
+
+const handleImageError = () => {
+  if (!candidateQueue.value.length) {
+    currentImage.value = fallbackSrc.value;
+    return;
+  }
+  const next = candidateQueue.value.shift();
+  if (next) {
+    currentImage.value = next;
+  } else {
+    currentImage.value = fallbackSrc.value;
+  }
+};
+
 const onSelect = () => {
   if (props.disabled) return;
   emit('select', !props.selected);
 };
 
-const { image, imageAlt, title, description, selected, disabled } = props;
+const { imageAlt, title, description, selected, disabled } = props;
 </script>

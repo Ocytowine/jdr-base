@@ -32,6 +32,8 @@
                 :title="opt.label"
                 :description="getChoiceOptionDescription(opt)"
                 :image="getChoiceOptionImage(opt)"
+                :fallback-image="opt.fallbackImage ?? undefined"
+                :image-candidates="opt.imageCandidates ?? []"
                 role="option"
                 :aria-selected="isChoiceOptionSelected(choice, opt)"
                 :class="[

@@ -15,6 +15,8 @@
           :title="option.label"
           :description="option.description"
           :image="option.image"
+          :fallback-image="option.fallbackImage"
+          :image-candidates="option.imageCandidates"
           role="option"
           :aria-selected="raceGroup.selected === option.id"
           :selected="raceGroup.selected === option.id"

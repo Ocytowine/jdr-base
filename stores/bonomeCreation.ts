@@ -16,6 +16,8 @@ export type PrimaryCardOption = {
   label: string;
   description: string;
   image: string;
+  fallbackImage: string;
+  imageCandidates: string[];
 };
 
 export type PrimarySelectionGroup = {
@@ -30,6 +32,8 @@ export type ChoiceOption = {
   label: string;
   description?: string | null;
   image?: string | null;
+  fallbackImage?: string | null;
+  imageCandidates?: string[];
 };
 
 export type IdentitySummaryEntry = {
@@ -193,6 +197,145 @@ const ensureCardImage = (image: string | null | undefined, label: string): strin
     }
   }
   return createCardPlaceholder(label);
+};
+
+const CARD_IMAGE_EXTENSIONS = ['webp', 'png', 'jpg', 'jpeg'] as const;
+const CATALOG_PREFIXES = [
+  'class_',
+  'race_',
+  'background_',
+  'spell_',
+  'heritage_',
+  'domain_',
+  'path_',
+  'archetype_',
+  'subclass_',
+  'feat_'
+];
+
+const CATALOG_CATEGORY_FOLDERS: Record<string, string[]> = {
+  class: ['img/classes', 'img/class'],
+  race: ['img/races', 'img/race'],
+  background: ['img/backgrounds', 'img/historiques', 'img/background'],
+  spell: ['img/spells', 'img/sorts', 'img/spell'],
+  heritage: ['img/heritages'],
+  domain: ['img/domains'],
+  path: ['img/paths']
+};
+
+const stripCatalogPrefix = (value: string): string => {
+  for (const prefix of CATALOG_PREFIXES) {
+    if (value.startsWith(prefix)) {
+      return value.slice(prefix.length);
+    }
+  }
+  return value;
+};
+
+const collapseNonAlnum = (value: string, joiner: string): string =>
+  value.replace(/[^a-z0-9]+/gi, joiner).replace(new RegExp(`${joiner}{2,}`, 'g'), joiner).replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '');
+
+const deriveCatalogBasenames = (rawId: string): string[] => {
+  const trimmed = rawId.trim();
+  if (!trimmed.length) return [];
+
+  const lower = trimmed.toLowerCase();
+  const withoutJson = lower.replace(/\.json$/i, '');
+  const segments = withoutJson.split(/[\\/]/);
+  const lastSegment = segments[segments.length - 1] ?? withoutJson;
+  const stripped = stripCatalogPrefix(lastSegment);
+
+  const tokens = new Set<string>();
+
+  const push = (value: string | null | undefined) => {
+    if (!value) return;
+    const normalized = value.trim();
+    if (!normalized.length) return;
+    tokens.add(normalized);
+  };
+
+  push(trimmed);
+  push(lower);
+  push(lastSegment);
+  push(stripped);
+
+  const subSegments = stripped.split(/[:]/).filter(Boolean);
+  subSegments.forEach((segment) => {
+    push(segment);
+    push(collapseNonAlnum(segment, '-'));
+    push(collapseNonAlnum(segment, '_'));
+    push(segment.replace(/[^a-z0-9]+/gi, ''));
+  });
+
+  push(collapseNonAlnum(stripped, '-'));
+  push(collapseNonAlnum(stripped, '_'));
+  push(stripped.replace(/[^a-z0-9]+/gi, ''));
+
+  return Array.from(tokens).filter(Boolean);
+};
+
+const normalizeFolderSegment = (value: string): string => value.replace(/^\/+/, '').replace(/\/+$/, '');
+
+const buildCatalogImageCandidates = (id: string | null, categoryKey: string | null | undefined): string[] => {
+  if (!id) return [];
+  const basenames = deriveCatalogBasenames(id);
+  if (!basenames.length) return [];
+
+  const folderList = [
+    ...(categoryKey && CATALOG_CATEGORY_FOLDERS[categoryKey]
+      ? CATALOG_CATEGORY_FOLDERS[categoryKey]
+      : []),
+    'img'
+  ];
+  const folders = Array.from(new Set(folderList.map((folder) => normalizeFolderSegment(folder))));
+
+  const candidates: string[] = [];
+  for (const folder of folders) {
+    const basePath = folder.length ? `/${folder}` : '';
+    for (const name of basenames) {
+      const normalizedName = name.replace(/^\/+/, '').replace(/\/+$/, '');
+      if (!normalizedName.length) continue;
+      for (const ext of CARD_IMAGE_EXTENSIONS) {
+        candidates.push(`${basePath}/${normalizedName}.${ext}`);
+      }
+    }
+  }
+  return Array.from(new Set(candidates));
+};
+
+const detectCategoryKey = (rawCategory: string | null | undefined): string | null => {
+  if (!rawCategory) return null;
+  const normalized = String(rawCategory).toLowerCase();
+  if (normalized.includes('class')) return 'class';
+  if (normalized.includes('race')) return 'race';
+  if (normalized.includes('background') || normalized.includes('historique')) return 'background';
+  if (normalized.includes('spell') || normalized.includes('sort')) return 'spell';
+  if (normalized.includes('heritage')) return 'heritage';
+  if (normalized.includes('domain')) return 'domain';
+  if (normalized.includes('path') || normalized.includes('voie')) return 'path';
+  return null;
+};
+
+const resolveCardVisuals = (
+  explicitImage: string | null | undefined,
+  id: string | null,
+  fallbackLabel: string,
+  categoryKey: string | null | undefined
+): { image: string; fallbackImage: string; imageCandidates: string[] } => {
+  const directImage = typeof explicitImage === 'string' ? explicitImage.trim() : '';
+  const fallbackImage = ensureCardImage(explicitImage ?? null, fallbackLabel);
+  const candidates = new Set<string>();
+  if (directImage.length) {
+    candidates.add(directImage);
+  }
+  for (const candidate of buildCatalogImageCandidates(id, categoryKey)) {
+    if (candidate) {
+      candidates.add(candidate);
+    }
+  }
+  const imageCandidates = Array.from(candidates);
+  const image = imageCandidates[0] ?? fallbackImage;
+  return { image, fallbackImage, imageCandidates };
 };
 
 const ensureDescription = (description: string | null | undefined, fallbackLabel: string, categoryLabel: string): string => {
@@ -573,14 +716,21 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const choiceOptionCache = reactive<Record<string, ChoiceOption[]>>({});
   const choiceMetadata = reactive<Record<string, { label: string }>>({});
 
-  const buildPrimaryOptions = (entries: CatalogEntry[], categoryLabel: string): PrimaryCardOption[] =>
+  const buildPrimaryOptions = (
+    entries: CatalogEntry[],
+    categoryLabel: string,
+    categoryKey: string
+  ): PrimaryCardOption[] =>
     entries.map((entry) => {
       const label = entry.name?.trim().length ? entry.name.trim() : humanizeLabel(entry.id);
+      const visuals = resolveCardVisuals(entry.image ?? null, entry.id, label, categoryKey);
       return {
         id: entry.id,
         label,
         description: ensureDescription(entry.description ?? null, label, categoryLabel),
-        image: ensureCardImage(entry.image ?? null, label)
+        image: visuals.image,
+        fallbackImage: visuals.fallbackImage,
+        imageCandidates: visuals.imageCandidates
       };
     });
 
@@ -588,19 +738,19 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     {
       id: 'class',
       title: 'Classe',
-      options: buildPrimaryOptions(classes.value, 'Classe'),
+      options: buildPrimaryOptions(classes.value, 'Classe', 'class'),
       selected: selectedClass.value
     },
     {
       id: 'race',
       title: 'Race',
-      options: buildPrimaryOptions(races.value, 'Race'),
+      options: buildPrimaryOptions(races.value, 'Race', 'race'),
       selected: selectedRace.value
     },
     {
       id: 'background',
       title: 'Historique',
-      options: buildPrimaryOptions(backgrounds.value, 'Historique'),
+      options: buildPrimaryOptions(backgrounds.value, 'Historique', 'background'),
       selected: selectedBackground.value
     }
   ]);
@@ -614,7 +764,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         title: group.title,
         name: selected?.label ?? '—',
         description: ensureDescription(selected?.description ?? null, placeholderLabel, group.title),
-        image: ensureCardImage(selected?.image ?? null, placeholderLabel)
+        image:
+          (selected?.image && selected.image.trim().length ? selected.image : null) ??
+          (selected?.fallbackImage && selected.fallbackImage.trim().length ? selected.fallbackImage : null) ??
+          ensureCardImage(null, placeholderLabel)
       };
     })
   );
@@ -706,16 +859,25 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   };
 
   const getChoiceKey = (choice: any, fallbackIndex?: number): string | null => {
-    const key =
-      choice?.ui_id ??
-      choice?.featureId ??
-      choice?.payload?.ui_id ??
-      choice?.payload?.featureId ??
-      choice?.raw?.ui_id ??
-      choice?.raw?.featureId ??
-      null;
-    if (key !== null && key !== undefined) {
-      return String(key);
+    const candidates = [
+      choice?.featureId,
+      choice?.payload?.featureId,
+      choice?.raw?.featureId,
+      choice?.raw?.id,
+      choice?.payload?.id,
+      choice?.ui_id,
+      choice?.payload?.ui_id,
+      choice?.raw?.ui_id
+    ];
+
+    const resolved = candidates.find((value) => {
+      if (value === null || value === undefined) return false;
+      const str = String(value);
+      return str.length > 0 && str !== 'null' && str !== 'undefined';
+    });
+
+    if (resolved !== undefined) {
+      return String(resolved);
     }
     if (fallbackIndex !== undefined) {
       return `choice_${fallbackIndex}`;
@@ -771,6 +933,27 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     if (!from.length) return [];
 
     const labels = extractChoiceLabels(choice);
+    const categoryLabel = getChoiceCategoryLabel(choice);
+    const categoryKey = detectCategoryKey(categoryLabel);
+
+    const resolveValueId = (value: any): string | null => {
+      if (value === null || value === undefined) return null;
+      if (typeof value === 'string' || typeof value === 'number') {
+        return normalizeId(value);
+      }
+      if (typeof value === 'object') {
+        const record = value as Record<string, any>;
+        return (
+          normalizeId(record.id) ??
+          normalizeId(record.slug) ??
+          normalizeId(record.value) ??
+          normalizeId(record.name) ??
+          normalizeId(record.key) ??
+          null
+        );
+      }
+      return null;
+    };
 
     return from.map((value: any, idx: number) => {
       const key = typeof value === 'string' || typeof value === 'number' ? String(value) : String(idx);
@@ -781,11 +964,19 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       if (!label) {
         label = typeof value === 'string' || typeof value === 'number' ? String(value) : JSON.stringify(value);
       }
+
+      const description = extractDescriptionFromValue(value, label);
+      const rawImage = extractImageFromValue(value);
+      const valueId = resolveValueId(value);
+      const visuals = resolveCardVisuals(rawImage, valueId, label, categoryKey);
+
       return {
         value,
         label,
-        description: extractDescriptionFromValue(value, label),
-        image: extractImageFromValue(value)
+        description,
+        image: visuals.image,
+        fallbackImage: visuals.fallbackImage,
+        imageCandidates: visuals.imageCandidates
       };
     });
   };
@@ -795,6 +986,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       const trimmed = option.image.trim();
       if (trimmed.length) {
         return trimmed;
+      }
+    }
+    if (typeof option.fallbackImage === 'string') {
+      const fallbackTrimmed = option.fallbackImage.trim();
+      if (fallbackTrimmed.length) {
+        return fallbackTrimmed;
       }
     }
     return ensureCardImage(null, option.label);
