@@ -216,6 +216,16 @@ export async function run() {
       'local chosen options should mirror restored choices'
     );
 
+    assert.strictEqual(store.catalog.classes, store.classes, 'catalog group exposes classes ref');
+    assert.strictEqual(store.catalog.races, store.races, 'catalog group exposes races ref');
+    assert.strictEqual(store.selections.selectedClass, store.selectedClass, 'selections group shares selectedClass ref');
+    assert.strictEqual(store.identity.characterFirstName, store.characterFirstName, 'identity group shares characterFirstName ref');
+    assert.strictEqual(store.pointBuy.baseStats, store.baseStats, 'pointBuy group shares baseStats ref');
+    assert.strictEqual(store.choices.chosenOptions, store.chosenOptions, 'choices group shares chosenOptions ref');
+    assert.strictEqual(store.material.plan, store.materialPlan, 'material group shares plan ref');
+    assert.strictEqual(store.previewState.preview, store.preview, 'preview group shares preview ref');
+    assert.equal(typeof store.lifecycle.initialize, 'function', 'lifecycle group exposes initialize');
+
     const persistedState = JSON.parse(
       (globalThis as any).localStorage.getItem('bonome_creation_state') ?? '{}'
     );
