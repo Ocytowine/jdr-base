@@ -11,3 +11,5 @@ export const __setNuxtAppStub = (app: { $fetch: FetchHandler }) => {
 };
 
 export const useNuxtApp = () => currentApp;
+
+export const useRequestFetch = () => currentApp.$fetch;

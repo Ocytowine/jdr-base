@@ -1123,24 +1123,65 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     }
   };
 
-  const restoreSelections = () => {
-    if (!process.client || hasRestoredSelections.value) return;
+  const restoreSelections = (): boolean => {
+    if (!process.client || hasRestoredSelections.value) return false;
+
+    let changed = false;
     try {
       const raw = localStorage.getItem('bonome_creation_state');
-      if (!raw) return;
+      if (!raw) return false;
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
-        selectedClass.value = parsed.selectedClass ?? selectedClass.value;
-        selectedRace.value = parsed.selectedRace ?? selectedRace.value;
-        selectedBackground.value = parsed.selectedBackground ?? selectedBackground.value;
-        niveau.value = clampLevelValue(parsed.niveau ?? niveau.value);
-        characterName.value = parsed.characterName ?? characterName.value;
-        characterFirstName.value =
-          parsed.characterFirstName ?? parsed.firstName ?? characterFirstName.value;
-        characterLastName.value =
-          parsed.characterLastName ?? parsed.lastName ?? characterLastName.value;
-        characterNickname.value =
-          parsed.characterNickname ?? parsed.nickname ?? characterNickname.value;
+        const nextClass = parsed.selectedClass ?? selectedClass.value;
+        if (nextClass !== selectedClass.value) {
+          selectedClass.value = nextClass;
+          changed = true;
+        }
+        const nextRace = parsed.selectedRace ?? selectedRace.value;
+        if (nextRace !== selectedRace.value) {
+          selectedRace.value = nextRace;
+          changed = true;
+        }
+        const nextBackground = parsed.selectedBackground ?? selectedBackground.value;
+        if (nextBackground !== selectedBackground.value) {
+          selectedBackground.value = nextBackground;
+          changed = true;
+        }
+
+        const nextLevel = clampLevelValue(parsed.niveau ?? niveau.value);
+        if (nextLevel !== niveau.value) {
+          niveau.value = nextLevel;
+          changed = true;
+        } else {
+          niveau.value = nextLevel;
+        }
+
+        if (parsed.characterName !== undefined) {
+          const nextName = parsed.characterName ?? '';
+          if (nextName !== characterName.value) {
+            characterName.value = nextName;
+            changed = true;
+          }
+        }
+
+        const nextFirst = parsed.characterFirstName ?? parsed.firstName ?? characterFirstName.value;
+        if (nextFirst !== characterFirstName.value) {
+          characterFirstName.value = nextFirst;
+          changed = true;
+        }
+
+        const nextLast = parsed.characterLastName ?? parsed.lastName ?? characterLastName.value;
+        if (nextLast !== characterLastName.value) {
+          characterLastName.value = nextLast;
+          changed = true;
+        }
+
+        const nextNickname = parsed.characterNickname ?? parsed.nickname ?? characterNickname.value;
+        if (nextNickname !== characterNickname.value) {
+          characterNickname.value = nextNickname;
+          changed = true;
+        }
+
         if (
           !characterFirstName.value &&
           !characterLastName.value &&
@@ -1148,16 +1189,44 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
           parsed.characterName
         ) {
           characterFirstName.value = parsed.characterName;
+          changed = true;
         }
         if (parsed.baseStats && typeof parsed.baseStats === 'object') {
           const normalized = normalizePointBuyStats(parsed.baseStats as Partial<Record<BaseStatKey, unknown>>);
+          let statsChanged = false;
           for (const key of BASE_STAT_KEYS) {
-            baseStats[key] = normalized[key];
+            if (baseStats[key] !== normalized[key]) {
+              statsChanged = true;
+            }
+          }
+          if (statsChanged) {
+            for (const key of BASE_STAT_KEYS) {
+              baseStats[key] = normalized[key];
+            }
+            changed = true;
           }
         }
         if (parsed.chosenOptions && typeof parsed.chosenOptions === 'object') {
-          Object.assign(chosenOptions, parsed.chosenOptions);
-          Object.assign(localChosen, parsed.chosenOptions);
+          let optionsChanged = false;
+          for (const [k, v] of Object.entries(parsed.chosenOptions)) {
+            const existing = chosenOptions[k];
+            if (JSON.stringify(existing) !== JSON.stringify(v)) {
+              optionsChanged = true;
+            }
+          }
+          if (optionsChanged) {
+            Object.assign(chosenOptions, parsed.chosenOptions);
+            Object.assign(localChosen, parsed.chosenOptions);
+            changed = true;
+          }
+        }
+
+        if (!characterName.value) {
+          const computedName = fullCharacterName.value.trim();
+          if (computedName.length) {
+            characterName.value = computedName;
+            changed = true;
+          }
         }
       }
     } catch (err) {
@@ -1165,6 +1234,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     } finally {
       hasRestoredSelections.value = true;
     }
+    return changed;
   };
 
   watch(niveau, (value, oldValue) => {
@@ -1179,6 +1249,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   });
 
   let isNormalizingBaseStats = false;
+  let catalogPromise: Promise<void> | null = null;
+  let previewPromise: Promise<void> | null = null;
+  let previewAbort: AbortController | null = null;
+  let lastPreviewPayload = '';
   watch(
     baseStats,
     (current) => {
@@ -1201,6 +1275,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   );
 
   const loadCatalog = async () => {
+    if (catalogPromise) {
+      return catalogPromise;
+    }
+
     const assignCatalog = (target: { value: CatalogEntry[] }, payload: unknown) => {
       target.value = normalizeCatalogEntries(payload);
     };
@@ -1223,90 +1301,133 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       }
     };
 
-    const classResponse = await requestFetch('/api/catalog/classes').catch(() => null);
-    assignCatalog(classes, classResponse);
+    const current = (async () => {
+      const [classResponse, raceResponse, backgroundResponse] = await Promise.all([
+        requestFetch('/api/catalog/classes').catch(() => null),
+        requestFetch('/api/catalog/races').catch(() => null),
+        requestFetch('/api/catalog/backgrounds').catch(() => null)
+      ]);
 
-    const raceResponse = await requestFetch('/api/catalog/races').catch(() => null);
-    assignCatalog(races, raceResponse);
+      assignCatalog(classes, classResponse);
+      assignCatalog(races, raceResponse);
+      assignCatalog(backgrounds, backgroundResponse);
 
-    const backgroundResponse = await requestFetch('/api/catalog/backgrounds').catch(() => null);
-    assignCatalog(backgrounds, backgroundResponse);
+      ensureSelectionValidity(selectedClass, classes.value);
+      ensureSelectionValidity(selectedRace, races.value);
+      ensureSelectionValidity(selectedBackground, backgrounds.value);
+    })();
 
-    ensureSelectionValidity(selectedClass, classes.value);
-    ensureSelectionValidity(selectedRace, races.value);
-    ensureSelectionValidity(selectedBackground, backgrounds.value);
+    catalogPromise = current;
+    current.finally(() => {
+      if (catalogPromise === current) {
+        catalogPromise = null;
+      }
+    });
+    return current;
   };
 
   const sendPreview = async () => {
-    loading.value = true;
-    preview.value = null;
-    rawText.value = '';
-    try {
-      const trimmedFullName = fullCharacterName.value.trim();
-      const trimmedLegacyName = characterName.value.trim();
-      const primaryName = trimmedFullName.length ? trimmedFullName : trimmedLegacyName;
-      const trimmedFirstName = normalizeNamePart(characterFirstName.value);
-      const trimmedLastName = normalizeNamePart(characterLastName.value);
-      const trimmedNickname = normalizeNamePart(characterNickname.value);
-      const body = {
-        selection: {
-          class: selectedClass.value || null,
-          race: selectedRace.value || null,
-          background: selectedBackground.value || null,
-          niveau: Number(niveau.value || 1),
-          manual_features: [],
-          chosenOptions: { ...chosenOptions }
-        },
-        baseCharacter: {
-          name: primaryName.length ? primaryName : null,
-          first_name: trimmedFirstName.length ? trimmedFirstName : null,
-          last_name: trimmedLastName.length ? trimmedLastName : null,
-          nickname: trimmedNickname.length ? trimmedNickname : null,
-          base_stats_before_race: { ...baseStats }
+    const trimmedFullName = fullCharacterName.value.trim();
+    const trimmedLegacyName = characterName.value.trim();
+    const primaryName = trimmedFullName.length ? trimmedFullName : trimmedLegacyName;
+    const trimmedFirstName = normalizeNamePart(characterFirstName.value);
+    const trimmedLastName = normalizeNamePart(characterLastName.value);
+    const trimmedNickname = normalizeNamePart(characterNickname.value);
+    const body = {
+      selection: {
+        class: selectedClass.value || null,
+        race: selectedRace.value || null,
+        background: selectedBackground.value || null,
+        niveau: Number(niveau.value || 1),
+        manual_features: [],
+        chosenOptions: { ...chosenOptions }
+      },
+      baseCharacter: {
+        name: primaryName.length ? primaryName : null,
+        first_name: trimmedFirstName.length ? trimmedFirstName : null,
+        last_name: trimmedLastName.length ? trimmedLastName : null,
+        nickname: trimmedNickname.length ? trimmedNickname : null,
+        base_stats_before_race: { ...baseStats }
+      }
+    };
+
+    const payloadSignature = JSON.stringify(body);
+    if (previewPromise && payloadSignature === lastPreviewPayload) {
+      return previewPromise;
+    }
+
+    if (previewAbort) {
+      previewAbort.abort();
+    }
+
+    const controller = new AbortController();
+    previewAbort = controller;
+    lastPreviewPayload = payloadSignature;
+
+    const task = (async () => {
+      loading.value = true;
+      preview.value = null;
+      rawText.value = '';
+      try {
+        const res = await requestFetch('/api/creation/preview', {
+          method: 'POST',
+          body,
+          signal: controller.signal
+        });
+        if (controller.signal.aborted) {
+          return;
         }
-      };
 
-      const res = await requestFetch('/api/creation/preview', {
-        method: 'POST',
-        body
-      });
-
-      preview.value = res;
-      rawText.value = JSON.stringify(res, null, 2);
-      persistSelections();
-      if (res?.pendingChoices && Array.isArray(res.pendingChoices)) {
-        for (const [idx, pc] of (res.pendingChoices as any[]).entries()) {
-          const key = getChoiceKey(pc, idx);
-          registerChoiceMetadata(pc, key);
-          const options = getChoiceOptions(pc);
-          cacheChoiceOptions(key, options);
-          if (!key) continue;
-          if (key in chosenOptions) {
-            const existing = chosenOptions[key];
-            localChosen[key] = Array.isArray(existing) ? [...existing] : existing;
-            continue;
-          }
-          if (!(key in localChosen)) {
-            const requirement = getChoiceRequirement(pc);
-            if (requirement > 1) {
-              localChosen[key] = [];
-            } else if (options.length === 1) {
-              localChosen[key] = options[0].value;
-            } else {
-              localChosen[key] = null;
+        preview.value = res;
+        rawText.value = JSON.stringify(res, null, 2);
+        persistSelections();
+        if (res?.pendingChoices && Array.isArray(res.pendingChoices)) {
+          for (const [idx, pc] of (res.pendingChoices as any[]).entries()) {
+            const key = getChoiceKey(pc, idx);
+            registerChoiceMetadata(pc, key);
+            const options = getChoiceOptions(pc);
+            cacheChoiceOptions(key, options);
+            if (!key) continue;
+            if (key in chosenOptions) {
+              const existing = chosenOptions[key];
+              localChosen[key] = Array.isArray(existing) ? [...existing] : existing;
+              continue;
+            }
+            if (!(key in localChosen)) {
+              const requirement = getChoiceRequirement(pc);
+              if (requirement > 1) {
+                localChosen[key] = [];
+              } else if (options.length === 1) {
+                localChosen[key] = options[0].value;
+              } else {
+                localChosen[key] = null;
+              }
             }
           }
         }
+      } catch (err: any) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        preview.value = {
+          ok: false,
+          errors: [{ type: 'network', message: String(err?.message ?? err) }]
+        };
+        rawText.value = String(err?.message ?? err);
+      } finally {
+        if (previewAbort === controller) {
+          previewAbort = null;
+          lastPreviewPayload = '';
+          loading.value = false;
+        }
+        if (previewPromise === task) {
+          previewPromise = null;
+        }
       }
-    } catch (err: any) {
-      preview.value = {
-        ok: false,
-        errors: [{ type: 'network', message: String(err?.message ?? err) }]
-      };
-      rawText.value = String(err?.message ?? err);
-    } finally {
-      loading.value = false;
-    }
+    })();
+
+    previewPromise = task;
+    return task;
   };
 
   const applyChoice = async (choice: any) => {
@@ -1544,6 +1665,18 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
   const initialize = async (options: InitializeOptions = {}) => {
     const { restoreFromStorage = true } = options;
+    const wasInitialized = initialized.value;
+
+    let restoredBeforeInit = false;
+    if (
+      restoreFromStorage &&
+      process.client &&
+      !initialized.value &&
+      !hasRestoredSelections.value
+    ) {
+      restoreSelections();
+      restoredBeforeInit = true;
+    }
 
     if (!initialized.value) {
       initialized.value = true;
@@ -1551,10 +1684,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       await sendPreview();
     }
 
-    if (restoreFromStorage && process.client) {
+    if (restoreFromStorage && process.client && !restoredBeforeInit) {
       const wasRestored = hasRestoredSelections.value;
-      restoreSelections();
-      if (!wasRestored) {
+      const didRestore = restoreSelections();
+      if (!wasRestored && didRestore && !wasInitialized) {
         await sendPreview();
       }
     }

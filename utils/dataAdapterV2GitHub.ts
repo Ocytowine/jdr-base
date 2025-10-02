@@ -22,6 +22,7 @@ export class DataAdapterV2GitHub {
   indexCache: Map<ID, string>;
   fileCache: Map<string, any>;
   collectionCache: Map<string, any[]>;
+  inFlightFetches: Map<string, Promise<any>>;
   useRawFallback: boolean;
   ajv: Ajv;
   effectSchema: any;
@@ -36,6 +37,7 @@ export class DataAdapterV2GitHub {
     this.indexCache = new Map();
     this.fileCache = new Map();
     this.collectionCache = new Map();
+    this.inFlightFetches = new Map();
     this.useRawFallback = options.useRawFallback ?? true;
     this.ajv = new Ajv({ allErrors: true, strict: false });
     this.effectSchema = null;
@@ -115,61 +117,79 @@ export class DataAdapterV2GitHub {
 
   async fetchJsonFromRepoPath(repoPath: string) {
     if (this.fileCache.has(repoPath)) return this.fileCache.get(repoPath);
-    const apiUrl = this.apiContentsUrl(repoPath);
-    try {
-      const res = await this.fetchUrl(apiUrl);
-      const j = await res.json();
-      if (j && j.content) {
-        const content = Buffer.from(j.content, 'base64').toString('utf8');
-        const parsed = JSON.parse(content);
+
+    if (this.inFlightFetches.has(repoPath)) {
+      return this.inFlightFetches.get(repoPath)!;
+    }
+
+    const loadFromDisk = async (): Promise<any | null> => {
+      if (!this.cacheDir) return null;
+      try {
+        const onDisk = path.join(this.cacheDir, repoPath);
+        const data = await fs.readFile(onDisk, 'utf8');
+        const parsed = JSON.parse(data);
         this.fileCache.set(repoPath, parsed);
-        if (this.cacheDir) {
-          const onDisk = path.join(this.cacheDir, repoPath);
-          await fs.mkdir(path.dirname(onDisk), { recursive: true });
-          await fs.writeFile(onDisk, JSON.stringify(parsed, null, 2), 'utf8').catch(()=>{});
-        }
         return parsed;
+      } catch (error) {
+        return null;
       }
-    } catch (err) {
-      // fallback to raw if allowed
-      if (this.useRawFallback) {
-        const raw = this.rawUrl(repoPath);
-        try {
-          const res2 = await fetch(raw);
-          if (!res2.ok) throw new Error(`raw fetch failed ${res2.status}`);
-          const parsed2 = await res2.json();
-          this.fileCache.set(repoPath, parsed2);
-          if (this.cacheDir) {
-            const onDisk = path.join(this.cacheDir, repoPath);
-            await fs.mkdir(path.dirname(onDisk), { recursive: true });
-            await fs.writeFile(onDisk, JSON.stringify(parsed2, null, 2), 'utf8').catch(()=>{});
-          }
-          return parsed2;
-        } catch (err2) {
-          if (this.cacheDir) {
-            try {
-              const onDisk = path.join(this.cacheDir, repoPath);
-              const data = await fs.readFile(onDisk, 'utf8');
-              const parsed = JSON.parse(data);
-              this.fileCache.set(repoPath, parsed);
-              return parsed;
-            } catch (e) {}
-          }
-          throw err;
+    };
+
+    const persist = (parsed: any) => {
+      this.fileCache.set(repoPath, parsed);
+      if (this.cacheDir) {
+        const onDisk = path.join(this.cacheDir, repoPath);
+        fs.mkdir(path.dirname(onDisk), { recursive: true })
+          .then(() => fs.writeFile(onDisk, JSON.stringify(parsed, null, 2), 'utf8'))
+          .catch(() => {});
+      }
+      return parsed;
+    };
+
+    const loader = (async () => {
+      let diskCached = await loadFromDisk();
+      if (diskCached) {
+        return diskCached;
+      }
+
+      const apiUrl = this.apiContentsUrl(repoPath);
+      try {
+        const res = await this.fetchUrl(apiUrl);
+        const payload = await res.json();
+        if (payload && payload.content) {
+          const content = Buffer.from(payload.content, 'base64').toString('utf8');
+          const parsed = JSON.parse(content);
+          return persist(parsed);
         }
-      } else {
-        if (this.cacheDir) {
+        throw new Error('Empty content for ' + repoPath);
+      } catch (err) {
+        if (this.useRawFallback) {
           try {
-            const onDisk = path.join(this.cacheDir, repoPath);
-            const data = await fs.readFile(onDisk, 'utf8');
-            const parsed = JSON.parse(data);
-            this.fileCache.set(repoPath, parsed);
-            return parsed;
-          } catch (e) {}
+            const res = await fetch(this.rawUrl(repoPath));
+            if (!res.ok) throw new Error('raw fetch failed ' + res.status);
+            const parsed = await res.json();
+            return persist(parsed);
+          } catch (rawErr) {
+            diskCached = await loadFromDisk();
+            if (diskCached) {
+              return diskCached;
+            }
+            throw rawErr;
+          }
+        }
+
+        diskCached = await loadFromDisk();
+        if (diskCached) {
+          return diskCached;
         }
         throw err;
+      } finally {
+        this.inFlightFetches.delete(repoPath);
       }
-    }
+    })();
+
+    this.inFlightFetches.set(repoPath, loader);
+    return loader;
   }
 
   async initIndex() {

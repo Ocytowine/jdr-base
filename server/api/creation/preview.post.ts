@@ -1,37 +1,16 @@
-// server/api/creation/preview.post.ts
+﻿// server/api/creation/preview.post.ts
+import { readBody } from 'h3';
+
+import { useCreationAdapter } from '~/server/utils/creationAdapter';
+
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event);
-    const selection = body.selection || {};
-    const baseCharacter = body.baseCharacter || { base_stats_before_race: {} };
+    const selection = body?.selection ?? {};
+    const baseCharacter = body?.baseCharacter ?? { base_stats_before_race: {} };
 
-    const config = useRuntimeConfig();
-    const owner = config.github?.owner || 'Ocytowine';
-    const repo = config.github?.repo || 'ArchiveValmorinTest';
-    const branch = config.github?.branch || 'main';
-    const token = config.github?.token || '';
-    const cacheDir = config.dataCacheDir || '/tmp/data_adapter_cache';
-
-    // import adapter
-    let mod = null;
-    try {
-      mod = await import('~/utils/dataAdapterV2GitHub');
-    } catch (e) {
-      mod = await import('../../../utils/dataAdapterV2GitHub');
-    }
-    const DataAdapterV2GitHub = mod?.DataAdapterV2GitHub || mod?.default || mod;
-    if (!DataAdapterV2GitHub) throw new Error('DataAdapterV2GitHub not found');
-
-    const adapter = new DataAdapterV2GitHub(owner, repo, { branch, token, cacheDir });
-
-    // import creation adapter
-    const caMod = await import('~/utils/creationAdapterServer').catch(() => import('../../../utils/creationAdapterServer'));
-    const CreationAdapterServer = caMod?.CreationAdapterServer || caMod?.default || caMod;
-
-    const creationAdapter = new CreationAdapterServer(adapter);
-    await creationAdapter.init();
-
-    const result = await creationAdapter.buildPreview(selection, baseCharacter);
+    const { service } = await useCreationAdapter();
+    const result = await service.buildPreview(selection, baseCharacter);
 
     return result;
   } catch (err: any) {
