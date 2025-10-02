@@ -65,6 +65,116 @@ export type DescriptionFields = {
 export type MaterialSlotKey = keyof MaterialPlan;
 export type NarrativeFieldKey = keyof DescriptionFields;
 
+const COPPER_PER_SILVER = 10;
+const COPPER_PER_GOLD = 100;
+
+type CoinBreakdown = {
+  gold: number;
+  silver: number;
+  copper: number;
+};
+
+export type MaterialProposalItem = {
+  key: string;
+  itemId: string;
+  quantity: number;
+  label: string;
+  description: string | null;
+  image: string | null;
+  type: string | null;
+  coins?: CoinBreakdown | null;
+  coinsCopper: number;
+  totalCoinsCopper: number;
+  sellValue?: CoinBreakdown | null;
+  sellValueCopper: number;
+  totalSellValueCopper: number;
+  weightPerUnit: number;
+  weightTotal: number;
+  resolved?: any | null;
+  raw?: any;
+};
+
+export type MaterialProposalGroup = {
+  effectId: string | null;
+  source: string | null;
+  label: string | null;
+  description: string | null;
+  items: MaterialProposalItem[];
+};
+
+function toFiniteNumber(value: any, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function normalizeCoinsValue(value: any): CoinBreakdown | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'number' || typeof value === 'string') {
+    const gold = toFiniteNumber(value, 0);
+    if (!Number.isFinite(gold)) {
+      return null;
+    }
+    return { gold, silver: 0, copper: 0 };
+  }
+  if (typeof value !== 'object') {
+    return null;
+  }
+
+  const normalized = new Map<string, any>();
+  for (const [key, val] of Object.entries(value)) {
+    normalized.set(String(key).toLowerCase(), val);
+  }
+
+  const result: CoinBreakdown = { gold: 0, silver: 0, copper: 0 };
+  let hasValue = false;
+  const assignFrom = (aliases: string[], target: keyof CoinBreakdown) => {
+    for (const alias of aliases) {
+      if (!normalized.has(alias)) continue;
+      const candidate = toFiniteNumber(normalized.get(alias), Number.NaN);
+      if (!Number.isNaN(candidate)) {
+        result[target] = candidate;
+        hasValue = true;
+        return;
+      }
+    }
+  };
+
+  assignFrom(['gold', 'gp', 'or', 'g', 'po'], 'gold');
+  assignFrom(['silver', 'sp', 'argent', 's', 'pa'], 'silver');
+  assignFrom(['copper', 'cp', 'cuivre', 'c', 'pc'], 'copper');
+
+  return hasValue ? result : null;
+}
+
+function coinsToCopper(coins: CoinBreakdown | null | undefined): number {
+  if (!coins) {
+    return 0;
+  }
+  const gold = toFiniteNumber(coins.gold, 0);
+  const silver = toFiniteNumber(coins.silver, 0);
+  const copper = toFiniteNumber(coins.copper, 0);
+  return Math.round(gold * COPPER_PER_GOLD + silver * COPPER_PER_SILVER + copper);
+}
+
+function copperToCoins(totalCopper: number): CoinBreakdown {
+  const normalized = Number.isFinite(totalCopper) ? Math.max(0, Math.floor(totalCopper)) : 0;
+  const gold = Math.floor(normalized / COPPER_PER_GOLD);
+  const remainderAfterGold = normalized - gold * COPPER_PER_GOLD;
+  const silver = Math.floor(remainderAfterGold / COPPER_PER_SILVER);
+  const copper = Math.max(0, remainderAfterGold - silver * COPPER_PER_SILVER);
+  return { gold, silver, copper };
+}
+
 export const MATERIAL_SLOT_DEFINITIONS: ReadonlyArray<{
   id: MaterialSlotKey;
   label: string;
@@ -535,6 +645,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const classes = ref<CatalogEntry[]>([]);
   const races = ref<CatalogEntry[]>([]);
   const backgrounds = ref<CatalogEntry[]>([]);
+
+  const materialProposals = ref<MaterialProposalGroup[]>([]);
+  const materialSelections = reactive<Record<string, boolean>>({});
+  const materialCoinPurseKey = ref<string | null>(null);
+  const materialCoinPurseLabel = ref('Bourse');
+  const materialCarryCapacity = ref(0);
 
   const selectedClass = ref<string>('');
   const selectedRace = ref<string>('');
@@ -1326,6 +1442,348 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     return current;
   };
 
+
+  const resetMaterialState = () => {
+    materialProposals.value = [];
+    for (const key of Object.keys(materialSelections)) {
+      delete materialSelections[key];
+    }
+    materialCoinPurseKey.value = null;
+    materialCoinPurseLabel.value = 'Bourse';
+    materialCarryCapacity.value = 0;
+  };
+
+  const mapProposalItem = (raw: any, fallbackIndex: number): MaterialProposalItem | null => {
+    if (raw === null || raw === undefined) {
+      return null;
+    }
+    let normalized: any = raw;
+    if (typeof normalized !== 'object' || Array.isArray(normalized)) {
+      normalized = { id: normalized };
+    }
+
+    const itemIdCandidate =
+      normalized.itemId ??
+      normalized.item_id ??
+      normalized.id ??
+      normalized.item ??
+      normalized.key ??
+      null;
+    const itemId = itemIdCandidate ? String(itemIdCandidate).trim() : '';
+    if (!itemId.length) {
+      return null;
+    }
+
+    const key = String(normalized.key ?? `${itemId}_${fallbackIndex}`);
+    const quantityCandidate = toFiniteNumber(
+      normalized.quantity ?? normalized.qty ?? normalized.count ?? normalized.qte ?? 1,
+      1
+    );
+    const quantity = quantityCandidate > 0 ? quantityCandidate : 1;
+
+    const coins = normalizeCoinsValue(normalized.coins ?? null);
+    const sellValue = normalizeCoinsValue(normalized.sellValue ?? normalized.sell_value ?? null);
+
+    const coinsCopper = toFiniteNumber(
+      normalized.coinsCopper ?? normalized.coins_copper ?? (coins ? coinsToCopper(coins) : 0),
+      coins ? coinsToCopper(coins) : 0
+    );
+    const totalCoinsCopper = toFiniteNumber(
+      normalized.totalCoinsCopper ?? normalized.total_coins_copper ?? coinsCopper * quantity,
+      coinsCopper * quantity
+    );
+
+    const sellValueCopper = toFiniteNumber(
+      normalized.sellValueCopper ?? normalized.sell_value_copper ?? (sellValue ? coinsToCopper(sellValue) : 0),
+      sellValue ? coinsToCopper(sellValue) : 0
+    );
+    const totalSellValueCopper = toFiniteNumber(
+      normalized.totalSellValueCopper ?? normalized.total_sell_value_copper ?? sellValueCopper * quantity,
+      sellValueCopper * quantity
+    );
+
+    const weightPerUnit = Math.max(
+      0,
+      toFiniteNumber(
+        normalized.weightPerUnit ??
+          normalized.weight_per_unit ??
+          normalized.weight?.perUnit ??
+          normalized.weight?.per_unit ??
+          normalized.weight?.value ??
+          normalized.weight ??
+          normalized.mass ??
+          0,
+        0
+      )
+    );
+    const weightTotal = Math.max(
+      0,
+      toFiniteNumber(
+        normalized.weightTotal ??
+          normalized.weight_total ??
+          normalized.weight?.total ??
+          weightPerUnit * quantity,
+        weightPerUnit * quantity
+      )
+    );
+
+    const label =
+      typeof normalized.label === 'string' && normalized.label.trim().length
+        ? normalized.label.trim()
+        : typeof normalized.name === 'string' && normalized.name.trim().length
+          ? normalized.name.trim()
+          : typeof normalized.nom === 'string' && normalized.nom.trim().length
+            ? normalized.nom.trim()
+            : itemId;
+    const description =
+      typeof normalized.description === 'string' && normalized.description.trim().length
+        ? normalized.description.trim()
+        : typeof normalized.desc === 'string' && normalized.desc.trim().length
+          ? normalized.desc.trim()
+          : null;
+    const image =
+      typeof normalized.image === 'string' && normalized.image.trim().length
+        ? normalized.image.trim()
+        : typeof normalized.icon === 'string' && normalized.icon.trim().length
+          ? normalized.icon.trim()
+          : typeof normalized.illustration === 'string' && normalized.illustration.trim().length
+            ? normalized.illustration.trim()
+            : null;
+    const type =
+      typeof normalized.type === 'string' && normalized.type.trim().length
+        ? normalized.type.trim()
+        : typeof normalized.category === 'string' && normalized.category.trim().length
+          ? normalized.category.trim()
+          : typeof normalized.categorie === 'string' && normalized.categorie.trim().length
+            ? normalized.categorie.trim()
+            : null;
+
+    return {
+      key,
+      itemId,
+      quantity,
+      label,
+      description,
+      image,
+      type,
+      coins: coins ?? null,
+      coinsCopper,
+      totalCoinsCopper,
+      sellValue: sellValue ?? null,
+      sellValueCopper,
+      totalSellValueCopper,
+      weightPerUnit,
+      weightTotal,
+      resolved: normalized.resolved ?? null,
+      raw: normalized
+    };
+  };
+
+  const computeCarryCapacity = (previewCharacter: any): number => {
+    if (!previewCharacter || typeof previewCharacter !== 'object') {
+      return 0;
+    }
+    const stats = previewCharacter.final_stats ?? {};
+    const direct = toFiniteNumber(
+      stats.carry_capacity ??
+        stats.carryCapacity ??
+        stats.charge_max ??
+        stats.chargeMax ??
+        stats.encumbrance_max ??
+        stats.encumbranceMax,
+      Number.NaN
+    );
+    if (Number.isFinite(direct) && direct > 0) {
+      return direct;
+    }
+    const strengthScore = toFiniteNumber(
+      stats.strength ??
+        stats.force ??
+        previewCharacter.base_stats_before_race?.strength ??
+        previewCharacter.base_stats?.strength ??
+        10,
+      10
+    );
+    return Math.max(0, strengthScore * 6.8);
+  };
+
+  const hydrateMaterialFromPreview = (previewCharacter: any) => {
+    const previousSelections = { ...materialSelections };
+    resetMaterialState();
+
+    const proposalsInput = Array.isArray(previewCharacter?.item_proposals) ? previewCharacter.item_proposals : [];
+    const normalized: MaterialProposalGroup[] = [];
+
+    for (const groupRaw of proposalsInput) {
+      if (!groupRaw || typeof groupRaw !== 'object') {
+        continue;
+      }
+      const itemsRaw = Array.isArray(groupRaw.items) ? groupRaw.items : [];
+      const mappedItems = itemsRaw
+        .map((item: any, idx: number) => mapProposalItem(item, idx))
+        .filter((value): value is MaterialProposalItem => Boolean(value));
+
+      if (!mappedItems.length) {
+        continue;
+      }
+
+      normalized.push({
+        effectId: groupRaw.effect_id ?? groupRaw.effectId ?? null,
+        source: groupRaw.source ?? null,
+        label: typeof groupRaw.label === 'string' ? groupRaw.label : null,
+        description: typeof groupRaw.description === 'string' ? groupRaw.description : null,
+        items: mappedItems
+      });
+    }
+
+    materialProposals.value = normalized;
+
+    materialCoinPurseKey.value = null;
+    materialCoinPurseLabel.value = 'Bourse';
+
+    for (const group of normalized) {
+      for (const item of group.items) {
+        materialSelections[item.key] = previousSelections[item.key] === false ? false : true;
+
+        if (!materialCoinPurseKey.value) {
+          const idLower = item.itemId.toLowerCase();
+          const typeLower = (item.type ?? '').toLowerCase();
+          if (idLower === 'bourse' || typeLower === 'bourse' || typeLower === 'purse') {
+            materialCoinPurseKey.value = item.key;
+            materialCoinPurseLabel.value = item.label || 'Bourse';
+          }
+        }
+      }
+    }
+
+    if (!materialCoinPurseKey.value) {
+      const candidate = normalized.flatMap((group) => group.items).find((item) => item.coinsCopper > 0);
+      if (candidate) {
+        materialCoinPurseKey.value = candidate.key;
+        materialCoinPurseLabel.value = candidate.label || 'Bourse';
+      }
+    }
+
+    materialCarryCapacity.value = computeCarryCapacity(previewCharacter);
+  };
+
+  const isMaterialItemKept = (key: string): boolean => {
+    if (!key) {
+      return true;
+    }
+    return materialSelections[key] !== false;
+  };
+
+  const setMaterialItemDecision = (key: string, keep: boolean) => {
+    if (!key) {
+      return;
+    }
+    materialSelections[key] = keep;
+  };
+
+  const toggleMaterialItemDecision = (key: string) => {
+    if (!key) {
+      return;
+    }
+    materialSelections[key] = !isMaterialItemKept(key);
+  };
+
+  const resetMaterialSelections = () => {
+    for (const group of materialProposals.value) {
+      for (const item of group.items) {
+        materialSelections[item.key] = true;
+      }
+    }
+  };
+
+  const materialItems = computed(() =>
+    materialProposals.value.flatMap((group) =>
+      group.items.map((item) => ({
+        group,
+        item,
+        keep: isMaterialItemKept(item.key)
+      }))
+    )
+  );
+
+  const materialKeptItems = computed(() => materialItems.value.filter((entry) => entry.keep));
+  const materialSoldItems = computed(() => materialItems.value.filter((entry) => !entry.keep));
+
+  const materialTotalWeightAll = computed(() =>
+    materialItems.value.reduce((acc, entry) => acc + toFiniteNumber(entry.item.weightTotal, 0), 0)
+  );
+  const materialTotalWeightKept = computed(() =>
+    materialKeptItems.value.reduce((acc, entry) => acc + toFiniteNumber(entry.item.weightTotal, 0), 0)
+  );
+
+  const materialCoinsFromKeptCopper = computed(() =>
+    materialKeptItems.value.reduce((acc, entry) => acc + toFiniteNumber(entry.item.totalCoinsCopper, 0), 0)
+  );
+  const materialCoinsFromSalesCopper = computed(() =>
+    materialSoldItems.value.reduce((acc, entry) => acc + toFiniteNumber(entry.item.totalSellValueCopper, 0), 0)
+  );
+  const materialFinalCoinsCopper = computed(
+    () => materialCoinsFromKeptCopper.value + materialCoinsFromSalesCopper.value
+  );
+  const materialFinalCoins = computed(() => copperToCoins(materialFinalCoinsCopper.value));
+  const materialSalesCoins = computed(() => copperToCoins(materialCoinsFromSalesCopper.value));
+  const materialCarryCapacityValue = computed(() => materialCarryCapacity.value);
+  const materialOverCapacity = computed(
+    () =>
+      materialCarryCapacity.value > 0 && materialTotalWeightKept.value > materialCarryCapacity.value
+  );
+
+  const materialCoinPurseItem = computed(() => {
+    if (!materialCoinPurseKey.value) {
+      return null;
+    }
+    return materialItems.value.find((entry) => entry.item.key === materialCoinPurseKey.value) ?? null;
+  });
+
+  const materialCoinPurseBaseCoins = computed(() => {
+    const entry = materialCoinPurseItem.value;
+    if (!entry) {
+      return { gold: 0, silver: 0, copper: 0 };
+    }
+    return copperToCoins(toFiniteNumber(entry.item.totalCoinsCopper, 0));
+  });
+
+  const materialSummary = computed(() => ({
+    proposals: materialProposals.value,
+    totalWeightAll: materialTotalWeightAll.value,
+    totalWeightKept: materialTotalWeightKept.value,
+    carryCapacity: materialCarryCapacity.value,
+    overCapacity: materialOverCapacity.value,
+    finalCoins: materialFinalCoins.value,
+    finalCoinsCopper: materialFinalCoinsCopper.value,
+    salesCoins: materialSalesCoins.value,
+    coinPurse: {
+      key: materialCoinPurseKey.value,
+      label: materialCoinPurseLabel.value,
+      base: materialCoinPurseBaseCoins.value,
+      final: materialFinalCoins.value
+    }
+  }));
+
+  const formatMaterialItemDisplay = (
+    item: MaterialProposalItem,
+    coinsOverride: CoinBreakdown | null = null
+  ): string => {
+    const label = item.label || item.itemId;
+    const quantitySuffix = item.quantity > 1 ? ` x${item.quantity}` : '';
+    const coinsSource = coinsOverride ?? item.coins ?? null;
+    if (coinsSource) {
+      const parts: string[] = [];
+      if (coinsSource.gold) parts.push(`${coinsSource.gold} po`);
+      if (coinsSource.silver) parts.push(`${coinsSource.silver} pa`);
+      if (coinsSource.copper) parts.push(`${coinsSource.copper} pc`);
+      if (parts.length) {
+        return `${label}${quantitySuffix} (${parts.join(', ')})`;
+      }
+    }
+    return `${label}${quantitySuffix}`.trim();
+  };
+
   const sendPreview = async () => {
     const trimmedFullName = fullCharacterName.value.trim();
     const trimmedLegacyName = characterName.value.trim();
@@ -1368,6 +1826,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       loading.value = true;
       preview.value = null;
       rawText.value = '';
+      resetMaterialState();
       try {
         const res = await requestFetch('/api/creation/preview', {
           method: 'POST',
@@ -1381,6 +1840,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         preview.value = res;
         rawText.value = JSON.stringify(res, null, 2);
         persistSelections();
+        hydrateMaterialFromPreview(res?.previewCharacter ?? null);
         if (res?.pendingChoices && Array.isArray(res.pendingChoices)) {
           for (const [idx, pc] of (res.pendingChoices as any[]).entries()) {
             const key = getChoiceKey(pc, idx);
@@ -1409,6 +1869,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         if (controller.signal.aborted) {
           return;
         }
+        resetMaterialState();
         preview.value = {
           ok: false,
           errors: [{ type: 'network', message: String(err?.message ?? err) }]
@@ -1600,7 +2061,17 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     }, {});
 
     const languages = toList(previewCharacter.languages);
-    const equipment = toList(previewCharacter.equipment);
+    const baseEquipment = toList(previewCharacter.equipment);
+
+    const keptMaterialDisplays = materialKeptItems.value
+      .map(({ item }) => {
+        const isCoinPurse = materialCoinPurseKey.value ? item.key === materialCoinPurseKey.value : false;
+        const coinsOverride = isCoinPurse ? materialFinalCoins.value : null;
+        return formatMaterialItemDisplay(item, coinsOverride);
+      })
+      .filter((entry) => typeof entry === 'string' && entry.trim().length);
+
+    const equipmentList = [...baseEquipment, ...keptMaterialDisplays];
 
     const trimValue = (value: string): string => value.trim();
     const toNullableString = (value: string): string | null => {
@@ -1629,7 +2100,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       caracs,
       competences: proficiencies,
       langues: languages.length ? languages.join(', ') : 'Commun',
-      equipement: equipment.join(', '),
+      equipement: equipmentList.join(', '),
       armure: { type: 'aucune' },
       bouclier: Boolean(previewCharacter.bouclier ?? false),
       monture: {
@@ -1756,6 +2227,26 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     sendPreview,
     loadCatalog,
     initialize,
+    materialProposals,
+    materialItems,
+    materialKeptItems,
+    materialSoldItems,
+    materialSummary,
+    materialTotalWeightAll,
+    materialTotalWeightKept,
+    materialCarryCapacityValue,
+    materialOverCapacity,
+    materialFinalCoins,
+    materialFinalCoinsCopper,
+    materialSalesCoins,
+    materialCoinPurseKey,
+    materialCoinPurseLabel,
+    materialCoinPurseBaseCoins,
+    isMaterialItemKept,
+    setMaterialItemDecision,
+    toggleMaterialItemDecision,
+    resetMaterialSelections,
+    formatMaterialItemDisplay,
     materialPlan,
     descriptionFields
   };

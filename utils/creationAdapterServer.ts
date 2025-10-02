@@ -14,6 +14,7 @@ const EFFECT_LABEL_FIELDS = ['effect_label', 'effectLabel', 'effect', 'summary',
 export type Selection = {
   class?: string | null;
   race?: string | null;
+  background?: string | null;
   niveau?: number;
   classLevels?: Record<string, number>;
   manual_features?: any[];
@@ -27,7 +28,34 @@ export class CreationAdapterServer {
 
   constructor(adapterInstance: any = null) {
     this.adapter = adapterInstance;
-    this.engine = new EffectEngine();
+    this.engine = new EffectEngine({
+      resolveItemById: async (id: string) => this.resolveItemById(id)
+    });
+  }
+
+  async resolveItemById(id: string): Promise<any | null> {
+    if (!id) return null;
+    if (!this.adapter || typeof this.adapter.loadRaw !== 'function') {
+      return null;
+    }
+
+    try {
+      const item = await this.adapter.loadRaw(String(id));
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      if (!item.id) {
+        item.id = String(id);
+      }
+      return item;
+    } catch (err) {
+      try {
+        console.warn('[CreationAdapterServer] resolveItemById failed', id, err);
+      } catch (e) {
+        // ignore console errors
+      }
+      return null;
+    }
   }
 
   async init() {
@@ -37,7 +65,7 @@ export class CreationAdapterServer {
   }
 
   // Fallback read local JSON entity
-  async readLocalEntity(kind: 'classes' | 'races', id: string): Promise<any | null> {
+  async readLocalEntity(kind: 'classes' | 'races' | 'backgrounds', id: string): Promise<any | null> {
     try {
       const fp = path.resolve(process.cwd(), kind, `${id}.json`);
       const txt = await fs.readFile(fp, 'utf-8');
@@ -49,19 +77,58 @@ export class CreationAdapterServer {
 
   // Resolve feature tree using adapter if present, otherwise a simple local resolution.
   async resolveFeatureTree(selection: Selection) {
+    let resolved: any[] = [];
+
     if (this.adapter && typeof this.adapter.resolveFeatureTree === 'function') {
-      return await this.adapter.resolveFeatureTree(selection);
+      try {
+        resolved = await this.adapter.resolveFeatureTree(selection);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[CreationAdapterServer] resolveFeatureTree via adapter failed, falling back to local', err);
+        resolved = [];
+      }
     }
 
-    const out: any[] = [];
-    if (selection.class) {
-      const cls = await this.readLocalEntity('classes', String(selection.class));
-      if (cls) out.push({ originId: selection.class, payload: cls });
+    const out: any[] = Array.isArray(resolved) ? [...resolved] : [];
+    const existingIds = new Set<string>();
+    for (const node of out) {
+      const id = node?.originId ?? node?.payload?.id ?? node?.id ?? null;
+      if (id !== null && id !== undefined) existingIds.add(String(id));
     }
-    if (selection.race) {
-      const rc = await this.readLocalEntity('races', String(selection.race));
-      if (rc) out.push({ originId: selection.race, payload: rc });
-    }
+
+    const ensureEntity = async (kind: 'classes' | 'races' | 'backgrounds', id: string | null | undefined) => {
+      if (!id) return;
+      const key = String(id);
+      if (existingIds.has(key)) return;
+
+      let payload: any | null = null;
+
+      if (this.adapter && typeof (this.adapter as any).loadRaw === 'function') {
+        try {
+          payload = await (this.adapter as any).loadRaw(key);
+        } catch (err) {
+          try {
+            payload = await (this.adapter as any).fetchJsonFromRepoPath?.(`${kind}/${key}.json`);
+          } catch (e) {
+            payload = null;
+          }
+        }
+      }
+
+      if (!payload) {
+        payload = await this.readLocalEntity(kind, key);
+      }
+
+      if (payload && typeof payload === 'object') {
+        out.push({ originId: key, payload });
+        existingIds.add(key);
+      }
+    };
+
+    await ensureEntity('classes', selection.class);
+    await ensureEntity('races', selection.race);
+    await ensureEntity('backgrounds', selection.background);
+
     return out;
   }
 
@@ -233,6 +300,8 @@ export class CreationAdapterServer {
         proficiencies: [],
         temp_hp: 0,
         senses: [],
+        item_proposals: [],
+        currency: { gold: 0, silver: 0, copper: 0 },
         unhandled_effects: []
       };
 

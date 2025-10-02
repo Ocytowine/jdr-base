@@ -51,10 +51,113 @@ function normalizeFieldAliases(payload: any) {
   return payload;
 }
 
+const COPPER_PER_SILVER = 10;
+const COPPER_PER_GOLD = 100;
+
+type NormalizedCoins = {
+  gold: number;
+  silver: number;
+  copper: number;
+};
+
+function toFiniteNumber(value: any, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function normalizeCoins(input: any): NormalizedCoins | null {
+  if (input === null || input === undefined) return null;
+  if (typeof input === 'number' || typeof input === 'string') {
+    const gold = toFiniteNumber(input, 0);
+    if (!Number.isFinite(gold)) return null;
+    return { gold, silver: 0, copper: 0 };
+  }
+  if (typeof input !== 'object') return null;
+
+  const normalized = new Map<string, any>();
+  for (const [key, value] of Object.entries(input)) {
+    normalized.set(String(key).toLowerCase(), value);
+  }
+
+  const result: NormalizedCoins = { gold: 0, silver: 0, copper: 0 };
+  let found = false;
+  const consume = (aliases: string[], target: keyof NormalizedCoins) => {
+    for (const alias of aliases) {
+      if (normalized.has(alias)) {
+        const candidate = toFiniteNumber(normalized.get(alias), Number.NaN);
+        if (!Number.isNaN(candidate)) {
+          result[target] = candidate;
+          found = true;
+          return;
+        }
+      }
+    }
+  };
+
+  consume(['gold', 'gp', 'or', 'g', 'po'], 'gold');
+  consume(['silver', 'sp', 'argent', 's', 'pa'], 'silver');
+  consume(['copper', 'cp', 'cuivre', 'c', 'pc'], 'copper');
+
+  if (!found) return null;
+  return result;
+}
+
+function coinsToCopper(coins: NormalizedCoins | null | undefined): number {
+  if (!coins) return 0;
+  return Math.round(coins.gold * COPPER_PER_GOLD + coins.silver * COPPER_PER_SILVER + coins.copper);
+}
+
+function firstString(obj: any, keys: string[], fallback: string | null = null): string | null {
+  if (!obj || typeof obj !== 'object') return fallback;
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length) return trimmed;
+    }
+  }
+  return fallback;
+}
+
 export class EffectEngine {
   opts: any;
+  itemCache: Map<string, any>;
+
   constructor(opts: any = {}) {
     this.opts = opts;
+    this.itemCache = new Map();
+  }
+
+  async getItemById(id: string): Promise<any | null> {
+    if (!id) return null;
+    const key = String(id);
+    if (this.itemCache.has(key)) {
+      return this.itemCache.get(key);
+    }
+
+    const resolver = this.opts?.resolveItemById;
+    if (typeof resolver !== 'function') {
+      this.itemCache.set(key, null);
+      return null;
+    }
+
+    try {
+      const item = await resolver(key);
+      this.itemCache.set(key, item ?? null);
+      return item ?? null;
+    } catch (err) {
+      try {
+        console.warn('[EffectEngine] resolveItemById failed', key, err);
+      } catch (e) {
+        // ignore console errors
+      }
+      this.itemCache.set(key, null);
+      return null;
+    }
   }
 
   evaluateSingleCondition(c: any, ctx: EvalContext = {}): boolean {
@@ -100,6 +203,8 @@ export class EffectEngine {
     character.spellcasting = character.spellcasting ?? {};
     character.final_stats = character.final_stats ?? {};
     character.unhandled_effects = character.unhandled_effects ?? [];
+    character.item_proposals = character.item_proposals ?? [];
+    character.currency = character.currency ?? { gold: 0, silver: 0, copper: 0 };
 
     // guard: check conditions
     const cond = effect.conditions ?? effect.payload?.conditions ?? effect.raw?.payload?.conditions ?? null;
@@ -149,6 +254,153 @@ export class EffectEngine {
       } else {
         if (!character.proficiencies.includes(profs)) character.proficiencies.push(profs);
       }
+      return;
+    }
+
+    // ---- items_proposal ----
+    if (type === 'items_proposal' || payload.items_proposal || payload.itemsProposal || payload.itemsProposals) {
+      const collectEntries = (value: any): any[] => {
+        if (!value) return [];
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'object') {
+          return Object.entries(value).map(([key, val]) => {
+            if (val && typeof val === 'object') {
+              if (!('id' in val) && !('item_id' in val) && !('itemId' in val)) {
+                return { id: key, ...(val as any) };
+              }
+              return val;
+            }
+            return { id: key, value: val };
+          });
+        }
+        return [value];
+      };
+
+      const candidateEntries: any[] = [];
+      for (const collection of [payload.items, payload.item, payload.entries, payload.proposals]) {
+        for (const entry of collectEntries(collection)) {
+          candidateEntries.push(entry);
+        }
+      }
+
+      const items: any[] = [];
+      let localIndex = 0;
+
+      for (const rawCandidate of candidateEntries) {
+        if (rawCandidate === null || rawCandidate === undefined) continue;
+        const original = rawCandidate;
+        const entry = typeof rawCandidate === 'object' && rawCandidate !== null
+          ? { ...(rawCandidate as any) }
+          : { id: rawCandidate };
+
+        const itemIdRaw =
+          entry.id ??
+          entry.item_id ??
+          entry.itemId ??
+          entry.slug ??
+          entry.code ??
+          (typeof original === 'string' || typeof original === 'number' ? original : null);
+
+        const itemId = itemIdRaw ? String(itemIdRaw).trim() : '';
+        if (!itemId) continue;
+
+        const quantityCandidate = toFiniteNumber(
+          entry.qty ?? entry.quantity ?? entry.count ?? entry.qte ?? 1,
+          1
+        );
+        const quantity = Number.isFinite(quantityCandidate) && quantityCandidate > 0 ? quantityCandidate : 1;
+
+        const resolvedItem = await this.getItemById(itemId);
+        const coins = normalizeCoins(entry.coins ?? entry.currency ?? entry.money ?? null);
+        const sellCoins = normalizeCoins(
+          entry.value ??
+            entry.sell_value ??
+            entry.sellValue ??
+            resolvedItem?.value ??
+            resolvedItem?.cost ??
+            resolvedItem?.prix ??
+            null
+        );
+
+        const coinsCopper = coinsToCopper(coins);
+        const sellCopper = coinsToCopper(sellCoins);
+
+        const weightPerUnit = Math.max(
+          0,
+          toFiniteNumber(
+            entry.weight ??
+              entry.poids ??
+              entry.mass ??
+              resolvedItem?.weight ??
+              resolvedItem?.poids ??
+              resolvedItem?.encumbrance ??
+              resolvedItem?.stats?.weight ??
+              0,
+            0
+          )
+        );
+
+        const label =
+          firstString(entry, ['label', 'name', 'nom', 'title']) ??
+          firstString(resolvedItem, ['name', 'nom', 'label', 'title']) ??
+          itemId;
+
+        const description =
+          firstString(entry, ['description', 'desc', 'text']) ??
+          firstString(resolvedItem, ['description', 'desc', 'text']) ??
+          null;
+
+        const image =
+          firstString(entry, ['image', 'illustration', 'icon', 'art']) ??
+          firstString(resolvedItem, ['image', 'illustration', 'icon', 'art']) ??
+          null;
+
+        const typeLabel =
+          firstString(entry, ['type', 'category', 'categorie']) ??
+          firstString(resolvedItem, ['type', 'category', 'categorie']) ??
+          null;
+
+        const key = `${effect.id ?? itemId}:${localIndex++}`;
+
+        items.push({
+          key,
+          itemId,
+          quantity,
+          label,
+          description,
+          image,
+          type: typeLabel,
+          coins: coins ?? null,
+          coinsCopper,
+          totalCoinsCopper: coinsCopper * quantity,
+          sellValue: sellCoins ?? null,
+          sellValueCopper: sellCopper,
+          totalSellValueCopper: sellCopper * quantity,
+          weight: {
+            perUnit: weightPerUnit,
+            total: weightPerUnit * quantity
+          },
+          resolved: resolvedItem ?? null,
+          raw: original
+        });
+      }
+
+      if (items.length) {
+        const groupLabel =
+          firstString(payload, ['label', 'title', 'name', 'nom']) ??
+          (effect.id ? String(effect.id) : null);
+        const groupDescription = firstString(payload, ['description', 'desc', 'text']) ?? null;
+
+        character.item_proposals.push({
+          effect_id: effect.id ?? null,
+          source: effect.source ?? ctx.source ?? null,
+          label: groupLabel,
+          description: groupDescription,
+          items,
+          metadata: { payload }
+        });
+      }
+
       return;
     }
 

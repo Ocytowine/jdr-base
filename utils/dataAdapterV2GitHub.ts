@@ -41,7 +41,7 @@ export class DataAdapterV2GitHub {
     this.useRawFallback = options.useRawFallback ?? true;
     this.ajv = new Ajv({ allErrors: true, strict: false });
     this.effectSchema = null;
-    this.scanFolders = options.scanFolders || ['classes','features','spells','races','items'];
+    this.scanFolders = options.scanFolders || ['classes','features','spells','races','backgrounds','items'];
   }
 
   async queryCollection(collection: string, predicate: (entry: any) => boolean | Promise<boolean>) {
@@ -214,7 +214,7 @@ export class DataAdapterV2GitHub {
       await this.initIndex();
     }
     if (this.indexCache.has(id)) return this.indexCache.get(id)!;
-    const tryPaths = [...this.scanFolders, 'data', 'content'];
+    const tryPaths = [...this.scanFolders, 'backgrounds', 'data', 'content'];
     for (const p of tryPaths) {
       const rp = `${p}/${id}.json`;
       try {
@@ -270,6 +270,7 @@ export class DataAdapterV2GitHub {
       // common single ids
       if (sel.class) seedIds.push(String(sel.class));
       if (sel.race) seedIds.push(String(sel.race));
+      if (sel.background) seedIds.push(String(sel.background));
 
       // manual_features can be an array of ids or objects
       if (Array.isArray(sel.manual_features)) {
