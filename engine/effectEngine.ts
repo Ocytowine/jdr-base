@@ -246,13 +246,25 @@ export class EffectEngine {
     }
 
     // ---- proficiency_grant ----
-    if (type === 'proficiency_grant' || payload.proficiency || payload.skill || payload.skills) {
-      const profs = payload.proficiency ?? payload.proficiencies ?? payload.skill ?? payload.skills ?? null;
+    if (type === 'proficiency_grant' || payload.proficiency || payload.skill || payload.skills || payload.subtype) {
+      let profs = payload.proficiency ?? payload.proficiencies ?? payload.skill ?? payload.skills ?? null;
+      if (!profs) {
+        if (payload.category === 'skill' && payload.subtype) {
+          profs = payload.subtype;
+        } else if (payload.category && payload.value) {
+          profs = payload.value;
+        }
+      }
       if (!profs) return;
+      const push = (value: any) => {
+        if (value === null || value === undefined) return;
+        const id = typeof value === 'string' ? value : String(value);
+        if (!character.proficiencies.includes(id)) character.proficiencies.push(id);
+      };
       if (Array.isArray(profs)) {
-        for (const p of profs) if (!character.proficiencies.includes(p)) character.proficiencies.push(p);
+        for (const p of profs) push(p);
       } else {
-        if (!character.proficiencies.includes(profs)) character.proficiencies.push(profs);
+        push(profs);
       }
       return;
     }
@@ -386,6 +398,11 @@ export class EffectEngine {
       }
 
       if (items.length) {
+        try {
+          console.debug('[ITEMS_PROPOSAL]', effect.id ?? null, { source: effect.source ?? ctx.source ?? null, count: items.length });
+        } catch (e) {
+          // ignore console errors
+        }
         const groupLabel =
           firstString(payload, ['label', 'title', 'name', 'nom']) ??
           (effect.id ? String(effect.id) : null);

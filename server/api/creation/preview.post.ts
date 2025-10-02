@@ -1,7 +1,7 @@
 ﻿// server/api/creation/preview.post.ts
 import { readBody } from 'h3';
 
-import { useCreationAdapter } from '~/server/utils/creationAdapter';
+import { useCreationAdapter, resetCreationAdapter } from '~/server/utils/creationAdapter';
 
 export default defineEventHandler(async (event) => {
   try {
@@ -9,7 +9,10 @@ export default defineEventHandler(async (event) => {
     const selection = body?.selection ?? {};
     const baseCharacter = body?.baseCharacter ?? { base_stats_before_race: {} };
 
-    const { service } = await useCreationAdapter();
+    const { service } = await (async () => {
+      resetCreationAdapter();
+      return await useCreationAdapter();
+    })();
     const result = await service.buildPreview(selection, baseCharacter);
 
     return result;

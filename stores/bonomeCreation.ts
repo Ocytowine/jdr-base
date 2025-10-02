@@ -1636,6 +1636,11 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       });
     }
 
+    try {
+      console.debug('[MATERIAL_PROPOSALS]', normalized.map((group) => ({ source: group.source, label: group.label, count: group.items.length })));
+    } catch (e) {
+      // ignore console errors
+    }
     materialProposals.value = normalized;
 
     materialCoinPurseKey.value = null;

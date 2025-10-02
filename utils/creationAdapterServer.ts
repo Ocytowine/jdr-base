@@ -101,15 +101,25 @@ export class CreationAdapterServer {
       const key = String(id);
       if (existingIds.has(key)) return;
 
+      const candidatePaths = [`${kind}/${key}.json`, `${kind}/${key}/${key}.json`, `${key}.json`];
       let payload: any | null = null;
 
-      if (this.adapter && typeof (this.adapter as any).loadRaw === 'function') {
-        try {
-          payload = await (this.adapter as any).loadRaw(key);
-        } catch (err) {
+      if (this.adapter) {
+        const adapterAny = this.adapter as any;
+        for (const candidate of candidatePaths) {
+          if (!candidate) continue;
           try {
-            payload = await (this.adapter as any).fetchJsonFromRepoPath?.(`${kind}/${key}.json`);
-          } catch (e) {
+            payload = await adapterAny.fetchJsonFromRepoPath?.(candidate);
+            if (payload) break;
+          } catch (err) {
+            payload = null;
+          }
+        }
+
+        if (!payload && typeof adapterAny.loadRaw === 'function') {
+          try {
+            payload = await adapterAny.loadRaw(key);
+          } catch (err) {
             payload = null;
           }
         }
@@ -120,6 +130,11 @@ export class CreationAdapterServer {
       }
 
       if (payload && typeof payload === 'object') {
+        try {
+          console.debug('[CreationAdapterServer] ensureEntity loaded', kind, key);
+        } catch (e) {
+          // ignore console errors
+        }
         out.push({ originId: key, payload });
         existingIds.add(key);
       }
@@ -167,13 +182,29 @@ export class CreationAdapterServer {
       const appliedFeatures: string[] = [];
 
       for (const node of (resolved || [])) {
+        try {
+          console.debug('[RESOLVED_NODE]', node?.originId ?? node?.id ?? '<unknown>');
+        } catch (e) {
+          // ignore console errors
+        }
         const payloadEntity = node?.payload ?? node;
+        try {
+          const effectsCount = Array.isArray(payloadEntity?.effects) ? payloadEntity.effects.length : payloadEntity?.effects ? 1 : 0;
+          console.debug('[RESOLVED_PAYLOAD]', payloadEntity?.id ?? node?.originId ?? '<unknown>', effectsCount);
+        } catch (e) {
+          // ignore console errors
+        }
         // extract raw effects array from common fields
         const effectsRaw = payloadEntity.effects ?? payloadEntity.features ?? payloadEntity.payload?.effects ?? payloadEntity.payload?.features ?? [];
         const arr = Array.isArray(effectsRaw) ? effectsRaw : (effectsRaw ? [effectsRaw] : []);
 
         for (const rawEf of arr) {
           const ef = normalizeEffect(rawEf);
+          try {
+            console.debug('[NORMALIZED_EFFECT]', node?.originId ?? payloadEntity?.id ?? '<unknown>', ef?.id ?? ef?.type ?? '<no-id>', ef?.type ?? '<no-type>');
+          } catch (e) {
+            // ignore console errors
+          }
           if (!ef) continue;
 
           // if this is a choice and not apply_immediately, mark as pending
