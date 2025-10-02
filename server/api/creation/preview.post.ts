@@ -10,7 +10,9 @@ export default defineEventHandler(async (event) => {
     const baseCharacter = body?.baseCharacter ?? { base_stats_before_race: {} };
 
     const { service } = await (async () => {
-      resetCreationAdapter();
+      if (body?.forceReset) {
+        resetCreationAdapter();
+      }
       return await useCreationAdapter();
     })();
     const result = await service.buildPreview(selection, baseCharacter);

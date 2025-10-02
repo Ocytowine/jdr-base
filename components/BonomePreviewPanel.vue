@@ -1,184 +1,140 @@
 <template>
-  <section class="border rounded p-4 bg-white/80 space-y-4">
-    <div class="flex items-start justify-between">
-      <h3 class="text-lg font-semibold">Prévisualisation</h3>
-      <div class="text-sm text-gray-600">appliqués : {{ preview?.appliedFeatures?.length ?? 0 }}</div>
+  <section class="preview">
+    <div class="preview__header">
+      <h3 class="preview__title">Prévisualisation</h3>
+      <div class="preview__counter">Appliqués : {{ preview?.appliedFeatures?.length ?? 0 }}</div>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" v-if="preview">
-      <div class="flex flex-col gap-4 sm:flex-row">
-        <div class="sm:w-40">
-          <div class="aspect-[4/5] w-full overflow-hidden rounded-lg bg-slate-200">
-            <img :src="previewPortrait" :alt="`Portrait ${displayCharacterName}`" class="h-full w-full object-cover" />
-          </div>
+    <div v-if="preview" class="preview__panel">
+      <div class="preview__hero">
+        <div class="preview__portrait">
+          <img :src="previewPortrait" :alt="`Portrait ${displayCharacterName}`" class="preview__portrait-image" />
         </div>
-        <div class="flex-1 space-y-4">
-          <div class="space-y-2">
-            <div class="text-xs uppercase tracking-wide text-gray-500">Nom du personnage</div>
-            <div class="text-xl font-semibold text-slate-900">{{ displayCharacterName }}</div>
-            <div v-if="hasNameParts" class="space-y-1 text-sm text-slate-600">
-              <p v-if="trimmedFirstName"><span class="font-medium text-slate-700">Prénom :</span> {{ trimmedFirstName }}</p>
-              <p v-if="trimmedLastName"><span class="font-medium text-slate-700">Nom :</span> {{ trimmedLastName }}</p>
-              <p v-if="trimmedNickname"><span class="font-medium text-slate-700">Surnom :</span> {{ trimmedNickname }}</p>
+        <div class="preview__identity">
+          <div class="preview__identity-header">
+            <span class="preview__identity-label">Nom du personnage</span>
+            <h4 class="preview__identity-name">{{ displayCharacterName }}</h4>
+            <div v-if="hasNameParts" class="preview__identity-details">
+              <p v-if="trimmedFirstName"><span>Prénom :</span> {{ trimmedFirstName }}</p>
+              <p v-if="trimmedLastName"><span>Nom :</span> {{ trimmedLastName }}</p>
+              <p v-if="trimmedNickname"><span>Surnom :</span> {{ trimmedNickname }}</p>
             </div>
-            <p v-else-if="trimmedFullName" class="text-sm text-slate-600">Nom complet : {{ trimmedFullName }}</p>
+            <p v-else-if="trimmedFullName" class="preview__identity-details">
+              Nom complet : {{ trimmedFullName }}
+            </p>
           </div>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <article
-              v-for="summary in identitySummary"
-              :key="summary.id"
-              class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
-            >
-              <div class="mb-2 h-20 overflow-hidden rounded-md bg-slate-200">
-                <img
-                  :src="summary.image"
-                  :alt="`Illustration ${summary.name}`"
-                  class="h-full w-full object-cover"
-                  loading="lazy"
-                />
+          <div class="preview__identity-grid">
+            <article v-for="summary in identitySummary" :key="summary.id" class="preview-card">
+              <div class="preview-card__media">
+                <img :src="summary.image" :alt="`Illustration ${summary.name}`" loading="lazy" />
               </div>
-              <div class="space-y-2">
-                <div>
-                  <div class="text-xs uppercase tracking-wide text-gray-500">{{ summary.title }}</div>
-                  <div class="text-sm font-medium text-slate-900">{{ summary.name }}</div>
-                </div>
-                <p class="text-xs leading-snug text-gray-600 line-clamp-6">{{ summary.description }}</p>
+              <div class="preview-card__body">
+                <span class="preview-card__overline">{{ summary.title }}</span>
+                <strong class="preview-card__title">{{ summary.name }}</strong>
+                <p class="preview-card__description">{{ summary.description }}</p>
               </div>
             </article>
           </div>
         </div>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-4">
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h4 class="font-medium mb-2">Caractéristiques</h4>
-          <table class="w-full text-sm">
+      <div class="preview__grid">
+        <section class="preview-section">
+          <h4 class="preview-section__title">Caractéristiques</h4>
+          <table class="preview-table">
             <tr v-for="(val, key) in displayStats" :key="key">
-              <td class="pr-3 font-medium">{{ key }}</td>
+              <td>{{ key }}</td>
               <td>{{ val }}</td>
             </tr>
           </table>
 
-          <hr class="my-2" />
-          <h4 class="font-medium">Compétences / Proficiencies</h4>
-          <ul class="list-disc ml-5 text-sm">
+          <div class="preview-section__divider"></div>
+          <h5 class="preview-section__subtitle">Compétences / Proficiencies</h5>
+          <ul class="preview-list">
             <li v-for="p in preview?.previewCharacter?.proficiencies ?? []" :key="p">{{ p }}</li>
-            <li v-if="!(preview?.previewCharacter?.proficiencies ?? []).length" class="text-gray-500">Aucune</li>
+            <li v-if="!(preview?.previewCharacter?.proficiencies ?? []).length" class="preview-list__empty">Aucune</li>
           </ul>
 
-          <hr class="my-2" />
-          <h4 class="font-medium">Senses</h4>
-          <ul class="list-disc ml-5 text-sm">
+          <div class="preview-section__divider"></div>
+          <h5 class="preview-section__subtitle">Sens</h5>
+          <ul class="preview-list">
             <li
               v-for="s in preview?.previewCharacter?.senses ?? []"
               :key="JSON.stringify(s)"
-            >{{ s.sense_type ? `${s.sense_type} ${s.range ?? ''} ${s.units ?? ''}`.trim() : JSON.stringify(s) }}</li>
-            <li v-if="!(preview?.previewCharacter?.senses ?? []).length" class="text-gray-500">Aucune</li>
+            >
+              {{ s.sense_type ? `${s.sense_type} ${s.range ?? ''} ${s.units ?? ''}`.trim() : JSON.stringify(s) }}
+            </li>
+            <li v-if="!(preview?.previewCharacter?.senses ?? []).length" class="preview-list__empty">Aucun</li>
           </ul>
-        </div>
+        </section>
 
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h4 class="font-medium mb-2">Magie</h4>
-          <div v-if="preview?.previewCharacter?.spellcasting">
-            <div class="text-sm">
-              Ability:
-              {{ preview?.previewCharacter?.spellcasting?.ability ?? preview?.previewCharacter?.spellcasting?.meta?.ability ?? '—' }}
+        <section class="preview-section">
+          <h4 class="preview-section__title">Magie & capacités</h4>
+          <div v-if="preview?.previewCharacter?.spellcasting" class="preview-section__block">
+            <p>Ability : {{ preview?.previewCharacter?.spellcasting?.ability ?? preview?.previewCharacter?.spellcasting?.meta?.ability ?? '-' }}</p>
+            <p>Spell save DC : {{ preview?.previewCharacter?.spellcasting?.meta?.spell_save_dc ?? '-' }}</p>
+            <p>Spell attack mod : {{ preview?.previewCharacter?.spellcasting?.meta?.spell_attack_mod ?? '-' }}</p>
+            <div class="preview-section__divider"></div>
+            <h5 class="preview-section__subtitle">Slots</h5>
+            <div
+              v-if="preview?.previewCharacter?.spellcasting?.slots && Object.keys(preview.previewCharacter.spellcasting.slots).length"
+              class="preview-section__slots"
+            >
+              <span v-for="(num, lvl) in preview.previewCharacter.spellcasting.slots" :key="lvl">{{ lvl }} : {{ num }}</span>
             </div>
-            <div class="text-sm">
-              Spell save DC: {{ preview?.previewCharacter?.spellcasting?.meta?.spell_save_dc ?? '—' }}
-            </div>
-            <div class="text-sm">
-              Spell attack mod: {{ preview?.previewCharacter?.spellcasting?.meta?.spell_attack_mod ?? '—' }}
-            </div>
-            <div class="mt-2">
-              <div class="font-medium">Slots</div>
-              <div
-                v-if="preview?.previewCharacter?.spellcasting?.slots && Object.keys(preview.previewCharacter.spellcasting.slots).length"
-              >
-                <div v-for="(num, lvl) in preview.previewCharacter.spellcasting.slots" :key="lvl" class="text-sm">{{ lvl }}: {{ num }}</div>
-              </div>
-              <div v-else class="text-sm text-gray-500">Aucun</div>
-            </div>
-
-            <div class="mt-2">
-              <div class="font-medium">Sorts connus</div>
-              <ul class="list-disc ml-5 text-sm">
-                <li v-for="s in preview.previewCharacter.spellcasting.known ?? []" :key="s">{{ s }}</li>
-                <li v-if="!(preview.previewCharacter.spellcasting.known ?? []).length" class="text-gray-500">Aucun</li>
-              </ul>
-            </div>
+            <p v-else class="preview-list__empty">Aucun emplacement</p>
           </div>
-          <div v-else class="text-sm text-gray-500">Aucune capacité de lanceur de sorts détectée</div>
+          <p v-else class="preview-list__empty">Aucune donnée de magie disponible.</p>
 
-          <hr class="my-2" />
-          <h4 class="font-medium">Équipement</h4>
-          <ul class="list-disc ml-5 text-sm">
-            <li v-for="e in preview?.previewCharacter?.equipment ?? []" :key="JSON.stringify(e)">{{ e }}</li>
-            <li v-if="!(preview?.previewCharacter?.equipment ?? []).length" class="text-gray-500">Aucun</li>
-          </ul>
-
-          <hr class="my-2" />
-          <h4 class="font-medium">Features appliqués</h4>
-          <ul class="list-disc ml-5 text-sm">
+          <div class="preview-section__divider"></div>
+          <h5 class="preview-section__subtitle">Features appliqués</h5>
+          <ul class="preview-list">
             <li v-for="f in preview?.appliedFeatures ?? []" :key="f">{{ f }}</li>
-            <li v-if="!(preview?.appliedFeatures ?? []).length" class="text-gray-500">Aucun</li>
+            <li v-if="!(preview?.appliedFeatures ?? []).length" class="preview-list__empty">Aucun</li>
           </ul>
-        </div>
+        </section>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-4">
-        <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h4 class="font-medium mb-2">Préparation du matériel</h4>
-          <div class="space-y-2">
-            <div
-              v-for="entry in materialSummary"
-              :key="entry.id"
-              class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-            >
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
-              <p class="mt-1 text-sm text-slate-700">{{ entry.value || 'À définir' }}</p>
+      <div class="preview__grid">
+        <section class="preview-section">
+          <h4 class="preview-section__title">Préparation du matériel</h4>
+          <div class="preview-section__tiles">
+            <div v-for="entry in materialSummary" :key="entry.id" class="preview-tile">
+              <span class="preview-tile__label">{{ entry.label }}</span>
+              <span class="preview-tile__value">{{ entry.value || 'À définir' }}</span>
             </div>
           </div>
-          <div class="mt-3 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600">
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes complémentaires</p>
-            <p class="mt-1 whitespace-pre-line">{{ materialNotesDisplay || 'Aucune note pour le moment.' }}</p>
+          <div class="preview-section__notes">
+            <span class="preview-section__subtitle">Notes complémentaires</span>
+            <p>{{ materialNotesDisplay || 'Aucune note pour le moment.' }}</p>
           </div>
         </section>
 
-        <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h4 class="font-medium mb-2">Portrait narratif</h4>
-          <div class="space-y-2">
-            <div
-              v-for="entry in narrativeSummary"
-              :key="entry.id"
-              class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-            >
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ entry.label }}</p>
-              <p class="mt-1 whitespace-pre-line break-words text-sm text-slate-700">{{ entry.value || 'À préciser' }}</p>
+        <section class="preview-section">
+          <h4 class="preview-section__title">Portrait narratif</h4>
+          <div class="preview-section__tiles">
+            <div v-for="entry in narrativeSummary" :key="entry.id" class="preview-tile">
+              <span class="preview-tile__label">{{ entry.label }}</span>
+              <span class="preview-tile__value preview-tile__value--multiline">{{ entry.value || 'À préciser' }}</span>
             </div>
           </div>
         </section>
       </div>
 
-      <div v-if="preview?.errors && preview.errors.length" class="p-3 border rounded bg-red-50 text-sm text-red-700">
-        <div class="font-medium">Erreurs détectées</div>
-        <ul class="list-disc ml-5">
-          <li v-for="(e, i) in preview.errors" :key="i">{{ e.type }} — {{ e.message }}</li>
+      <div v-if="preview?.errors && preview.errors.length" class="preview__errors">
+        <div class="preview__errors-title">Erreurs détectées</div>
+        <ul class="preview__errors-list">
+          <li v-for="(e, i) in preview.errors" :key="i">{{ e.type }} - {{ e.message }}</li>
         </ul>
       </div>
     </div>
 
-    <div v-else class="text-sm text-gray-600">Lancez une prévisualisation pour voir un aperçu détaillé du personnage.</div>
+    <p v-else class="preview__empty">Lancez une prévisualisation pour voir un aperçu détaillé du personnage.</p>
 
-    <div class="pt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <p v-if="saveError" class="text-sm text-red-600">{{ saveError }}</p>
-      <button
-        class="btn self-end sm:self-auto"
-        type="button"
-        @click="handleSave"
-        :disabled="saving || !canSave"
-      >
-        <span v-if="saving">Sauvegarde…</span>
+    <div class="preview__footer">
+      <p v-if="saveError" class="preview__save-error">{{ saveError }}</p>
+      <button class="btn" type="button" @click="handleSave" :disabled="saving || !canSave">
+        <span v-if="saving">Sauvegarde.</span>
         <span v-else>Sauvegarder ce personnage</span>
       </button>
     </div>
@@ -288,5 +244,338 @@ async function handleSave() {
 </script>
 
 <style scoped>
-/* minimal */
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border: 1px solid var(--bord);
+  border-radius: 18px;
+  padding: 20px;
+  background: linear-gradient(180deg, rgba(20, 24, 50, 0.85), rgba(12, 15, 32, 0.95));
+  color: var(--texte);
+}
+
+.preview__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .preview__header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.preview__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.preview__counter {
+  font-size: 13px;
+  color: var(--texte-2);
+}
+
+.preview__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.preview__hero {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@media (min-width: 768px) {
+  .preview__hero {
+    flex-direction: row;
+  }
+}
+
+.preview__portrait {
+  flex: 0 0 200px;
+  max-width: 220px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--bord);
+  background: var(--carte-2);
+}
+
+.preview__portrait-image {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+}
+
+.preview__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1 1 auto;
+}
+
+.preview__identity-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preview__identity-label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--texte-2);
+}
+
+.preview__identity-name {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--texte);
+}
+
+.preview__identity-details {
+  font-size: 13px;
+  color: var(--texte-2);
+}
+
+.preview__identity-details span {
+  font-weight: 600;
+  color: var(--texte);
+  margin-right: 6px;
+}
+
+.preview__identity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.preview-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  border: 1px solid var(--bord);
+  background: linear-gradient(180deg, rgba(18, 22, 47, 0.9), rgba(9, 12, 28, 0.94));
+  overflow: hidden;
+}
+
+.preview-card__media {
+  height: 120px;
+  background: var(--carte-2);
+}
+
+.preview-card__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preview-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px 16px;
+}
+
+.preview-card__overline {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent-2);
+}
+
+.preview-card__title {
+  font-size: 15px;
+  margin: 0;
+}
+
+.preview-card__description {
+  margin: 0;
+  font-size: 12px;
+  color: var(--texte-2);
+  line-height: 1.45;
+}
+
+.preview__grid {
+  display: grid;
+  gap: 18px;
+}
+
+@media (min-width: 1024px) {
+  .preview__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 18px;
+  border: 1px solid var(--bord);
+  background: linear-gradient(180deg, rgba(17, 21, 45, 0.92), rgba(10, 13, 30, 0.95));
+  padding: 20px 22px;
+}
+
+.preview-section__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--texte);
+}
+
+.preview-section__subtitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+
+.preview-section__divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}
+
+.preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.preview-table td {
+  padding: 6px 4px;
+}
+
+.preview-table td:first-child {
+  color: var(--texte-2);
+  font-weight: 600;
+  width: 40%;
+}
+
+.preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.preview-list__empty {
+  color: var(--texte-2);
+  font-style: italic;
+}
+
+.preview-section__slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--texte-2);
+}
+
+.preview-section__block p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--texte-2);
+}
+
+.preview-section__tiles {
+  display: grid;
+  gap: 12px;
+}
+
+.preview-tile {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 13, 28, 0.7);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preview-tile__label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--texte-2);
+}
+
+.preview-tile__value {
+  font-size: 13px;
+  color: var(--texte);
+  word-break: break-word;
+}
+
+.preview-tile__value--multiline {
+  white-space: pre-line;
+}
+
+.preview-section__notes {
+  border: 1px dashed var(--bord);
+  border-radius: 14px;
+  background: rgba(12, 16, 34, 0.6);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--texte-2);
+}
+
+.preview__errors {
+  border-radius: 14px;
+  border: 1px solid var(--ko-soft-border);
+  background: var(--ko-soft);
+  color: var(--ko);
+  padding: 16px;
+  font-size: 13px;
+}
+
+.preview__errors-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.preview__errors-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.preview__empty {
+  font-size: 13px;
+  color: var(--texte-2);
+  font-style: italic;
+}
+
+.preview__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+@media (min-width: 640px) {
+  .preview__footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.preview__save-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ko);
+}
 </style>

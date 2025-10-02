@@ -1,49 +1,49 @@
 <template>
-  <div class="p-4 max-w-4xl mx-auto space-y-6">
-    <header class="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p class="text-xs font-medium uppercase tracking-wide text-slate-500">
+  <div class="wizard">
+    <header class="wizard__header">
+      <div class="wizard__top">
+        <div class="wizard__meta">
+          <p class="wizard__step-summary">
             Étape {{ currentStep + 1 }} / {{ steps.length }}
           </p>
-          <h2 class="text-2xl font-semibold text-slate-900">{{ activeStep.title }}</h2>
-          <p v-if="activeStep.description" class="mt-1 text-sm text-slate-600">
+          <h2 class="wizard__title">{{ activeStep.title }}</h2>
+          <p v-if="activeStep.description" class="wizard__description">
             {{ activeStep.description }}
           </p>
         </div>
-        <div class="rounded-full bg-slate-900/5 px-4 py-1 text-sm font-semibold text-slate-700">
+        <div class="wizard__counter">
           {{ currentStep + 1 }}/{{ steps.length }}
         </div>
       </div>
 
-      <nav class="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+      <nav class="wizard__nav">
         <span
           v-for="(step, index) in steps"
           :key="step.id"
-          class="inline-flex items-center gap-2 rounded-full border px-3 py-1"
           :class="[
+            'wizard__nav-item',
             index === currentStep
-              ? 'border-blue-500 bg-blue-50 text-blue-700'
+              ? 'wizard__nav-item--active'
               : index < currentStep
-                ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-                : 'border-slate-200 bg-white text-slate-400'
+                ? 'wizard__nav-item--done'
+                : 'wizard__nav-item--upcoming'
           ]"
         >
-          <span class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-current text-[11px]">
-            {{ index + 1 }}
-          </span>
+          <span class="wizard__nav-index">{{ index + 1 }}</span>
           <span>{{ step.shortTitle }}</span>
         </span>
       </nav>
     </header>
 
-    <component
-      :is="activePhase.component"
-      v-bind="phaseProps"
-      @validate="handleValidate"
-      @cancel="handleCancel"
-      @refresh="handleRefresh"
-    />
+    <div class="wizard__phase">
+      <component
+        :is="activePhase.component"
+        v-bind="phaseProps"
+        @validate="handleValidate"
+        @cancel="handleCancel"
+        @refresh="handleRefresh"
+      />
+    </div>
   </div>
 </template>
 
@@ -283,3 +283,139 @@ onMounted(() => {
   creation.initialize({ restoreFromStorage: true });
 });
 </script>
+
+<style scoped>
+.wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.wizard__header {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 18px;
+  border: 1px solid var(--bord);
+  background: linear-gradient(180deg, var(--carte), var(--carte-2));
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28);
+}
+
+.wizard__top {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@media (min-width: 640px) {
+  .wizard__top {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.wizard__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 640px;
+}
+
+.wizard__step-summary {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.wizard__title {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+  color: var(--texte);
+}
+
+.wizard__description {
+  margin: 0;
+  font-size: 14px;
+  color: var(--texte-2);
+}
+
+.wizard__counter {
+  align-self: flex-start;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-border-soft);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+@media (min-width: 640px) {
+  .wizard__counter {
+    align-self: center;
+  }
+}
+
+.wizard__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.wizard__nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--bord);
+  background: var(--surface-overlay);
+  color: var(--texte-2);
+  font-size: 12px;
+  font-weight: 600;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wizard__nav-item--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  box-shadow: 0 8px 24px var(--accent-soft);
+}
+
+.wizard__nav-item--done {
+  border-color: var(--ok-soft-border);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.wizard__nav-item--upcoming {
+  opacity: 0.75;
+}
+
+.wizard__nav-index {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.wizard__phase {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+</style>

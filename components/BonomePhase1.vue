@@ -1,58 +1,59 @@
 <template>
-  <section :data-step="stepMeta.id" class="space-y-6 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-    <form class="grid gap-6 md:grid-cols-2" @submit.prevent>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-slate-700">Prénom</label>
+  <section :data-step="stepMeta.id" class="phase carte">
+    <form class="phase__form" @submit.prevent>
+      <div class="phase__fields">
+        <div class="field">
+          <label class="field__label">Prénom</label>
           <input
             v-model="characterFirstName"
             type="text"
             placeholder="Ex. Lina"
-            class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            class="input field__input"
           />
         </div>
-        <div>
-          <label class="block text-sm font-medium text-slate-700">Nom</label>
+        <div class="field">
+          <label class="field__label">Nom</label>
           <input
             v-model="characterLastName"
             type="text"
             placeholder="Ex. Morcant"
-            class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            class="input field__input"
           />
         </div>
-        <div>
-          <label class="block text-sm font-medium text-slate-700">Surnom</label>
+        <div class="field">
+          <label class="field__label">Surnom</label>
           <input
             v-model="characterNickname"
             type="text"
             placeholder="Ex. L'Éclair"
-            class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            class="input field__input"
           />
-          <p class="mt-1 text-xs text-slate-500">Optionnel : sera affiché entre guillemets.</p>
+          <p class="field__hint">Optionnel : sera affiché entre guillemets.</p>
         </div>
       </div>
-      <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-        <p class="font-semibold text-slate-700">Aperçu rapide</p>
-        <dl class="mt-2 space-y-2">
-          <div>
-            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Nom complet</dt>
-            <dd class="text-sm text-slate-700">{{ fullNamePreview || '—' }}</dd>
+
+      <div class="phase__preview">
+        <p class="phase__preview-title">Aperçu rapide</p>
+        <dl class="phase__preview-list">
+          <div class="phase__preview-item">
+            <dt class="phase__preview-key">Nom complet</dt>
+            <dd class="phase__preview-value">{{ fullNamePreview || '-' }}</dd>
           </div>
-          <div>
-            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Nom affiché</dt>
-            <dd class="text-sm text-slate-700">{{ displayCharacterName }}</dd>
+          <div class="phase__preview-item">
+            <dt class="phase__preview-key">Nom affiché</dt>
+            <dd class="phase__preview-value">{{ displayCharacterName }}</dd>
           </div>
-          <div>
-            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Portrait généré</dt>
-            <dd class="text-sm text-slate-700">{{ displayCharacterName }}</dd>
+          <div class="phase__preview-item">
+            <dt class="phase__preview-key">Portrait généré</dt>
+            <dd class="phase__preview-value">{{ displayCharacterName }}</dd>
           </div>
         </dl>
       </div>
     </form>
 
-    <div class="flex justify-end gap-3">
-      <button type="button" class="rounded-lg border border-slate-200 px-4 py-2 text-sm" @click="emit('cancel')">Annuler</button>
-      <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white" @click="emit('validate')">
+    <div class="phase__actions">
+      <button type="button" class="phase__action phase__action--ghost" @click="emit('cancel')">Annuler</button>
+      <button type="button" class="phase__action phase__action--primary" @click="emit('validate')">
         Valider
       </button>
     </div>
@@ -84,3 +85,4 @@ const fullNamePreview = computed(() => fullCharacterName.value.trim());
 // Ensure props are referenced to avoid unused warnings in template compilation.
 const stepMeta = computed(() => props.stepMeta);
 </script>
+

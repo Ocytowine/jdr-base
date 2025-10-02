@@ -1,83 +1,75 @@
 <template>
-  <section :data-step="stepMeta.id" class="space-y-6 rounded-xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-    <div class="space-y-4">
-      <div class="space-y-2">
-        <h3 class="text-lg font-semibold text-slate-900">Choix du niveau</h3>
-        <p class="text-sm text-slate-600">Selectionnez le niveau de depart pour votre bonome.</p>
-      </div>
-      <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <p class="text-base font-semibold text-slate-900">Niveau</p>
-            <p class="text-xs text-slate-500">Entre 1 et 3</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-base font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-              :aria-label="'Diminuer le niveau'"
-              :disabled="niveau <= 1"
-              @click="handleDecreaseLevel"
-            >
-              -
-            </button>
-            <span class="w-10 text-center text-lg font-semibold text-slate-900">{{ niveau }}</span>
-            <button
-              type="button"
-              class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-base font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-              :aria-label="'Augmenter le niveau'"
-              :disabled="niveau >= 3"
-              @click="handleIncreaseLevel"
-            >
-              +
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+  <section :data-step="stepMeta.id" class="phase carte">
+    <header class="phase__heading">
+      <h3 class="phase__title">Choix du niveau</h3>
+      <p class="phase__subtitle">Sélectionnez le niveau de départ et ajustez les caractéristiques de base.</p>
+    </header>
 
-    <div class="space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+    <div class="level-card">
       <div>
-        <p class="font-semibold text-slate-700">Budget de points</p>
-        <p class="mt-1 text-xs text-slate-500">
-          Chaque caracteristique doit rester entre {{ pointBuyMin }} et {{ pointBuyMax }}.
-        </p>
+        <p class="level-card__title">Niveau</p>
+        <p class="level-card__hint">Entre 1 et 3</p>
       </div>
-      <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Points restants</p>
-        <p :class="['text-base font-semibold', pointBuyStatusClass]">{{ pointBuyStatus.message }}</p>
-        <p class="text-xs text-slate-500">Cout total : {{ pointBuySpent }} / {{ pointBuyBudget }}</p>
+      <div class="level-card__controls">
+        <button
+          type="button"
+          class="stepper"
+          :aria-label="'Diminuer le niveau'"
+          :disabled="niveau <= 1"
+          @click="handleDecreaseLevel"
+        >
+          -
+        </button>
+        <span class="level-card__value">{{ niveau }}</span>
+        <button
+          type="button"
+          class="stepper stepper--accent"
+          :aria-label="'Augmenter le niveau'"
+          :disabled="niveau >= 3"
+          @click="handleIncreaseLevel"
+        >
+          +
+        </button>
       </div>
-      <p class="text-xs text-slate-500">
-        Ajustez les caracteristiques en respectant votre budget de 27 points.
-      </p>
-      <p class="text-xs text-slate-500">
-        Niveau selectionne :
-        <span class="font-semibold text-slate-800">{{ niveau }}</span>
+    </div>
+
+    <div class="point-buy">
+      <div>
+        <p class="point-buy__title">Budget de points</p>
+        <p class="point-buy__hint">Chaque caractéristique doit rester entre {{ pointBuyMin }} et {{ pointBuyMax }}.</p>
+      </div>
+      <div class="point-buy__status">
+        <p class="point-buy__label">Points restants</p>
+        <p :class="['point-buy__value', pointBuyToneClass]">{{ pointBuyStatus.message }}</p>
+        <p class="point-buy__meta">Coût total : {{ pointBuySpent }} / {{ pointBuyBudget }}</p>
+      </div>
+      <p class="point-buy__caption">Ajustez les caractéristiques en respectant votre budget de 27 points.</p>
+      <p class="point-buy__caption">
+        Niveau sélectionné : <span class="point-buy__level">{{ niveau }}</span>
       </p>
     </div>
 
-    <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-      <div v-for="key in baseStatKeys" :key="key" class="space-y-3 rounded-lg border border-slate-200 p-4 shadow-sm">
-        <div class="flex items-center justify-between gap-3">
+    <div class="stats-grid">
+      <div v-for="key in baseStatKeys" :key="key" class="stat-card">
+        <div class="stat-card__header">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ key }}</p>
-            <p class="text-xs text-slate-400">Coût : {{ pointBuyCostFor(baseStats[key]) }} pts</p>
+            <p class="stat-card__title">{{ key }}</p>
+            <p class="stat-card__cost">Coût : {{ pointBuyCostFor(baseStats[key]) }} pts</p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="stat-card__controls">
             <button
               type="button"
-              class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-base font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              class="stepper"
               :aria-label="`Diminuer ${key}`"
               :disabled="!canDecreaseStat(key)"
               @click="handleDecreaseStat(key)"
             >
               -
             </button>
-            <span class="w-10 text-center text-lg font-semibold text-slate-900">{{ baseStats[key] }}</span>
+            <span class="stat-card__value">{{ baseStats[key] }}</span>
             <button
               type="button"
-              class="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-base font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              class="stepper stepper--accent"
               :aria-label="`Augmenter ${key}`"
               :disabled="!canIncreaseStat(key)"
               @click="handleIncreaseStat(key)"
@@ -89,12 +81,11 @@
       </div>
     </div>
 
-    <div class="flex justify-end gap-3">
-      <button type="button" class="rounded-lg border border-slate-200 px-4 py-2 text-sm" @click="emit('cancel')">Annuler</button>
+    <div class="phase__actions">
+      <button type="button" class="phase__action phase__action--ghost" @click="emit('cancel')">Annuler</button>
       <button
         type="button"
-        class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
-        :class="!isPointBuyBalanced ? 'cursor-not-allowed opacity-60' : ''"
+        class="phase__action phase__action--primary"
         :disabled="!isPointBuyBalanced"
         @click="emit('validate')"
       >
@@ -134,7 +125,6 @@ const {
 const baseStats = creation.baseStats;
 const { pointBuyCostFor } = creation;
 
-
 type BaseStatKey = keyof typeof baseStats;
 
 const baseStatKeys = computed(() => Object.keys(baseStats) as BaseStatKey[]);
@@ -150,16 +140,7 @@ const pointBuyStatus = computed(() => {
   return { message: 'Budget équilibré', tone: 'ok' as const };
 });
 
-const pointBuyStatusClass = computed(() => {
-  switch (pointBuyStatus.value.tone) {
-    case 'error':
-      return 'text-red-600';
-    case 'warn':
-      return 'text-amber-600';
-    default:
-      return 'text-emerald-600';
-  }
-});
+const pointBuyToneClass = computed(() => `point-buy__value--${pointBuyStatus.value.tone}`);
 
 const handleIncreaseLevel = () => {
   if (niveau.value >= 3) return;
@@ -184,3 +165,203 @@ const canDecreaseStat = (key: BaseStatKey) => creation.canDecreaseBaseStat(key);
 
 const stepMeta = computed(() => props.stepMeta);
 </script>
+
+<style scoped>
+.level-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-radius: 16px;
+  border: 1px solid var(--bord);
+  padding: 20px 22px;
+  background: linear-gradient(180deg, rgba(23, 27, 57, 0.9), rgba(14, 18, 38, 0.92));
+}
+
+.level-card__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--texte);
+}
+
+.level-card__hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--texte-2);
+}
+
+.level-card__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.level-card__value {
+  min-width: 48px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent-2);
+}
+
+.stepper {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--bord);
+  background: transparent;
+  color: var(--texte-2);
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.stepper:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.stepper--accent {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.stepper:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.point-buy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 16px;
+  border: 1px dashed var(--bord);
+  background: linear-gradient(180deg, rgba(20, 24, 52, 0.85), rgba(12, 16, 38, 0.92));
+  padding: 20px 22px;
+}
+
+.point-buy__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+
+.point-buy__hint {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--texte-2);
+}
+
+.point-buy__status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.point-buy__label {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--texte-2);
+}
+
+.point-buy__value {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+
+.point-buy__value--error {
+  color: var(--ko);
+}
+
+.point-buy__value--warn {
+  color: var(--warn);
+}
+
+.point-buy__value--ok {
+  color: var(--ok);
+}
+
+.point-buy__meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--texte-2);
+}
+
+.point-buy__caption {
+  margin: 0;
+  font-size: 12px;
+  color: var(--texte-2);
+}
+
+.point-buy__level {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.stats-grid {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.stat-card {
+  border-radius: 16px;
+  border: 1px solid var(--bord);
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(22, 26, 54, 0.9), rgba(11, 14, 32, 0.95));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.stat-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.stat-card__title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--texte-2);
+}
+
+.stat-card__cost {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--texte-2);
+}
+
+.stat-card__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stat-card__value {
+  min-width: 46px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--texte);
+}
+</style>

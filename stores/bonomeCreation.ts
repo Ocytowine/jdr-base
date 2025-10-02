@@ -646,6 +646,8 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const races = ref<CatalogEntry[]>([]);
   const backgrounds = ref<CatalogEntry[]>([]);
 
+  const adapterResetPending = ref(false);
+
   const materialProposals = ref<MaterialProposalGroup[]>([]);
   const materialSelections = reactive<Record<string, boolean>>({});
   const materialCoinPurseKey = ref<string | null>(null);
@@ -656,6 +658,27 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const selectedRace = ref<string>('');
   const selectedBackground = ref<string>('');
   const MIN_LEVEL = 1;
+
+  watch(selectedClass, (next, prev) => {
+    if (next !== prev) {
+      adapterResetPending.value = true;
+    }
+  });
+
+  watch(selectedRace, (next, prev) => {
+    if (next !== prev) {
+      adapterResetPending.value = true;
+    }
+  });
+
+  watch(selectedBackground, (next, prev) => {
+    if (next !== prev) {
+      adapterResetPending.value = true;
+    }
+  });
+
+  const hasPrimarySelection = () =>
+    Boolean((selectedClass.value && selectedClass.value.length) || (selectedRace.value && selectedRace.value.length) || (selectedBackground.value && selectedBackground.value.length));
   const MAX_LEVEL = 3;
 
   const POINT_BUY_MIN = 8;
@@ -1369,6 +1392,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   let previewPromise: Promise<void> | null = null;
   let previewAbort: AbortController | null = null;
   let lastPreviewPayload = '';
+  let lastPreviewSuccessPayload = '';
   watch(
     baseStats,
     (current) => {
@@ -1407,12 +1431,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         selected.value = '';
         return;
       }
-      const hasSelection = entries.some((entry) => entry.id === selected.value);
-      if (!selected.value) {
-        selected.value = entries[0].id;
-        return;
-      }
-      if (!hasSelection) {
+      if (!entries.some((entry) => entry.id === selected.value)) {
         selected.value = '';
       }
     };
@@ -1811,10 +1830,23 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         last_name: trimmedLastName.length ? trimmedLastName : null,
         nickname: trimmedNickname.length ? trimmedNickname : null,
         base_stats_before_race: { ...baseStats }
-      }
+      },
+      forceReset: adapterResetPending.value
     };
 
+    const hasSelection = hasPrimarySelection();
+    if (!hasSelection) {
+      lastPreviewPayload = '';
+      if (!preview.value) {
+        lastPreviewSuccessPayload = '';
+      }
+      return null;
+    }
+
     const payloadSignature = JSON.stringify(body);
+    if (!previewPromise && !adapterResetPending.value && payloadSignature === lastPreviewSuccessPayload) {
+      return preview.value;
+    }
     if (previewPromise && payloadSignature === lastPreviewPayload) {
       return previewPromise;
     }
@@ -1846,6 +1878,8 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         rawText.value = JSON.stringify(res, null, 2);
         persistSelections();
         hydrateMaterialFromPreview(res?.previewCharacter ?? null);
+        lastPreviewSuccessPayload = payloadSignature;
+        adapterResetPending.value = false;
         if (res?.pendingChoices && Array.isArray(res.pendingChoices)) {
           for (const [idx, pc] of (res.pendingChoices as any[]).entries()) {
             const key = getChoiceKey(pc, idx);
@@ -2157,13 +2191,15 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     if (!initialized.value) {
       initialized.value = true;
       await loadCatalog();
-      await sendPreview();
+      if (hasPrimarySelection()) {
+        await sendPreview();
+      }
     }
 
     if (restoreFromStorage && process.client && !restoredBeforeInit) {
       const wasRestored = hasRestoredSelections.value;
       const didRestore = restoreSelections();
-      if (!wasRestored && didRestore && !wasInitialized) {
+      if (!wasRestored && didRestore && !wasInitialized && hasPrimarySelection()) {
         await sendPreview();
       }
     }

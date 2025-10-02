@@ -9,29 +9,25 @@
     @keydown.enter.prevent="onSelect"
     @keydown.space.prevent="onSelect"
   >
-    <div class="relative h-44 w-full">
+    <div class="card__media">
       <img
         :src="currentImage"
         :alt="imageAlt"
-        class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+        class="card__image"
         loading="lazy"
         @error="handleImageError"
       />
-      <div
-        v-if="disabled"
-        class="absolute inset-0 bg-white/70 backdrop-blur-[1px]"
-        aria-hidden="true"
-      ></div>
+      <div v-if="disabled" class="card__disabled" aria-hidden="true"></div>
     </div>
 
-    <div class="flex flex-1 flex-col gap-4 bg-white px-5 pb-5 pt-6 text-slate-900">
-      <h3 class="text-lg font-semibold leading-tight text-slate-900">
+    <div class="card__body">
+      <h3 class="card__title">
         {{ title }}
       </h3>
-      <p v-if="description" class="text-sm font-normal text-slate-600 line-clamp-4 whitespace-pre-line">
+      <p v-if="description" class="card__description">
         {{ description }}
       </p>
-      <footer v-if="$slots.footer" class="mt-auto border-t border-slate-200 pt-4 text-sm text-slate-600">
+      <footer v-if="$slots.footer" class="card__footer">
         <slot name="footer"></slot>
       </footer>
     </div>
@@ -65,21 +61,15 @@ const props = withDefaults(
     fallbackImage: DEFAULT_FALLBACK,
     imageCandidates: () => [],
     selected: false,
-    disabled: false,
-  },
+    disabled: false
+  }
 );
 
-const articleClass = computed(() => {
-  const base =
-    'group relative flex h-full w-full max-w-sm flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm transition-all duration-200 focus:outline-none';
-  const interactive = props.disabled
-    ? 'cursor-not-allowed opacity-60'
-    : 'cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:-translate-y-1 hover:shadow-lg';
-  const border = props.selected
-    ? 'border-blue-600 ring-2 ring-blue-500/40 shadow-lg'
-    : 'hover:border-blue-300';
-  return `${base} ${interactive} ${border}`;
-});
+const articleClass = computed(() => ({
+  card: true,
+  'card--selected': props.selected,
+  'card--disabled': props.disabled
+}));
 
 const fallbackSrc = computed(() => {
   if (typeof props.fallbackImage === 'string') {
@@ -119,7 +109,7 @@ const rebuildQueue = () => {
 watch(
   () => [props.image, props.imageCandidates, fallbackSrc.value],
   rebuildQueue,
-  { immediate: true, deep: true },
+  { immediate: true, deep: true }
 );
 
 const handleImageError = () => {
@@ -140,5 +130,95 @@ const onSelect = () => {
   emit('select', !props.selected);
 };
 
-const { imageAlt, title, description, selected, disabled } = props;
 </script>
+
+<style scoped>
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 320px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--bord);
+  background: linear-gradient(180deg, rgba(23, 26, 52, 0.88), rgba(17, 20, 43, 0.92));
+  color: var(--texte);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  border-color: rgba(122, 162, 255, 0.6);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.card--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 20px 40px rgba(122, 162, 255, 0.3);
+}
+
+.card--disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.card__media {
+  position: relative;
+  height: 180px;
+  background: var(--carte-2);
+}
+
+.card__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card__disabled {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 18, 38, 0.6);
+  backdrop-filter: blur(1px);
+}
+
+.card__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 22px 24px;
+}
+
+.card__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--texte);
+}
+
+.card__description {
+  margin: 0;
+  font-size: 14px;
+  color: var(--texte-2);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.card__footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  color: var(--accent-2);
+}
+</style>
+
