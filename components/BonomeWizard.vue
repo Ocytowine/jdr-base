@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
 import type { BonomePhaseComponentConfig, BonomePhaseMeta, BonomePhaseProps } from '@/components/bonomePhases';
@@ -132,13 +132,16 @@ const resetDescription = () => {
   });
 };
 
+const finalizePreview = async () => {
+  await creation.sendPreview();
+};
+
 const steps: BonomePhaseMeta[] = [
   {
     id: 'identity',
     title: 'Identité du personnage',
     shortTitle: 'Identité',
     description: 'Définissez le nom complet de votre bonôme.',
-    onValidate: refreshPreview,
     onReset: resetIdentity
   },
   {
@@ -146,7 +149,6 @@ const steps: BonomePhaseMeta[] = [
     title: 'Selection de la race',
     shortTitle: 'Race',
     description: 'Choisissez la race principale pour votre personnage.',
-    onValidate: refreshPreview,
     onReset: resetRace
   },
   {
@@ -154,7 +156,6 @@ const steps: BonomePhaseMeta[] = [
     title: 'Selection de la classe',
     shortTitle: 'Classe',
     description: 'Choisissez la classe principale de votre bonome.',
-    onValidate: refreshPreview,
     onReset: resetClass
   },
   {
@@ -162,7 +163,6 @@ const steps: BonomePhaseMeta[] = [
     title: "Selection de l'historique",
     shortTitle: 'Historique',
     description: "Choisissez l'historique principal de votre personnage.",
-    onValidate: refreshPreview,
     onReset: resetBackground
   },
   {
@@ -170,7 +170,6 @@ const steps: BonomePhaseMeta[] = [
     title: 'Niveau et caracteristiques',
     shortTitle: 'Caracs',
     description: 'Ajustez le niveau et les valeurs de base de vos caracteristiques.',
-    onValidate: refreshPreview,
     onReset: resetLevelAndStats
   },
   {
@@ -178,7 +177,6 @@ const steps: BonomePhaseMeta[] = [
     title: 'Choix complémentaires',
     shortTitle: 'Choix',
     description: "Appliquez les options supplémentaires générées par l'assistant.",
-    onValidate: refreshPreview,
     onReset: resetComplementaryChoices
   },
   {
@@ -193,14 +191,15 @@ const steps: BonomePhaseMeta[] = [
     title: 'Description du bonôme',
     shortTitle: 'Description',
     description: 'Rédigez les éléments narratifs de votre personnage.',
-    onReset: resetDescription
+    onReset: resetDescription,
+
+    onValidate: finalizePreview
   },
   {
     id: 'recap',
     title: 'Récapitulatif final',
     shortTitle: 'Récapitulatif',
     description: 'Relisez et confirmez les informations avant la finalisation.',
-    onValidate: refreshPreview
   }
 ];
 
@@ -243,6 +242,16 @@ const phaseProps = computed<BonomePhaseProps>(() => {
   }
 });
 
+watch(currentStep, async (nextIndex) => {
+  const nextStep = steps[nextIndex] ?? null;
+  if (!nextStep) {
+    return;
+  }
+  if (nextStep.id === 'choices') {
+    await creation.sendPreview();
+  }
+});
+
 const goToStep = (index: number) => {
   if (index < 0) {
     currentStep.value = 0;
@@ -265,11 +274,7 @@ const handleValidate = async () => {
   }
 };
 
-const handleCancel = async () => {
-  const step = activeStep.value;
-  if (step?.onReset) {
-    await step.onReset();
-  }
+const handleCancel = () => {
   if (currentStep.value > 0) {
     goToStep(currentStep.value - 1);
   }

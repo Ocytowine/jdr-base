@@ -176,6 +176,8 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const backgrounds = ref<CatalogEntry[]>([]);
 
   const adapterResetPending = ref(false);
+  const CREATION_LOCK_STORAGE_KEY = 'bonome_creation_locked';
+  const creationLocked = ref(false);
 
   const materialProposals = ref<MaterialProposalGroup[]>([]);
   const materialSelections = reactive<Record<string, boolean>>({});
@@ -565,6 +567,43 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     }
   };
 
+  const restoreLockState = () => {
+    if (!process.client) {
+      creationLocked.value = false;
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(CREATION_LOCK_STORAGE_KEY);
+      creationLocked.value = raw === '1';
+    } catch (error) {
+      creationLocked.value = false;
+    }
+  };
+
+  const lockCreation = () => {
+    creationLocked.value = true;
+    if (!process.client) {
+      return;
+    }
+    try {
+      localStorage.setItem(CREATION_LOCK_STORAGE_KEY, '1');
+    } catch (error) {
+      console.warn('Failed to persist creation lock', error);
+    }
+  };
+
+  const unlockCreation = () => {
+    creationLocked.value = false;
+    if (!process.client) {
+      return;
+    }
+    try {
+      localStorage.removeItem(CREATION_LOCK_STORAGE_KEY);
+    } catch (error) {
+      console.warn('Failed to clear creation lock', error);
+    }
+  };
+
   const restoreSelections = (): boolean => {
     if (!process.client || hasRestoredSelections.value) return false;
 
@@ -743,7 +782,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       }
     };
 
-    const current = (async () => {
+    const fetchLegacyCatalogs = async () => {
       const [classResponse, raceResponse, backgroundResponse] = await Promise.all([
         requestFetch('/api/catalog/classes').catch(() => null),
         requestFetch('/api/catalog/races').catch(() => null),
@@ -753,6 +792,26 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       assignCatalog(classes, classResponse);
       assignCatalog(races, raceResponse);
       assignCatalog(backgrounds, backgroundResponse);
+    };
+
+    const current = (async () => {
+      let indexResponse: any = null;
+      try {
+        indexResponse = await requestFetch('/api/creation/index').catch(() => null);
+      } catch (error) {
+        indexResponse = null;
+      }
+
+      if (indexResponse && typeof indexResponse === 'object') {
+        const catalogPayload = indexResponse.catalog ?? indexResponse;
+        assignCatalog(classes, catalogPayload?.classes ?? []);
+        assignCatalog(races, catalogPayload?.races ?? []);
+        assignCatalog(backgrounds, catalogPayload?.backgrounds ?? []);
+      }
+
+      if (!classes.value.length || !races.value.length || !backgrounds.value.length) {
+        await fetchLegacyCatalogs();
+      }
 
       ensureSelectionValidity(selectedClass, classes.value);
       ensureSelectionValidity(selectedRace, races.value);
@@ -1477,11 +1536,18 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
   type InitializeOptions = {
     restoreFromStorage?: boolean;
+    generatePreview?: boolean;
   };
 
   const initialize = async (options: InitializeOptions = {}) => {
-    const { restoreFromStorage = true } = options;
+    const { restoreFromStorage = true, generatePreview = false } = options;
     const wasInitialized = initialized.value;
+
+    if (process.client) {
+      restoreLockState();
+    } else {
+      creationLocked.value = false;
+    }
 
     let restoredBeforeInit = false;
     if (
@@ -1497,13 +1563,21 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     if (!initialized.value) {
       initialized.value = true;
       await loadCatalog();
-      await sendPreview();
+      if (generatePreview && hasPrimarySelection()) {
+        await sendPreview();
+      }
     }
 
     if (restoreFromStorage && process.client && !restoredBeforeInit) {
       const wasRestored = hasRestoredSelections.value;
       const didRestore = restoreSelections();
-      if (!wasRestored && didRestore && !wasInitialized && hasPrimarySelection()) {
+      if (
+        generatePreview &&
+        !wasRestored &&
+        didRestore &&
+        !wasInitialized &&
+        hasPrimarySelection()
+      ) {
         await sendPreview();
       }
     }
@@ -1607,6 +1681,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
   const previewGroup = {
     preview,
+    creationLocked,
     rawText,
     showRaw,
     loading,
@@ -1620,7 +1695,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     loadCatalog,
     persistSelections,
     restoreSelections,
-    hasRestoredSelections
+    hasRestoredSelections,
+    restoreLockState,
+    lockCreation,
+    unlockCreation
   };
 
   return {
@@ -1692,8 +1770,11 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     choiceMetadata,
     appliedChoices,
     sendPreview,
+    lockCreation,
+    unlockCreation,
     loadCatalog,
     initialize,
+    restoreLockState,
     materialProposals,
     materialItems,
     materialKeptItems,

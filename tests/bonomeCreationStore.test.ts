@@ -66,12 +66,12 @@ type FetchStubOptions = {
 
 const createFetchStub = (
   log: Array<{ url: string; options?: any }>,
-  options: FetchStubOptions = {}
+  config: FetchStubOptions = {}
 ): FetchHandler => {
   const catalogResponses: Record<string, FetchStubOverride> = {
     '/api/catalog/classes': [
       { id: 'wizard', name: 'Mage' },
-      { id: 'ranger', name: 'Rôdeur' }
+      { id: 'ranger', name: 'R�deur' }
     ],
     '/api/catalog/races': [
       { id: 'elf', name: 'Elfe' },
@@ -80,10 +80,23 @@ const createFetchStub = (
     '/api/catalog/backgrounds': [
       { id: 'sage', name: 'Sage' }
     ],
-    ...(options.catalog ?? {})
+    ...(config.catalog ?? {})
   };
 
-  const previewResponse: FetchStubOverride = options.preview ?? {
+  const resolve = async (candidate: FetchStubOverride | undefined): Promise<any> => {
+    if (candidate === undefined) {
+      return undefined;
+    }
+    if (typeof candidate === 'function') {
+      return await candidate();
+    }
+    if (candidate instanceof Error) {
+      throw candidate;
+    }
+    return candidate;
+  };
+
+  const previewResponse: FetchStubOverride = config.preview ?? {
     ok: true,
     pendingChoices: [],
     previewCharacter: {
@@ -93,27 +106,46 @@ const createFetchStub = (
     }
   };
 
-  return async (url: string, options?: any) => {
-    log.push({ url, options });
+  return async (url: string, requestOptions?: any) => {
+    log.push({ url, options: requestOptions });
+
+    if (url === '/api/creation/index') {
+      const override = await resolve(catalogResponses['/api/creation/index']);
+      if (override !== undefined) {
+        return override;
+      }
+
+      const [classesIndex, racesIndex, backgroundsIndex] = await Promise.all([
+        resolve(catalogResponses['/api/catalog/classes']),
+        resolve(catalogResponses['/api/catalog/races']),
+        resolve(catalogResponses['/api/catalog/backgrounds'])
+      ]);
+
+      return {
+        ok: true,
+        classes: Array.isArray(classesIndex) ? classesIndex : [],
+        races: Array.isArray(racesIndex) ? racesIndex : [],
+        backgrounds: Array.isArray(backgroundsIndex) ? backgroundsIndex : [],
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
     if (url in catalogResponses) {
-      const response = catalogResponses[url];
-      if (typeof response === 'function') {
-        return await response();
+      const response = await resolve(catalogResponses[url]);
+      if (response !== undefined) {
+        return response;
       }
-      if (response instanceof Error) {
-        throw response;
-      }
-      return response;
+      return [];
     }
+
     if (url === '/api/creation/preview') {
-      if (typeof previewResponse === 'function') {
-        return await previewResponse();
+      const response = await resolve(previewResponse);
+      if (response !== undefined) {
+        return response;
       }
-      if (previewResponse instanceof Error) {
-        throw previewResponse;
-      }
-      return previewResponse;
+      return null;
     }
+
     throw new Error(`Unhandled fetch to ${url}`);
   };
 };
@@ -153,12 +185,14 @@ export async function run() {
 
     (process as any).client = false;
 
-    await store.initialize();
+    await store.initialize({ generatePreview: true });
 
+    const indexCallsOnServer = fetchLog.filter((call) => call.url === '/api/creation/index').length;
     const catalogCallsOnServer = fetchLog.filter((call) => call.url.startsWith('/api/catalog/')).length;
     const previewCallsOnServer = fetchLog.filter((call) => call.url === '/api/creation/preview').length;
-    assert.equal(catalogCallsOnServer, 3, 'server initialize should load catalog once');
-    assert.equal(previewCallsOnServer, 1, 'server initialize should send preview once');
+    assert.equal(indexCallsOnServer, 1, 'server initialize should load aggregated index once');
+    assert.equal(catalogCallsOnServer, 0, 'server initialize should not fallback to legacy catalog endpoints when index succeeds');
+    assert.equal(previewCallsOnServer, 1, 'server initialize should send preview once when requested');
 
     (globalThis as any).localStorage = createLocalStorageMock({
       bonome_creation_state: JSON.stringify(savedState)
@@ -250,11 +284,14 @@ export async function run() {
     setActivePinia(createPinia());
     const reloadedStore = useBonomeCreationStore();
 
-    await reloadedStore.initialize();
+    await reloadedStore.initialize({ generatePreview: true });
 
+    const indexCallsOnReload = fetchLog.filter((call) => call.url === '/api/creation/index').length;
     const catalogCallsOnReload = fetchLog.filter((call) => call.url.startsWith('/api/catalog/')).length;
     const previewCallsOnReload = fetchLog.filter((call) => call.url === '/api/creation/preview').length;
-    assert.equal(catalogCallsOnReload, 3, 'reload should fetch catalog once');
+    assert.equal(indexCallsOnReload, 1, 'reload should fetch aggregated index once');
+    assert.equal(catalogCallsOnReload, 0, 'reload should not call legacy catalog endpoints when index succeeds');
+    assert.equal(previewCallsOnReload, 1, 'reload should request preview once when requested');
     assert.equal(previewCallsOnReload, 1, 'reload should request preview once');
 
     assert.equal(
@@ -359,7 +396,7 @@ export async function run() {
     setActivePinia(createPinia());
     const emptyCatalogStore = useBonomeCreationStore();
 
-    await emptyCatalogStore.initialize();
+    await emptyCatalogStore.initialize({ generatePreview: true });
 
     assert.deepEqual(
       unwrap(emptyCatalogStore.classes),
@@ -391,16 +428,12 @@ export async function run() {
       '',
       'background selection should reset when no options are available'
     );
-    assert.equal(
-      fetchLog.filter((call) => call.url.startsWith('/api/catalog/')).length,
-      3,
-      'empty catalog initialization should still call each catalog endpoint once'
-    );
-    assert.equal(
-      fetchLog.filter((call) => call.url === '/api/creation/preview').length,
-      1,
-      'empty catalog initialization should still trigger a preview request'
-    );
+    const indexCallsOnEmptyInit = fetchLog.filter((call) => call.url === '/api/creation/index').length;
+    const catalogCallsOnEmptyInit = fetchLog.filter((call) => call.url.startsWith('/api/catalog/')).length;
+    const previewCallsOnEmptyInit = fetchLog.filter((call) => call.url === '/api/creation/preview').length;
+    assert.equal(indexCallsOnEmptyInit, 1, 'empty catalog initialization should fetch aggregated index before falling back');
+    assert.equal(catalogCallsOnEmptyInit, 3, 'empty catalog initialization should fallback to each catalog endpoint once');
+    assert.equal(previewCallsOnEmptyInit, 0, 'empty catalog initialization should skip preview when no primary selection is available');
   } finally {
     if (originalProcessClient === undefined) {
       delete (process as any).client;

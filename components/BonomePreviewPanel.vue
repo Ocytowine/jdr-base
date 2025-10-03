@@ -230,6 +230,7 @@ async function handleSave() {
 
     personnageStore.perso = payload;
     personnageStore.sauvegarderLocal();
+    creation.lockCreation();
 
     await router.push('/aventure');
   } catch (err: any) {
