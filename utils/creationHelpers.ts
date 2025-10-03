@@ -85,7 +85,7 @@ const IMAGE_FIELDS = ['image', 'img', 'icon', 'art', 'avatar', 'illustration', '
 
 export const DEFAULT_CARD_DESCRIPTION = 'Aucune description disponible.';
 
-export const CARD_IMAGE_EXTENSIONS = ['webp', 'png', 'jpg', 'jpeg'] as const;
+export const CARD_IMAGE_EXTENSIONS = ['webp'] as const;
 export const CATALOG_PREFIXES = [
   'class_',
   'race_',
@@ -215,31 +215,19 @@ export const deriveCatalogBasenames = (rawId: string): string[] => {
 
 export const normalizeFolderSegment = (value: string): string => value.replace(/^\/+/, '').replace(/\/+$/, '');
 
-export const buildCatalogImageCandidates = (id: string | null, categoryKey: string | null | undefined): string[] => {
+export const buildCatalogImageCandidates = (id: string | null, _categoryKey: string | null | undefined): string[] => {
   if (!id) return [];
-  const basenames = deriveCatalogBasenames(id);
-  if (!basenames.length) return [];
+  const normalizedId = normalizeId(id);
+  if (!normalizedId) return [];
 
-  const folderList = [
-    ...(categoryKey && CATALOG_CATEGORY_FOLDERS[categoryKey]
-      ? CATALOG_CATEGORY_FOLDERS[categoryKey]
-      : []),
-    'img'
-  ];
-  const folders = Array.from(new Set(folderList.map((folder) => normalizeFolderSegment(folder))));
-
-  const candidates: string[] = [];
-  for (const folder of folders) {
-    const basePath = folder.length ? `/${folder}` : '';
-    for (const name of basenames) {
-      const normalizedName = name.replace(/^\/+/, '').replace(/\/+$/, '');
-      if (!normalizedName.length) continue;
-      for (const ext of CARD_IMAGE_EXTENSIONS) {
-        candidates.push(`${basePath}/${normalizedName}.${ext}`);
-      }
-    }
+  const stripped = stripCatalogPrefix(normalizedId);
+  const sanitized = collapseNonAlnum(stripped, '-');
+  const base = (sanitized.length ? sanitized : stripped).toLowerCase();
+  if (!base.length) {
+    return [];
   }
-  return Array.from(new Set(candidates));
+
+  return [`/img/${base}.webp`];
 };
 
 export const detectCategoryKey = (rawCategory: string | null | undefined): string | null => {

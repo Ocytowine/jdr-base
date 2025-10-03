@@ -298,6 +298,19 @@ export class CreationAdapterServer {
                   effectGenerated = true;
                 }
 
+                if ((category === 'subclass' || category === 'subclasses') && chosenIds.length > 0) {
+                  for (const featureId of chosenIds) {
+                    immediateEffects.push({
+                      source: node.originId ?? payloadEntity.id ?? null,
+                      effect: {
+                        type: 'grant_feature',
+                        payload: { feature_id: featureId, apply_immediately: true }
+                      }
+                    });
+                  }
+                  effectGenerated = true;
+                }
+
                 if (!effectGenerated) {
                   await this.addPendingChoice(pendingChoices, cd);
                 }
@@ -505,6 +518,8 @@ export class CreationAdapterServer {
     };
 
     const loadEntries = async (): Promise<any[]> => {
+      if (!this.adapter) return [];
+
       if (typeof this.adapter.queryCollection === 'function') {
         return await this.adapter.queryCollection(collection, predicate);
       }

@@ -11,9 +11,6 @@
             {{ activeStep.description }}
           </p>
         </div>
-        <div class="wizard__counter">
-          {{ currentStep + 1 }}/{{ steps.length }}
-        </div>
       </div>
 
       <nav class="wizard__nav">
