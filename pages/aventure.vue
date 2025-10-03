@@ -5,43 +5,57 @@
         <h1>Table d'aventure</h1>
         <p>Gerez votre expedition, consultez vos ressources et discutez avec le narrateur IA.</p>
       </div>
-      <span v-if="etatSauvegarde === 'aucune'" class="aventure-page__badge">Nouvelle partie</span>
-      <span v-else-if="etatSauvegarde === 'chargee'" class="aventure-page__badge aventure-page__badge--loaded">Sauvegarde chargee</span>
+      <span v-if="partie" class="aventure-page__badge aventure-page__badge--loaded">
+        Partie: {{ partie.id }}
+      </span>
+      <span v-else class="aventure-page__badge">Nouvelle partie</span>
     </header>
 
     <p v-if="etatSauvegarde === 'chargement'" class="aventure-page__state">Chargement de votre fiche...</p>
+    <p v-else-if="!partie" class="aventure-page__state">
+      Aucune partie active. Rendez-vous sur la page Joueur pour en creer ou en charger une.
+    </p>
 
-    <AventureLayout v-else>
-      <template #sidebar>
-        <AventureSidebar
-          :sections="sections"
-          :active-section="activeSection"
-          @select="(sectionId) => (activeSection = sectionId)"
+    <template v-else>
+      <p v-if="etatSauvegarde === 'aucune'" class="aventure-page__notice">
+        Aucune fiche personnage sauvegardee. Terminez la creation pour lier vos donnees a cette partie.
+      </p>
+
+      <AventureLayout>
+        <template #sidebar>
+          <AventureSidebar
+            :sections="sections"
+            :active-section="activeSection"
+            @select="(sectionId) => (activeSection = sectionId)"
+          />
+        </template>
+
+        <template #chat>
+          <AventureChat :messages="messages" @send="handleSendMessage" />
+        </template>
+
+        <component
+          v-if="panelConfig"
+          :is="panelConfig.component"
+          v-bind="panelConfig.props"
+          v-on="panelConfig.on"
         />
-      </template>
-
-      <template #chat>
-        <AventureChat :messages="messages" @send="handleSendMessage" />
-      </template>
-
-      <component
-        :is="currentPanel.component"
-        v-bind="currentPanel.props"
-        v-on="currentPanel.on"
-      />
-    </AventureLayout>
+      </AventureLayout>
+    </template>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { usePersonnage } from '@/stores/personnage'
+import { useParties } from '@/stores/parties'
+import type { PartieData } from '@/stores/parties'
 import AventureLayout from '@/components/aventure/AventureLayout.vue'
 import AventureSidebar from '@/components/aventure/AventureSidebar.vue'
 import AventureChat, { type AventureMessage } from '@/components/aventure/AventureChat.vue'
 import AventureFichePersonnage from '@/components/aventure/AventureFichePersonnage.vue'
 import AventureClasse, { type ModuleClasse } from '@/components/aventure/AventureClasse.vue'
-import AventureInventaire, { type InventaireItem } from '@/components/aventure/AventureInventaire.vue'
+import AventureInventaire from '@/components/aventure/AventureInventaire.vue'
 import AventureQuetes, { type Quete } from '@/components/aventure/AventureQuetes.vue'
 import AventureJournal, { type JournalEntry } from '@/components/aventure/AventureJournal.vue'
 import AventureAides, { type AideMemoire } from '@/components/aventure/AventureAides.vue'
@@ -58,19 +72,21 @@ type SectionId =
   | 'aides'
   | 'compagnons'
 
-const store = usePersonnage()
-const etatSauvegarde = ref<EtatSauvegarde>('chargement')
+const isoNow = () => new Date().toISOString()
+const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
-onMounted(() => {
-  if (!process.client) return
-  const sauvegarde = localStorage.getItem('JDR_PERSO')
-  if (sauvegarde) {
-    store.chargerDepuisLocal()
-    etatSauvegarde.value = 'chargee'
-  } else {
-    etatSauvegarde.value = 'aucune'
-  }
-})
+const storePersonnage = usePersonnage()
+const partiesStore = useParties()
+
+if (process.client) {
+  partiesStore.initialiser()
+}
+
+const etatSauvegarde = ref<EtatSauvegarde>('chargement')
+const activeSection = ref<SectionId>('fiche')
+
+const partie = computed<PartieData | null>(() => partiesStore.currentPartie)
+const messages = computed<AventureMessage[]>(() => partie.value?.messages ?? [])
 
 const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
   { id: 'fiche', label: 'Fiche personnage', hint: 'Profil complet' },
@@ -79,269 +95,195 @@ const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
   { id: 'quetes', label: 'Quetes', hint: 'Objectifs actifs' },
   { id: 'journal', label: 'Journal', hint: 'Notes de session' },
   { id: 'aides', label: 'Aides de jeu', hint: 'Rappels et regles' },
-  { id: 'compagnons', label: 'Compagnons', hint: 'Allies et familiers' },
+  { id: 'compagnons', label: 'Compagnons', hint: 'Allies et familiers' }
 ]
 
-const activeSection = ref<SectionId>('fiche')
+onMounted(() => {
+  if (!process.client) return
+  partiesStore.initialiser()
+  const sauvegarde = localStorage.getItem('JDR_PERSO')
+  if (sauvegarde) {
+    storePersonnage.chargerDepuisLocal()
+    etatSauvegarde.value = 'chargee'
+  } else {
+    etatSauvegarde.value = 'aucune'
+  }
+})
 
-const messages = ref<AventureMessage[]>([
-  {
-    id: createId(),
-    author: 'ai',
-    content: 'Bienvenue aventurier. Quelle est votre prochaine action ?',
-    timestamp: new Date(),
+watch(
+  () => partiesStore.currentPartyId,
+  (id) => {
+    if (!process.client) return
+    if (id) {
+      partiesStore.chargerPartie(id)
+    }
+    activeSection.value = 'fiche'
   },
-])
+  { immediate: true }
+)
 
-const inventaireItems = ref<InventaireItem[]>([
-  {
-    id: 'item-epee',
-    title: 'Epee longue de soldat',
-    description: 'Une lame solide aux gravures usees, mais parfaitement equilibree.',
-    typeLabel: 'Arme martiale',
-    quantity: 1,
-    weightTotal: 1.5,
-    valueLabel: '15 po',
-    equipped: true,
-    rarity: 'commun',
-    tags: ['tranchant', 'acier'],
-  },
-  {
-    id: 'item-potion',
-    title: 'Potion de soin mineure',
-    description: 'Un flacon d\'elixir rouge scintillant. Rend 2d4 + 2 PV.',
-    typeLabel: 'Potion',
-    quantity: 3,
-    weightTotal: 0.9,
-    valueLabel: '50 po',
-    equipped: false,
-    rarity: 'inhabituel',
-    tags: ['consommable'],
-  },
-  {
-    id: 'item-grimoire',
-    title: 'Grimoire de bataille',
-    description: 'Recueil de tactiques, sorts mineurs et incantations.',
-    typeLabel: 'Livre',
-    quantity: 1,
-    weightTotal: 2.4,
-    valueLabel: '120 po',
-    equipped: false,
-    rarity: 'rare',
-    tags: ['connaissance'],
-  },
-])
-
-const quetes = ref<Quete[]>([
-  {
-    id: 'quete-principale',
-    title: 'Retablir la balise astrale',
-    summary: 'Explorer les ruines du temple et rallumer la balise afin de proteger la ville.',
-    status: 'active',
-  },
-  {
-    id: 'quete-annexe',
-    title: 'Trouver l\'herbe d\'etoile',
-    summary: 'Collecter trois tiges pour soigner le capitaine blessé.',
-    status: 'completed',
-  },
-])
-
-const journalEntries = ref<JournalEntry[]>([
-  {
-    id: createId(),
-    title: 'Briefing initial',
-    content: 'Le Maire nous a charges de proteger la ville contre les incursions gobelines.',
-    timestamp: new Date(),
-  },
-])
-
-const aides = ref<AideMemoire[]>([
-  {
-    id: createId(),
-    title: 'Reactions disponibles',
-    content: 'Parade (bouclier) | Riposte (superiorite) | Absorption des elements (sort).',
-  },
-  {
-    id: createId(),
-    title: 'Effets de statut',
-    content: 'Avant : Avantage aux jets de Dex. Hex: +1d6 degats nécrotique sur la cible.',
-  },
-])
-
-const modulesClasse = ref<ModuleClasse[]>([
-  {
-    id: 'module-1',
-    title: 'Manoeuvre: Fente retentissante',
-    description: 'Depense 1 point de superiorite pour ajouter 1d8 de degats et imposer un test de Con.',
-    usage: '3 points / repos court',
-    cooldown: 'Repos court',
-  },
-  {
-    id: 'module-2',
-    title: 'Posture de sentinelle',
-    description: 'Tant que vous restez immobile, reduisez de 2 les degats de chaque attaque subie.',
-    usage: 'Etat actif',
-  },
-])
-
-const compagnons = ref<Compagnon[]>([
-  {
-    id: 'compagnon-1',
-    name: 'Lysa Briselame',
-    role: 'Rodeuse eclaireuse',
-    notes: 'Avantage aux tests de perception dans les forets. Arc long +5 (1d8+3).',
-  },
-])
-
-const currentPanel = computed(() => {
+const panelConfig = computed(() => {
+  if (!partie.value) return null
+  const data = partie.value
   switch (activeSection.value) {
     case 'classe':
       return {
         component: AventureClasse,
         props: {
-          classeLabel: store.perso.classe || 'Classe a definir',
-          modules: modulesClasse.value,
+          classeLabel: storePersonnage.perso.classe || 'Classe a definir',
+          modules: data.modulesClasse
         },
         on: {
-          add: handleAddModule,
-        },
+          add: handleAddModule
+        }
       }
     case 'inventaire':
       return {
         component: AventureInventaire,
         props: {
-          items: inventaireItems.value,
+          items: data.inventaire
         },
         on: {
           equip: handleEquipItem,
           drop: handleDropItem,
-          inspect: handleInspectItem,
-        },
+          inspect: handleInspectItem
+        }
       }
     case 'quetes':
       return {
         component: AventureQuetes,
         props: {
-          quetes: quetes.value,
+          quetes: data.quetes
         },
         on: {
           toggle: handleToggleQuete,
-          focus: handleFocusQuete,
-        },
+          focus: handleFocusQuete
+        }
       }
     case 'journal':
       return {
         component: AventureJournal,
         props: {
-          entries: journalEntries.value,
+          entries: data.journalEntries
         },
         on: {
           add: handleAddJournalEntry,
-          export: handleExportJournal,
-        },
+          export: handleExportJournal
+        }
       }
     case 'aides':
       return {
         component: AventureAides,
         props: {
-          items: aides.value,
+          items: data.aides
         },
         on: {
           add: handleAddAide,
-          remove: handleRemoveAide,
-        },
+          remove: handleRemoveAide
+        }
       }
     case 'compagnons':
       return {
         component: AventureCompagnons,
         props: {
-          compagnons: compagnons.value,
+          compagnons: data.compagnons
         },
         on: {
           add: handleAddCompagnon,
-          remove: handleRemoveCompagnon,
-        },
+          remove: handleRemoveCompagnon
+        }
       }
     default:
       return {
         component: AventureFichePersonnage,
         props: {},
-        on: {},
+        on: {}
       }
   }
 })
 
 const handleSendMessage = ({ content }: { content: string }) => {
-  messages.value = [
-    ...messages.value,
-    {
-      id: createId(),
-      author: 'player',
-      content,
-      timestamp: new Date(),
-    },
-  ]
-  // Placeholder IA feedback.
+  if (!partie.value) return
+  const partieId = partie.value.id
+  const playerMessage: AventureMessage = {
+    id: createId(),
+    author: 'player',
+    content,
+    timestamp: isoNow()
+  }
+  partiesStore.updatePartie(partieId, {
+    messages: [...partie.value.messages, playerMessage]
+  })
   setTimeout(() => {
-    messages.value = [
-      ...messages.value,
-      {
-        id: createId(),
-        author: 'ai',
-        content: "L'IA traitera bientot vos actions. Decrivez les consequences que vous esperez.",
-        timestamp: new Date(),
-      },
-    ]
+    const refreshed = partiesStore.getPartie(partieId)
+    if (!refreshed) return
+    const aiMessage: AventureMessage = {
+      id: createId(),
+      author: 'ai',
+      content: "L'IA traitera bientot vos actions. Decrivez les consequences que vous esperez.",
+      timestamp: isoNow()
+    }
+    partiesStore.updatePartie(partieId, {
+      messages: [...refreshed.messages, aiMessage]
+    })
   }, 400)
 }
 
 const handleEquipItem = ({ itemId, equip }: { itemId: string; equip: boolean }) => {
-  inventaireItems.value = inventaireItems.value.map((item) =>
+  if (!partie.value) return
+  const updated = partie.value.inventaire.map((item) =>
     item.id === itemId ? { ...item, equipped: equip } : item
   )
+  partiesStore.updatePartie(partie.value.id, { inventaire: updated })
   pushSystemMessage(equip ? 'Objet equipe.' : 'Objet range dans le sac.')
 }
 
 const handleDropItem = ({ itemId }: { itemId: string }) => {
-  inventaireItems.value = inventaireItems.value.filter((item) => item.id !== itemId)
+  if (!partie.value) return
+  const updated = partie.value.inventaire.filter((item) => item.id !== itemId)
+  partiesStore.updatePartie(partie.value.id, { inventaire: updated })
   pushSystemMessage('Objet retire de votre inventaire.')
 }
 
 const handleInspectItem = ({ itemId }: { itemId: string }) => {
-  const item = inventaireItems.value.find((entry) => entry.id === itemId)
+  if (!partie.value) return
+  const item = partie.value.inventaire.find((entry) => entry.id === itemId)
   if (!item) return
-  pushSystemMessage(`Inspection: ${item.title}. ${item.description || ''}`)
+  pushSystemMessage(`Inspection: ${item.title}. ${item.description ?? ''}`.trim())
 }
 
 const handleToggleQuete = ({ id }: { id: string }) => {
-  quetes.value = quetes.value.map((quete) =>
+  if (!partie.value) return
+  const updated = partie.value.quetes.map((quete) =>
     quete.id === id
       ? {
           ...quete,
-          status: quete.status === 'completed' ? 'active' : 'completed',
+          status: quete.status === 'completed' ? 'active' : 'completed'
         }
       : quete
   )
+  partiesStore.updatePartie(partie.value.id, { quetes: updated })
 }
 
 const handleFocusQuete = ({ id }: { id: string }) => {
-  const quete = quetes.value.find((q) => q.id === id)
+  if (!partie.value) return
+  const quete = partie.value.quetes.find((entry) => entry.id === id)
   if (!quete) return
   pushSystemMessage(`Focalisation sur la quete: ${quete.title}`)
   activeSection.value = 'journal'
 }
 
 const handleAddJournalEntry = ({ title, content }: { title: string; content: string }) => {
-  journalEntries.value = [
-    {
-      id: createId(),
-      title,
-      content,
-      timestamp: new Date(),
-    },
-    ...journalEntries.value,
-  ]
+  if (!partie.value) return
+  const entry: JournalEntry = {
+    id: createId(),
+    title,
+    content,
+    timestamp: isoNow()
+  }
+  partiesStore.updatePartie(partie.value.id, {
+    journalEntries: [entry, ...partie.value.journalEntries]
+  })
 }
 
 const handleExportJournal = () => {
@@ -349,61 +291,67 @@ const handleExportJournal = () => {
 }
 
 const handleAddAide = () => {
-  aides.value = [
-    {
-      id: createId(),
-      title: 'Nouvelle aide',
-      content: 'Ajoutez ici vos rappels importants.',
-    },
-    ...aides.value,
-  ]
+  if (!partie.value) return
+  const aide: AideMemoire = {
+    id: createId(),
+    title: 'Nouvelle aide',
+    content: 'Ajoutez ici vos rappels importants.'
+  }
+  partiesStore.updatePartie(partie.value.id, {
+    aides: [aide, ...partie.value.aides]
+  })
 }
 
 const handleRemoveAide = ({ id }: { id: string }) => {
-  aides.value = aides.value.filter((aide) => aide.id !== id)
+  if (!partie.value) return
+  const updated = partie.value.aides.filter((item) => item.id !== id)
+  partiesStore.updatePartie(partie.value.id, { aides: updated })
 }
 
 const handleAddModule = () => {
-  modulesClasse.value = [
-    ...modulesClasse.value,
-    {
-      id: createId(),
-      title: 'Nouveau module',
-      description: 'Definissez ici une nouvelle capacite specifique a la classe.',
-      usage: 'A parametrer',
-    },
-  ]
+  if (!partie.value) return
+  const module: ModuleClasse = {
+    id: createId(),
+    title: 'Nouveau module',
+    description: 'Definissez ici une nouvelle capacite specifique a la classe.',
+    usage: 'A parametrer'
+  }
+  partiesStore.updatePartie(partie.value.id, {
+    modulesClasse: [...partie.value.modulesClasse, module]
+  })
 }
 
 const handleAddCompagnon = () => {
-  compagnons.value = [
-    ...compagnons.value,
-    {
-      id: createId(),
-      name: 'Compagnon mystere',
-      role: 'A definir',
-      notes: 'Ajoutez ici les capacites et traits du compagnon.',
-    },
-  ]
+  if (!partie.value) return
+  const compagnon: Compagnon = {
+    id: createId(),
+    name: 'Compagnon mystere',
+    role: 'A definir',
+    notes: 'Ajoutez ici les capacites et traits du compagnon.'
+  }
+  partiesStore.updatePartie(partie.value.id, {
+    compagnons: [...partie.value.compagnons, compagnon]
+  })
 }
 
 const handleRemoveCompagnon = ({ id }: { id: string }) => {
-  compagnons.value = compagnons.value.filter((compagnon) => compagnon.id !== id)
+  if (!partie.value) return
+  const updated = partie.value.compagnons.filter((comp) => comp.id !== id)
+  partiesStore.updatePartie(partie.value.id, { compagnons: updated })
 }
 
 const pushSystemMessage = (content: string) => {
-  messages.value = [
-    ...messages.value,
-    {
-      id: createId(),
-      author: 'system',
-      content,
-      timestamp: new Date(),
-    },
-  ]
+  if (!partie.value) return
+  const message: AventureMessage = {
+    id: createId(),
+    author: 'system',
+    content,
+    timestamp: isoNow()
+  }
+  partiesStore.updatePartie(partie.value.id, {
+    messages: [...partie.value.messages, message]
+  })
 }
-
-const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 </script>
 
 <style scoped>
@@ -449,7 +397,8 @@ const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).
   color: #5ce3ab;
 }
 
-.aventure-page__state {
+.aventure-page__state,
+.aventure-page__notice {
   margin: 0;
   padding: 16px;
   border-radius: 14px;
@@ -457,5 +406,10 @@ const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).
   border: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--texte-2);
 }
-</style>
 
+.aventure-page__notice {
+  background: rgba(255, 208, 122, 0.12);
+  color: #ffd07a;
+  border-color: rgba(255, 208, 122, 0.24);
+}
+</style>
