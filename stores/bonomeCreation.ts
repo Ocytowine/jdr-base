@@ -782,7 +782,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       }
     };
 
-    const fetchLegacyCatalogs = async () => {
+    const current = (async () => {
       const [classResponse, raceResponse, backgroundResponse] = await Promise.all([
         requestFetch('/api/catalog/classes').catch(() => null),
         requestFetch('/api/catalog/races').catch(() => null),
@@ -792,26 +792,6 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       assignCatalog(classes, classResponse);
       assignCatalog(races, raceResponse);
       assignCatalog(backgrounds, backgroundResponse);
-    };
-
-    const current = (async () => {
-      let indexResponse: any = null;
-      try {
-        indexResponse = await requestFetch('/api/creation/index').catch(() => null);
-      } catch (error) {
-        indexResponse = null;
-      }
-
-      if (indexResponse && typeof indexResponse === 'object') {
-        const catalogPayload = indexResponse.catalog ?? indexResponse;
-        assignCatalog(classes, catalogPayload?.classes ?? []);
-        assignCatalog(races, catalogPayload?.races ?? []);
-        assignCatalog(backgrounds, catalogPayload?.backgrounds ?? []);
-      }
-
-      if (!classes.value.length || !races.value.length || !backgrounds.value.length) {
-        await fetchLegacyCatalogs();
-      }
 
       ensureSelectionValidity(selectedClass, classes.value);
       ensureSelectionValidity(selectedRace, races.value);
@@ -1723,6 +1703,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     characterLastName,
     characterNickname,
     preview,
+    creationLocked,
     rawText,
     showRaw,
     baseStats,

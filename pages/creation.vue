@@ -71,8 +71,8 @@ await creation.initialize({ restoreFromStorage: false });
 
 const { preview, loading, creationLocked } = storeToRefs(creation);
 
-if (creationLocked.value) {
-  await router.push('/aventure');
+if (process.client && creationLocked.value) {
+  await router.replace('/aventure');
 }
 
 const showPreview = ref(false);
@@ -91,13 +91,15 @@ const backToWizard = () => {
   showPreview.value = false;
 };
 
-watch(creationLocked, (locked) => {
-  if (!locked) {
-    return;
-  }
-  showPreview.value = false;
-  router.push('/aventure');
-});
+if (process.client) {
+  watch(creationLocked, async (locked) => {
+    if (!locked) {
+      return;
+    }
+    showPreview.value = false;
+    await router.replace('/aventure');
+  });
+}
 
 watch(preview, (value) => {
   if (!value) {

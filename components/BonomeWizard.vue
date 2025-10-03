@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 
 import type { BonomePhaseComponentConfig, BonomePhaseMeta, BonomePhaseProps } from '@/components/bonomePhases';
@@ -217,6 +217,10 @@ const phases: BonomePhaseComponentConfig[] = [
 
 const currentStep = ref(0);
 
+const shouldSendPreviewAfterStep = (id: string | undefined) =>
+  id === 'level' || id === 'choices' || id === 'equipment' || id === 'description';
+
+
 const activeStep = computed(() => steps[currentStep.value] ?? steps[0]);
 const activePhase = computed(() => phases.find((phase) => phase.id === activeStep.value.id) ?? phases[0]);
 
@@ -242,16 +246,6 @@ const phaseProps = computed<BonomePhaseProps>(() => {
   }
 });
 
-watch(currentStep, async (nextIndex) => {
-  const nextStep = steps[nextIndex] ?? null;
-  if (!nextStep) {
-    return;
-  }
-  if (nextStep.id === 'choices') {
-    await creation.sendPreview();
-  }
-});
-
 const goToStep = (index: number) => {
   if (index < 0) {
     currentStep.value = 0;
@@ -268,6 +262,9 @@ const handleValidate = async () => {
   const step = activeStep.value;
   if (step?.onValidate) {
     await step.onValidate();
+  }
+  if (shouldSendPreviewAfterStep(step?.id)) {
+    await creation.sendPreview();
   }
   if (currentStep.value < steps.length - 1) {
     goToStep(currentStep.value + 1);

@@ -187,11 +187,9 @@ export async function run() {
 
     await store.initialize({ generatePreview: true });
 
-    const indexCallsOnServer = fetchLog.filter((call) => call.url === '/api/creation/index').length;
     const catalogCallsOnServer = fetchLog.filter((call) => call.url.startsWith('/api/catalog/')).length;
     const previewCallsOnServer = fetchLog.filter((call) => call.url === '/api/creation/preview').length;
-    assert.equal(indexCallsOnServer, 1, 'server initialize should load aggregated index once');
-    assert.equal(catalogCallsOnServer, 0, 'server initialize should not fallback to legacy catalog endpoints when index succeeds');
+    assert.equal(catalogCallsOnServer, 3, 'server initialize should load catalog once');
     assert.equal(previewCallsOnServer, 1, 'server initialize should send preview once when requested');
 
     (globalThis as any).localStorage = createLocalStorageMock({
@@ -286,12 +284,9 @@ export async function run() {
 
     await reloadedStore.initialize({ generatePreview: true });
 
-    const indexCallsOnReload = fetchLog.filter((call) => call.url === '/api/creation/index').length;
     const catalogCallsOnReload = fetchLog.filter((call) => call.url.startsWith('/api/catalog/')).length;
     const previewCallsOnReload = fetchLog.filter((call) => call.url === '/api/creation/preview').length;
-    assert.equal(indexCallsOnReload, 1, 'reload should fetch aggregated index once');
-    assert.equal(catalogCallsOnReload, 0, 'reload should not call legacy catalog endpoints when index succeeds');
-    assert.equal(previewCallsOnReload, 1, 'reload should request preview once when requested');
+    assert.equal(catalogCallsOnReload, 3, 'reload should fetch catalog once');
     assert.equal(previewCallsOnReload, 1, 'reload should request preview once');
 
     assert.equal(
@@ -428,11 +423,9 @@ export async function run() {
       '',
       'background selection should reset when no options are available'
     );
-    const indexCallsOnEmptyInit = fetchLog.filter((call) => call.url === '/api/creation/index').length;
     const catalogCallsOnEmptyInit = fetchLog.filter((call) => call.url.startsWith('/api/catalog/')).length;
     const previewCallsOnEmptyInit = fetchLog.filter((call) => call.url === '/api/creation/preview').length;
-    assert.equal(indexCallsOnEmptyInit, 1, 'empty catalog initialization should fetch aggregated index before falling back');
-    assert.equal(catalogCallsOnEmptyInit, 3, 'empty catalog initialization should fallback to each catalog endpoint once');
+    assert.equal(catalogCallsOnEmptyInit, 3, 'empty catalog initialization should call each catalog endpoint once');
     assert.equal(previewCallsOnEmptyInit, 0, 'empty catalog initialization should skip preview when no primary selection is available');
   } finally {
     if (originalProcessClient === undefined) {
