@@ -5,6 +5,7 @@ import { useRequestFetch } from '#app';
 import type { Personnage } from './personnage';
 
 import { useCreationChoices, type CreationChoiceOption } from '@/composables/useCreationChoices';
+import { useSession } from '@/composables/useSession';
 
 import { createCardPlaceholder, coinsToCopper, copperToCoins, ensureCardImage, ensureDescription, humanizeLabel, normalizeCatalogEntries, normalizeCoinsValue, resolveCardVisuals, toFiniteNumber, valueExists } from '@/utils/creationHelpers';
 import type { CoinBreakdown } from '@/utils/creationHelpers';
