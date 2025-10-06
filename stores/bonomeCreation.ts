@@ -91,6 +91,8 @@ export type MaterialProposalGroup = {
   items: MaterialProposalItem[];
 };
 
+type PreviewDetail = 'choices' | 'material' | 'final';
+
 export const MATERIAL_SLOT_DEFINITIONS: ReadonlyArray<{
   id: MaterialSlotKey;
   label: string;
@@ -177,6 +179,45 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
   const adapterResetPending = ref(false);
 
+  const creationIndex = ref<any | null>(null);
+
+  const previewNeeds = reactive<Record<PreviewDetail, boolean>>({
+    choices: true,
+    material: true,
+    final: true
+  });
+
+  const creationLocked = ref(false);
+
+  const markPreviewDirty = (detail: PreviewDetail) => {
+    if (detail === 'choices') {
+      previewNeeds.choices = true;
+      previewNeeds.material = true;
+      previewNeeds.final = true;
+      return;
+    }
+    if (detail === 'material') {
+      previewNeeds.material = true;
+      previewNeeds.final = true;
+      return;
+    }
+    previewNeeds.final = true;
+  };
+
+  const markPreviewLoaded = (detail: PreviewDetail) => {
+    if (detail === 'final') {
+      previewNeeds.choices = false;
+      previewNeeds.material = false;
+      previewNeeds.final = false;
+      return;
+    }
+    if (detail === 'material') {
+      previewNeeds.material = false;
+      return;
+    }
+    previewNeeds.choices = false;
+  };
+
   const materialProposals = ref<MaterialProposalGroup[]>([]);
   const materialSelections = reactive<Record<string, boolean>>({});
   const materialCoinPurseKey = ref<string | null>(null);
@@ -191,18 +232,21 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   watch(selectedClass, (next, prev) => {
     if (next !== prev) {
       adapterResetPending.value = true;
+      markPreviewDirty('choices');
     }
   });
 
   watch(selectedRace, (next, prev) => {
     if (next !== prev) {
       adapterResetPending.value = true;
+      markPreviewDirty('choices');
     }
   });
 
   watch(selectedBackground, (next, prev) => {
     if (next !== prev) {
       adapterResetPending.value = true;
+      markPreviewDirty('choices');
     }
   });
 
