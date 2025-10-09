@@ -3,7 +3,6 @@
     <header class="item-card__header">
       <div class="item-card__media">
         <img :src="imageSrc" :alt="title" class="item-card__image" loading="lazy" />
-        <span class="item-card__rarity" :class="rarityClass">{{ rarityLabel }}</span>
       </div>
       <div class="item-card__summary">
         <h3 class="item-card__title">{{ title }}</h3>
@@ -11,6 +10,7 @@
         <p v-if="description" class="item-card__description">{{ description }}</p>
       </div>
     </header>
+
     <dl class="item-card__grid">
       <div>
         <dt>Quantite</dt>
@@ -21,24 +21,27 @@
         <dd>{{ weightTotalLabel }}</dd>
       </div>
       <div>
+        <dt>Poids (unite)</dt>
+        <dd>{{ weightUnitLabel }}</dd>
+      </div>
+      <div>
         <dt>Valeur</dt>
-        <dd>{{ valueLabel || 'N/A' }}</dd>
+        <dd>{{ valueDisplay }}</dd>
       </div>
       <div>
         <dt>Etat</dt>
         <dd>{{ equipped ? 'Equipe' : 'Sac' }}</dd>
       </div>
     </dl>
+
     <div v-if="typeDetails.length" class="item-card__type-extra">
       <div v-for="detail in typeDetails" :key="detail.label" class="item-card__type-row">
         <span class="item-card__type-label">{{ detail.label }}</span>
         <span class="item-card__type-value">{{ detail.value }}</span>
       </div>
     </div>
+
     <footer class="item-card__footer">
-      <div class="item-card__tags" v-if="tags && tags.length">
-        <span v-for="tag in tags" :key="tag" class="item-card__tag">{{ tag }}</span>
-      </div>
       <div class="item-card__actions">
         <button type="button" class="item-card__action item-card__action--primary" @click="emit('equip', !equipped)">
           {{ equipped ? 'Retirer' : 'Equiper' }}
@@ -55,29 +58,46 @@ import { computed } from 'vue'
 
 const DEFAULT_IMAGE = '/images/card.jpg'
 
+type ValueObject = {
+  gold?: number
+  silver?: number
+  copper?: number
+} | null
+
+type FightProps = Record<string, any> | null
+type EquipProps = Record<string, any> | null
+
 const props = withDefaults(
   defineProps<{
     title: string
     description?: string | null
     image?: string | null
+    imageId?: string | null
     typeLabel?: string | null
     quantity?: number
     weightTotal?: number | null
+    weightPerUnit?: number | null
     valueLabel?: string | null
+    value?: ValueObject
     equipped?: boolean
-    rarity?: 'commun' | 'inhabituel' | 'rare' | 'tres-rare' | 'legend'
-    tags?: string[]
+    allowStack?: boolean
+    propertiesFight?: FightProps
+    propertiesEquip?: EquipProps
   }>(),
   {
     description: null,
     image: null,
+    imageId: null,
     typeLabel: null,
     quantity: 1,
-    weightTotal: 0,
+    weightTotal: null,
+    weightPerUnit: null,
     valueLabel: null,
+    value: null,
     equipped: false,
-    rarity: 'commun',
-    tags: () => []
+    allowStack: false,
+    propertiesFight: null,
+    propertiesEquip: null
   }
 )
 
@@ -89,32 +109,32 @@ const emit = defineEmits<{
 
 const imageSrc = computed(() => {
   const src = typeof props.image === 'string' ? props.image.trim() : ''
-  return src.length ? src : DEFAULT_IMAGE
+  if (src.length) return src
+  const derived = typeof props.imageId === 'string' && props.imageId.length ? `/img/${props.imageId}.webp` : ''
+  return derived.length ? derived : DEFAULT_IMAGE
 })
 
-const weightTotalLabel = computed(() => {
-  const numeric = Number.isFinite(props.weightTotal) ? Number(props.weightTotal) : 0
+const formatWeight = (value: number | null | undefined) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  const numeric = Number(value)
   if (!numeric) return '0 kg'
   if (Math.abs(numeric) >= 10) return `${numeric.toFixed(0)} kg`
-  return `${numeric.toFixed(1)} kg`
-})
+  return `${numeric.toFixed(2)} kg`
+}
 
-const rarityLabel = computed(() => {
-  switch (props.rarity) {
-    case 'inhabituel':
-      return 'Inhabituel'
-    case 'rare':
-      return 'Rare'
-    case 'tres-rare':
-      return 'Tres rare'
-    case 'legend':
-      return 'Legendaire'
-    default:
-      return 'Commun'
-  }
-})
+const weightTotalLabel = computed(() => formatWeight(props.weightTotal))
+const weightUnitLabel = computed(() => formatWeight(props.weightPerUnit))
 
-const rarityClass = computed(() => `item-card__rarity--${props.rarity}`)
+const formatValue = (value: ValueObject) => {
+  if (!value) return props.valueLabel || '—'
+  const parts: string[] = []
+  if (value.gold) parts.push(`${value.gold} po`)
+  if (value.silver) parts.push(`${value.silver} pa`)
+  if (value.copper) parts.push(`${value.copper} pc`)
+  return parts.length ? parts.join(' ') : props.valueLabel || '—'
+}
+
+const valueDisplay = computed(() => formatValue(props.value))
 
 const articleClass = computed(() => ({
   'item-card': true,
@@ -129,21 +149,33 @@ const typeDetails = computed(() => {
       .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
+
   if (type.includes('bourse') || type.includes('purse')) {
-    const contenu = props.valueLabel || (props.quantity ? `${props.quantity} unites` : 'Contenu inconnu')
-    details.push({ label: 'Contenu', value: contenu })
+    details.push({ label: 'Contenu', value: valueDisplay.value })
   }
+
   if (type.includes('arme') || type.includes('weapon')) {
-    const damageTag = (props.tags || []).find((tag) => /tranchant|perforant|contendant|degats|damage/.test(normalize(tag)))
-    const damage = damageTag ? damageTag : 'Degats variables'
-    details.push({ label: 'Degats', value: damage })
-  }
-  if (type.includes('armure') || type.includes('protection')) {
-    const protectionTag = (props.tags || []).find((tag) => /classe d'armure|armure|defense|protection/.test(normalize(tag)))
-    if (protectionTag) {
-      details.push({ label: 'Protection', value: protectionTag })
+    const fight = props.propertiesFight || {}
+    const damage = fight.damage ?? fight.degats ?? null
+    const damageType = fight.damage_type ?? fight.type ?? fight.damageType ?? fight.degats_type ?? null
+    const value = [damage, damageType].filter(Boolean).join(' ')
+    if (value) {
+      details.push({ label: 'Degats', value })
     }
   }
+
+  if (type.includes('armure') || type.includes('protection')) {
+    const equip = props.propertiesEquip || {}
+    const defense = equip.armor_class ?? equip.defense ?? equip.ca
+    if (defense !== undefined) {
+      details.push({ label: "Classe d'armure", value: String(defense) })
+    }
+  }
+
+  if (props.allowStack) {
+    details.push({ label: 'Empilable', value: 'Oui' })
+  }
+
   return details
 })
 </script>
@@ -158,13 +190,12 @@ const typeDetails = computed(() => {
   border: 1px solid var(--bord);
   background: linear-gradient(180deg, rgba(21, 25, 52, 0.95), rgba(10, 13, 30, 0.96));
   color: var(--texte);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  height: 100%;
+  min-height: 100%;
 }
 
 .item-card--equipped {
-  border-color: var(--accent-border-soft);
-  box-shadow: 0 16px 30px rgba(122, 162, 255, 0.2);
+  border-color: rgba(92, 227, 171, 0.6);
+  box-shadow: 0 0 0 1px rgba(92, 227, 171, 0.2);
 }
 
 .item-card__header {
@@ -173,55 +204,16 @@ const typeDetails = computed(() => {
 }
 
 .item-card__media {
-  position: relative;
-  width: 96px;
-  height: 96px;
-  border-radius: 16px;
+  flex: 0 0 68px;
+  border-radius: 12px;
   overflow: hidden;
-  background: var(--carte-2);
-  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .item-card__image {
-  width: 100%;
-  height: 100%;
+  width: 68px;
+  height: 68px;
   object-fit: cover;
-}
-
-.item-card__rarity {
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-}
-
-.item-card__rarity--commun {
-  background: rgba(180, 190, 220, 0.18);
-  color: var(--texte);
-}
-
-.item-card__rarity--inhabituel {
-  background: rgba(92, 227, 171, 0.2);
-  color: #5ce3ab;
-}
-
-.item-card__rarity--rare {
-  background: rgba(122, 162, 255, 0.2);
-  color: var(--accent-2);
-}
-
-.item-card__rarity--tres-rare {
-  background: rgba(217, 140, 255, 0.2);
-  color: #d98cff;
-}
-
-.item-card__rarity--legend {
-  background: rgba(255, 208, 122, 0.2);
-  color: #ffd07a;
 }
 
 .item-card__summary {
@@ -278,28 +270,12 @@ const typeDetails = computed(() => {
   color: var(--texte);
 }
 
+
 .item-card__footer {
   display: flex;
   flex-direction: column;
   gap: 12px;
   margin-top: auto;
-}
-
-.item-card__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.item-card__tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--texte-2);
-  font-size: 11px;
-  letter-spacing: 0.4px;
 }
 
 .item-card__actions {
@@ -344,7 +320,7 @@ const typeDetails = computed(() => {
   border-color: #ff8a7a;
   color: #ffb0a3;
 }
-</style>
+
 .item-card__type-extra {
   display: grid;
   gap: 8px;
@@ -369,3 +345,4 @@ const typeDetails = computed(() => {
 .item-card__type-value {
   text-align: right;
 }
+</style>

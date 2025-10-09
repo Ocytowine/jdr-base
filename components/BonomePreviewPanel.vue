@@ -115,10 +115,19 @@ import {
 import { usePersonnage } from '@/stores/personnage';
 import { useParties } from '@/stores/parties';
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
+import type { InventaireItem } from '@/components/aventure/AventureInventaire.vue';
 
 const router = useRouter();
 const creation = useBonomeCreationStore();
 const personnageStore = usePersonnage();
+
+const cloneInventoryItems = (items: InventaireItem[] | null | undefined): InventaireItem[] =>
+  (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    value: item.value ? { ...item.value } : null,
+    properties_fight: item.properties_fight ? { ...item.properties_fight } : null,
+    properties_equip: item.properties_equip ? { ...item.properties_equip } : null
+  }))
 
 const {
   preview,
@@ -330,10 +339,34 @@ async function handleSave() {
         purseKey: creation.materialCoinPurseKey?.value || null,
         finalCoins: creation.materialFinalCoins?.value ?? null
       });
+
+      let inventoryItems = cloneInventoryItems(transition.items);
+
+      if (!inventoryItems.length) {
+        const fallbackFromPersonnage = cloneInventoryItems(personnageStore.perso.inventaire);
+        if (fallbackFromPersonnage.length) {
+          inventoryItems = fallbackFromPersonnage;
+        }
+      }
+
+      if (!inventoryItems.length) {
+        const existingPartie = partiesStore.getPartie(partieId);
+        if (existingPartie) {
+          inventoryItems = cloneInventoryItems(existingPartie.inventaire);
+        }
+      }
+
+      const finalized = cloneInventoryItems(inventoryItems)
+
       partiesStore.updatePartie(partieId, {
-        inventaire: transition.items,
-        inventaireInitialise: true
-      });
+        inventaire: finalized,
+        inventaireInitialise: finalized.length > 0
+      })
+
+      personnageStore.perso = {
+        ...personnageStore.perso,
+        inventaire: finalized
+      }
     }
     personnageStore.sauvegarderLocal(partieId ?? undefined);
     creation.lockCreation();
@@ -686,4 +719,3 @@ async function handleSave() {
   color: var(--ko);
 }
 </style>
-

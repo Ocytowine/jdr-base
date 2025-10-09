@@ -6,12 +6,19 @@
         <p>Organisez votre equipement et preparez vos actions.</p>
       </div>
       <div class="aventure-inventaire__toolbar">
-        <label class="aventure-inventaire__search">
+        <label class="aventure-inventaire__search" for="inventory-search">
           <span class="sr-only">Recherche</span>
-          <input v-model="search" type="search" placeholder="Rechercher un objet" />
+          <input
+            id="inventory-search"
+            name="inventory-search"
+            v-model="search"
+            type="search"
+            placeholder="Rechercher un objet"
+            autocomplete="off"
+          />
         </label>
-        <label class="aventure-inventaire__toggle">
-          <input type="checkbox" v-model="equippedOnly" />
+        <label class="aventure-inventaire__toggle" for="inventory-equipped-only">
+          <input id="inventory-equipped-only" name="inventory-equipped-only" type="checkbox" v-model="equippedOnly" />
           <span>Equipe seulement</span>
         </label>
       </div>
@@ -54,19 +61,26 @@
 import { computed, ref } from 'vue'
 import CardItemAventure from './CardItemAventure.vue'
 
+export type InventaireValue = {
+  gold: number
+  silver: number
+  copper: number
+}
+
 export type InventaireItem = {
   id: string
   originId?: string | null
-  title: string
+  name: string
   description?: string | null
-  image?: string | null
-  typeLabel?: string | null
+  type?: string | null
   quantity?: number
-  weightTotal?: number | null
-  valueLabel?: string | null
+  weight?: number | null
+  value?: InventaireValue | null
   equipped?: boolean
-  rarity?: 'commun' | 'inhabituel' | 'rare' | 'tres-rare' | 'legend'
-  tags?: string[]
+  allow_stack?: boolean
+  harmonisable?: boolean
+  properties_fight?: Record<string, any> | null
+  properties_equip?: Record<string, any> | null
 }
 
 const props = withDefaults(
@@ -94,27 +108,52 @@ const emit = defineEmits<{
 const search = ref('')
 const equippedOnly = ref(false)
 
+const formatValueLabel = (value: InventaireValue | null | undefined) => {
+  if (!value) return '—'
+  const parts: string[] = []
+  if (value.gold) parts.push(`${value.gold} po`)
+  if (value.silver) parts.push(`${value.silver} pa`)
+  if (value.copper) parts.push(`${value.copper} pc`)
+  return parts.join(' ') || '0'
+}
+
+const computeWeightTotal = (item: InventaireItem) => {
+  if (item.weight === null || item.weight === undefined) return null
+  const quantity = Number.isFinite(item.quantity) ? Number(item.quantity) : 1
+  return item.weight * quantity
+}
+
 const displayedItems = computed(() => {
   const needle = search.value.trim().toLowerCase()
   return props.items.filter((item) => {
     if (equippedOnly.value && !item.equipped) return false
     if (!needle) return true
-    const fields = [item.title, item.description, item.typeLabel, item.valueLabel, ...(item.tags || [])]
+    const fields: Array<string | null | undefined> = [
+      item.name,
+      item.description,
+      item.type,
+      formatValueLabel(item.value),
+      item.properties_fight ? JSON.stringify(item.properties_fight) : null,
+      item.properties_equip ? JSON.stringify(item.properties_equip) : null
+    ]
     return fields.some((field) => (field || '').toLowerCase().includes(needle))
   })
 })
 
 const toCardProps = (item: InventaireItem) => ({
-  title: item.title,
+  title: item.name,
   description: item.description,
-  image: item.image,
-  typeLabel: item.typeLabel,
-  quantity: item.quantity,
-  weightTotal: item.weightTotal,
-  valueLabel: item.valueLabel,
+  imageId: item.id,
+  typeLabel: item.type,
+  quantity: item.quantity ?? 1,
+  weightTotal: computeWeightTotal(item),
+  weightPerUnit: item.weight,
+  valueLabel: formatValueLabel(item.value),
+  value: item.value,
   equipped: item.equipped,
-  rarity: item.rarity,
-  tags: item.tags,
+  allowStack: item.allow_stack ?? false,
+  propertiesFight: item.properties_fight ?? null,
+  propertiesEquip: item.properties_equip ?? null,
 })
 </script>
 

@@ -156,8 +156,6 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
       ? (source.competences as Record<string, boolean>)
       : {}
 
-  const rawInventaire = Array.isArray(source.inventaire) ? source.inventaire : []
-  const slugUsage = new Map<string, number>()
   const slugify = (value: string): string =>
     value
       .normalize('NFKD')
@@ -167,49 +165,98 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
       .replace(/-{2,}/g, '-')
       .replace(/^-|-$/g, '')
 
-  const nextSlug = (base: string, index: number): string => {
-    const slug = base || `item-${index}`
-    const count = slugUsage.get(slug) ?? 0
-    slugUsage.set(slug, count + 1)
-    return count === 0 ? slug : `${slug}-${count}`
+  const makeUniqueSlug = (base: string, usage: Map<string, number>) => {
+    const existing = usage.get(base) ?? 0
+    usage.set(base, existing + 1)
+    return existing === 0 ? base : `${base}-${existing}`
   }
 
-  const inventaire = rawInventaire.map((entry, index) => {
-    if (!entry || typeof entry !== 'object') {
-      const id = nextSlug(`item-${index}`, index)
+  const parseValueLabelToCoins = (label: unknown): { gold: number; silver: number; copper: number } | null => {
+    if (typeof label !== 'string') return null
+    const gold = Number(label.match(/(\d+)\s*po/i)?.[1] ?? 0)
+    const silver = Number(label.match(/(\d+)\s*pa/i)?.[1] ?? 0)
+    const copper = Number(label.match(/(\d+)\s*pc/i)?.[1] ?? 0)
+    if (!gold && !silver && !copper) return null
+    return { gold, silver, copper }
+  }
+
+  const normalizeInventoryBase = (entry: any, fallbackName: string) => {
+    const ensureValue = (value: any) =>
+      value && typeof value === 'object'
+        ? {
+            gold: Number(value.gold) || 0,
+            silver: Number(value.silver) || 0,
+            copper: Number(value.copper) || 0
+          }
+        : null
+
+    if (entry && typeof entry === 'object' && 'name' in entry) {
+      const item = entry as Record<string, any>
+      const quantity = Number.isFinite(item.quantity) ? Number(item.quantity) : 1
+      const weight = Number.isFinite(item.weight) ? Number(item.weight) : null
       return {
-        id,
-        originId: null,
-        title: `Objet ${index + 1}`,
-        description: null,
-        image: null,
-        typeLabel: null,
-        quantity: 1,
-        weightTotal: 0,
-        valueLabel: null,
-        equipped: false,
-        rarity: 'commun',
-        tags: []
-      } satisfies InventaireSnapshotItem
+        idCandidate: typeof item.id === 'string' ? item.id : null,
+        originId: item.originId ? String(item.originId) : (typeof item.id === 'string' ? item.id : null),
+        name: String(item.name ?? fallbackName),
+        description: item.description ?? null,
+        type: item.type ?? null,
+        quantity,
+        weight,
+        value: ensureValue(item.value),
+        equipped: Boolean(item.equipped ?? item.equiped),
+        allow_stack: Boolean(item.allow_stack ?? item.allowStack),
+        harmonisable: Boolean(item.harmonisable ?? item.harmonizable),
+        properties_fight: item.properties_fight ?? item.propertiesFight ?? null,
+        properties_equip: item.properties_equip ?? item.propertiesEquip ?? null
+      }
     }
-    const item = entry as Record<string, any>
-    const originId = item.originId ? String(item.originId) : typeof item.id === 'string' ? item.id : null
-    const label = String(item.title ?? item.label ?? originId ?? `Objet ${index + 1}`)
-    const slugBase = slugify(label) || (originId ? slugify(originId) : '')
-    const id = nextSlug(slugBase, index)
+
+    const legacy = entry ?? {}
+    const quantity = Number.isFinite(legacy.quantity) ? Number(legacy.quantity) : 1
+    const weightTotal = Number.isFinite(legacy.weightTotal) ? Number(legacy.weightTotal) : null
+    const weight = weightTotal !== null ? weightTotal / (quantity || 1) : null
+    return {
+      idCandidate: typeof legacy.id === 'string' ? legacy.id : null,
+      originId: legacy.originId ? String(legacy.originId) : (typeof legacy.id === 'string' ? legacy.id : null),
+      name: String(legacy.title ?? legacy.name ?? fallbackName),
+      description: legacy.description ?? null,
+      type: legacy.typeLabel ?? legacy.type ?? null,
+      quantity,
+      weight,
+      value: parseValueLabelToCoins(legacy.valueLabel),
+      equipped: Boolean(legacy.equipped ?? legacy.equiped),
+      allow_stack: Boolean(legacy.allow_stack ?? legacy.allowStack ?? false),
+      harmonisable: Boolean(legacy.harmonisable ?? legacy.harmonizable ?? false),
+      properties_fight: legacy.properties_fight ?? legacy.propertiesFight ?? null,
+      properties_equip: legacy.properties_equip ?? legacy.propertiesEquip ?? null
+    }
+  }
+
+  const slugUsage = new Map<string, number>()
+  const rawInventaire = Array.isArray(source.inventaire) ? source.inventaire : []
+  const inventaire = rawInventaire.map((entry, index) => {
+    const fallbackName = `Objet ${index + 1}`
+    const normalized = normalizeInventoryBase(entry, fallbackName)
+    const baseId = normalized.idCandidate ?? normalized.originId ?? normalized.name ?? `item-${index}`
+    let slugBase = baseId ? slugify(String(baseId)) : ''
+    if (!slugBase && normalized.name) slugBase = slugify(normalized.name)
+    if (!slugBase) slugBase = `item-${index}`
+    const id = makeUniqueSlug(slugBase, slugUsage)
+    const originId = normalized.originId ?? normalized.idCandidate ?? id
     return {
       id,
       originId,
-      title: label,
-      description: item.description ?? null,
-      image: item.image ?? null,
-      typeLabel: item.typeLabel ?? null,
-      quantity: Number.isFinite(item.quantity) ? Number(item.quantity) : 1,
-      weightTotal: Number.isFinite(item.weightTotal) ? Number(item.weightTotal) : 0,
-      valueLabel: item.valueLabel ?? null,
-      equipped: Boolean(item.equipped),
-      rarity: item.rarity ?? 'commun',
-      tags: Array.isArray(item.tags) ? item.tags.map((tag: unknown) => String(tag)) : []
+      name: normalized.name,
+      description: normalized.description,
+      type: normalized.type,
+      quantity: normalized.quantity,
+      weight: normalized.weight,
+      value: normalized.value,
+      equipped: normalized.equipped,
+      allow_stack: normalized.allow_stack,
+      harmonisable: normalized.harmonisable,
+      properties_fight: normalized.properties_fight,
+      properties_equip: normalized.properties_equip
     } satisfies InventaireSnapshotItem
   })
 

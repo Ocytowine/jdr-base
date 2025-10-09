@@ -101,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { usePersonnage } from '@/stores/personnage'
 import { useParties } from '@/stores/parties'
 import type { PartieData } from '@/stores/parties'
@@ -255,14 +255,16 @@ const cloneInventaireItems = (items: InventaireItem[] | undefined | null): Inven
 const areInventairesEqual = (left: InventaireItem[], right: InventaireItem[]) =>
   JSON.stringify(left) === JSON.stringify(right)
 
-const syncInventaireState = (items: InventaireItem[]) => {
+const syncInventaireState = (items: InventaireItem[], mirrorStore = true) => {
   const cloned = cloneInventaireItems(items)
   inventaireOriginal.value = cloned
   inventaireDraft.value = cloneInventaireItems(cloned)
-  if (!isSyncingInventaire.value) {
+  if (mirrorStore) {
     isSyncingInventaire.value = true
     storePersonnage.perso.inventaire = cloneInventaireItems(cloned)
-    isSyncingInventaire.value = false
+    nextTick(() => {
+      isSyncingInventaire.value = false
+    })
   }
 }
 
@@ -284,6 +286,7 @@ watch(
       if (!hasPendingInventoryChanges.value) {
         const cloned = cloneInventaireItems(currentPartie.inventaire)
         syncInventaireState(cloned)
+        storePersonnage.sauvegarderLocal(currentPartie.id)
       }
       return
     }
@@ -291,6 +294,7 @@ watch(
       if (!hasPendingInventoryChanges.value) {
         const cloned = cloneInventaireItems(currentPartie.inventaire)
         syncInventaireState(cloned)
+        storePersonnage.sauvegarderLocal(currentPartie.id)
       }
       return
     }
@@ -300,6 +304,7 @@ watch(
       inventaireInitialise: true
     })
     syncInventaireState(initialItems)
+    storePersonnage.sauvegarderLocal(currentPartie.id)
   },
   { immediate: true }
 )
@@ -317,9 +322,8 @@ watch(
     if (hasPendingInventoryChanges.value || isSyncingInventaire.value) return
     const cloned = cloneInventaireItems(inventaire)
     if (areInventairesEqual(cloned, inventaireOriginal.value)) return
-    isSyncingInventaire.value = true
     syncInventaireState(cloned)
-    isSyncingInventaire.value = false
+    storePersonnage.sauvegarderLocal(partie.value.id)
   },
   { deep: true }
 )
@@ -337,9 +341,11 @@ watch(
       inventaire: cloned,
       inventaireInitialise: true
     })
-    syncInventaireState(cloned)
+    syncInventaireState(cloned, false)
     storePersonnage.sauvegarderLocal(partie.value.id)
-    isSyncingInventaire.value = false
+    nextTick(() => {
+      isSyncingInventaire.value = false
+    })
   },
   { deep: true }
 )
@@ -375,6 +381,7 @@ onMounted(() => {
   if (current) {
     const cloned = cloneInventaireItems(current.inventaire)
     syncInventaireState(cloned)
+    storePersonnage.sauvegarderLocal(id)
   }
   const key = `JDR_PERSO_${id}`
   const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
@@ -399,6 +406,7 @@ watch(
       if (current && !hasPendingInventoryChanges.value) {
         const cloned = cloneInventaireItems(current.inventaire)
         syncInventaireState(cloned)
+        storePersonnage.sauvegarderLocal(id)
       }
       const key = `JDR_PERSO_${id}`
       const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
@@ -545,7 +553,7 @@ const handleDraftDrop = ({ item }: { item: InventaireItem }) => {
 }
 
 const handleDraftInspect = ({ item }: { item: InventaireItem }) => {
-  const summary = `Inspection: ${item.title}. ${item.description ?? ''}`.trim()
+  const summary = `Inspection: ${item.name}. ${item.description ?? ''}`.trim()
   pushSystemMessage(summary)
 }
 

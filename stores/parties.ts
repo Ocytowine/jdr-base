@@ -38,6 +38,70 @@ export type PartieData = {
 const isoNow = () => new Date().toISOString()
 const randomId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
+const parseValueLabelToCoins = (label: unknown): { gold: number; silver: number; copper: number } | null => {
+  if (typeof label !== 'string') return null
+  const goldMatch = label.match(/(\d+)\s*po/i)
+  const silverMatch = label.match(/(\d+)\s*pa/i)
+  const copperMatch = label.match(/(\d+)\s*pc/i)
+  const gold = goldMatch ? Number(goldMatch[1]) : 0
+  const silver = silverMatch ? Number(silverMatch[1]) : 0
+  const copper = copperMatch ? Number(copperMatch[1]) : 0
+  if (!gold && !silver && !copper) return null
+  return { gold, silver, copper }
+}
+
+const normalizeInventaireItem = (input: any, fallbackId: string): InventaireItem => {
+  if (input && typeof input === 'object' && 'name' in input) {
+    const item = input as Record<string, any>
+    const quantity = Number.isFinite(item.quantity) ? Number(item.quantity) : 1
+    const weight = Number.isFinite(item.weight) ? Number(item.weight) : null
+    const value = item.value && typeof item.value === 'object'
+      ? {
+          gold: Number(item.value.gold) || 0,
+          silver: Number(item.value.silver) || 0,
+          copper: Number(item.value.copper) || 0
+        }
+      : null
+  return {
+    id: String(item.id ?? fallbackId),
+    originId: item.originId ? String(item.originId) : null,
+      name: String(item.name ?? fallbackId),
+      description: item.description ?? null,
+      type: item.type ?? null,
+      quantity,
+      weight,
+      value,
+      equipped: Boolean(item.equipped),
+      allow_stack: Boolean(item.allow_stack ?? item.allowStack),
+      harmonisable: Boolean(item.harmonisable ?? item.harmonizable),
+      properties_fight: item.properties_fight ?? item.propertiesFight ?? null,
+      properties_equip: item.properties_equip ?? item.propertiesEquip ?? null
+    }
+  }
+
+  const legacy = input || {}
+  const quantity = Number.isFinite(legacy.quantity) ? Number(legacy.quantity) : 1
+  const weightTotal = Number.isFinite(legacy.weightTotal) ? Number(legacy.weightTotal) : null
+  const weight = weightTotal !== null ? weightTotal / quantity : null
+  const valueFromLabel = parseValueLabelToCoins(legacy.valueLabel)
+
+  return {
+    id: String(legacy.id ?? fallbackId),
+    originId: legacy.originId ? String(legacy.originId) : legacy.id ? String(legacy.id) : null,
+    name: String(legacy.title ?? legacy.name ?? fallbackId),
+    description: legacy.description ?? null,
+    type: legacy.typeLabel ?? legacy.type ?? null,
+    quantity,
+    weight,
+    value: valueFromLabel,
+    equipped: Boolean(legacy.equipped ?? legacy.equiped),
+    allow_stack: Boolean(legacy.allow_stack ?? legacy.allowStack ?? false),
+    harmonisable: Boolean(legacy.harmonisable ?? legacy.harmonizable ?? false),
+    properties_fight: legacy.properties_fight ?? legacy.propertiesFight ?? null,
+    properties_equip: legacy.properties_equip ?? legacy.propertiesEquip ?? null
+  }
+}
+
 const createDefaultPartieData = (id: string): PartieData => {
   const now = isoNow()
   return {
@@ -55,40 +119,49 @@ const createDefaultPartieData = (id: string): PartieData => {
     ],
     inventaire: [
       {
-        id: 'item-epee',
-        title: 'Epee longue de soldat',
+        id: 'epee-longue',
+        originId: 'item-epee',
+        name: 'Epee longue de soldat',
         description: 'Une lame solide aux gravures usees, mais parfaitement equilibree.',
-        typeLabel: 'Arme martiale',
+        type: 'arme',
         quantity: 1,
-        weightTotal: 1.5,
-        valueLabel: '15 po',
+        weight: 1.5,
+        value: { gold: 15, silver: 0, copper: 0 },
         equipped: true,
-        rarity: 'commun',
-        tags: ['tranchant', 'acier']
+        allow_stack: false,
+        harmonisable: false,
+        properties_fight: { damage: '1d8', damage_type: 'slashing' },
+        properties_equip: null
       },
       {
-        id: 'item-potion',
-        title: 'Potion de soin mineure',
+        id: 'potion-soin-mineure',
+        originId: 'item-potion',
+        name: 'Potion de soin mineure',
         description: "Un flacon d'elixir rouge scintillant. Rend 2d4 + 2 PV.",
-        typeLabel: 'Potion',
+        type: 'consommable',
         quantity: 3,
-        weightTotal: 0.9,
-        valueLabel: '50 po',
+        weight: 0.3,
+        value: { gold: 50, silver: 0, copper: 0 },
         equipped: false,
-        rarity: 'inhabituel',
-        tags: ['consommable']
+        allow_stack: true,
+        harmonisable: false,
+        properties_fight: null,
+        properties_equip: null
       },
       {
-        id: 'item-grimoire',
-        title: 'Grimoire de bataille',
+        id: 'grimoire-bataille',
+        originId: 'item-grimoire',
+        name: 'Grimoire de bataille',
         description: 'Recueil de tactiques, sorts mineurs et incantations.',
-        typeLabel: 'Livre',
+        type: 'livre',
         quantity: 1,
-        weightTotal: 2.4,
-        valueLabel: '120 po',
+        weight: 2.4,
+        value: { gold: 120, silver: 0, copper: 0 },
         equipped: false,
-        rarity: 'rare',
-        tags: ['connaissance']
+        allow_stack: false,
+        harmonisable: false,
+        properties_fight: null,
+        properties_equip: null
       }
     ],
     journalEntries: [
@@ -155,7 +228,8 @@ const ensureArray = <T>(value: unknown, fallback: T[]): T[] => (Array.isArray(va
 
 const sanitizePartie = (raw: Partial<PartieData> | undefined, id: string): PartieData => {
   const now = isoNow()
-  const inventaire = ensureArray<InventaireItem>(raw?.inventaire, [])
+  const legacy = ensureArray<any>(raw?.inventaire, [])
+  const inventaire = legacy.map((item, index) => normalizeInventaireItem(item, `item-${index}`))
   const inferInventaireInitialise =
     typeof raw?.inventaireInitialise === 'boolean'
       ? raw.inventaireInitialise
