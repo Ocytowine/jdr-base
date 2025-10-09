@@ -60,6 +60,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import CardItemAventure from './CardItemAventure.vue'
+import { toPresentedCardItem } from './useInventoryCardPresenter'
 
 export type InventaireValue = {
   gold: number
@@ -117,12 +118,6 @@ const formatValueLabel = (value: InventaireValue | null | undefined) => {
   return parts.join(' ') || '0'
 }
 
-const computeWeightTotal = (item: InventaireItem) => {
-  if (item.weight === null || item.weight === undefined) return null
-  const quantity = Number.isFinite(item.quantity) ? Number(item.quantity) : 1
-  return item.weight * quantity
-}
-
 const displayedItems = computed(() => {
   const needle = search.value.trim().toLowerCase()
   return props.items.filter((item) => {
@@ -140,21 +135,7 @@ const displayedItems = computed(() => {
   })
 })
 
-const toCardProps = (item: InventaireItem) => ({
-  title: item.name,
-  description: item.description,
-  imageId: item.id,
-  typeLabel: item.type,
-  quantity: item.quantity ?? 1,
-  weightTotal: computeWeightTotal(item),
-  weightPerUnit: item.weight,
-  valueLabel: formatValueLabel(item.value),
-  value: item.value,
-  equipped: item.equipped,
-  allowStack: item.allow_stack ?? false,
-  propertiesFight: item.properties_fight ?? null,
-  propertiesEquip: item.properties_equip ?? null,
-})
+const toCardProps = (item: InventaireItem) => toPresentedCardItem(item)
 </script>
 
 <style scoped>
@@ -210,8 +191,11 @@ const toCardProps = (item: InventaireItem) => ({
 
 .aventure-inventaire__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 320px));
+  gap: 20px;
+  justify-content: center;
+  align-content: flex-start;
+  grid-auto-rows: 1fr;
   overflow: auto;
   padding-right: 4px;
 }

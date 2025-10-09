@@ -5,37 +5,52 @@
         <img :src="imageSrc" :alt="title" class="item-card__image" loading="lazy" />
       </div>
       <div class="item-card__summary">
-        <h3 class="item-card__title">{{ title }}</h3>
+        <div class="item-card__summary-row">
+          <h3 class="item-card__title">{{ title }}</h3>
+          <button
+            v-if="hasExtraStats"
+            type="button"
+            class="item-card__toggle"
+            :class="{ 'item-card__toggle--open': detailsExpanded }"
+            :aria-expanded="detailsExpanded"
+            :aria-controls="detailsSectionId"
+            @click="toggleDetails"
+          >
+            <span class="sr-only">{{ detailsExpanded ? 'Masquer les details' : 'Afficher les details' }}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M6 9l6 6 6-6"
+                stroke="currentColor"
+                stroke-width="2"
+                fill="none"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
         <p v-if="typeLabel" class="item-card__type">{{ typeLabel }}</p>
         <p v-if="description" class="item-card__description">{{ description }}</p>
+        <ul v-if="badgesList.length" class="item-card__badges">
+          <li v-for="badge in badgesList" :key="badge.label" class="item-card__badge">
+            <span class="item-card__badge-label">{{ badge.label }}</span>
+            <span class="item-card__badge-value">{{ badge.value }}</span>
+          </li>
+        </ul>
       </div>
     </header>
 
-    <dl class="item-card__grid">
-      <div>
-        <dt>Quantite</dt>
-        <dd>{{ quantity }}</dd>
-      </div>
-      <div>
-        <dt>Poids total</dt>
-        <dd>{{ weightTotalLabel }}</dd>
-      </div>
-      <div>
-        <dt>Poids (unite)</dt>
-        <dd>{{ weightUnitLabel }}</dd>
-      </div>
-      <div>
-        <dt>Valeur</dt>
-        <dd>{{ valueDisplay }}</dd>
-      </div>
-      <div>
-        <dt>Etat</dt>
-        <dd>{{ equipped ? 'Equipe' : 'Sac' }}</dd>
-      </div>
-    </dl>
+    <section v-if="hasExtraStats" :id="detailsSectionId" class="item-card__details" v-show="detailsExpanded">
+      <dl class="item-card__grid">
+        <div v-for="stat in extraStatsList" :key="stat.label">
+          <dt>{{ stat.label }}</dt>
+          <dd>{{ stat.value }}</dd>
+        </div>
+      </dl>
+    </section>
 
-    <div v-if="typeDetails.length" class="item-card__type-extra">
-      <div v-for="detail in typeDetails" :key="detail.label" class="item-card__type-row">
+    <div v-if="typeDetailsList.length" class="item-card__type-extra">
+      <div v-for="detail in typeDetailsList" :key="detail.label" class="item-card__type-row">
         <span class="item-card__type-label">{{ detail.label }}</span>
         <span class="item-card__type-value">{{ detail.value }}</span>
       </div>
@@ -43,8 +58,13 @@
 
     <footer class="item-card__footer">
       <div class="item-card__actions">
-        <button type="button" class="item-card__action item-card__action--primary" @click="emit('equip', !equipped)">
-          {{ equipped ? 'Retirer' : 'Equiper' }}
+        <button
+          v-if="showEquipButton"
+          type="button"
+          class="item-card__action item-card__action--primary"
+          @click="emit('equip', !equipped)"
+        >
+          {{ equipButtonLabel }}
         </button>
         <button type="button" class="item-card__action" @click="emit('inspect')">Inspecter</button>
         <button type="button" class="item-card__action item-card__action--danger" @click="emit('drop')">Jeter</button>
@@ -54,18 +74,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const DEFAULT_IMAGE = '/images/card.jpg'
 
-type ValueObject = {
-  gold?: number
-  silver?: number
-  copper?: number
-} | null
-
-type FightProps = Record<string, any> | null
-type EquipProps = Record<string, any> | null
+type StatEntry = {
+  label: string
+  value: string
+}
 
 const props = withDefaults(
   defineProps<{
@@ -74,30 +90,24 @@ const props = withDefaults(
     image?: string | null
     imageId?: string | null
     typeLabel?: string | null
-    quantity?: number
-    weightTotal?: number | null
-    weightPerUnit?: number | null
-    valueLabel?: string | null
-    value?: ValueObject
+    badges?: StatEntry[]
+    extraStats?: StatEntry[]
+    typeDetails?: StatEntry[]
     equipped?: boolean
-    allowStack?: boolean
-    propertiesFight?: FightProps
-    propertiesEquip?: EquipProps
+    equipActionLabel?: string | null
+    unequipActionLabel?: string | null
   }>(),
   {
     description: null,
     image: null,
     imageId: null,
     typeLabel: null,
-    quantity: 1,
-    weightTotal: null,
-    weightPerUnit: null,
-    valueLabel: null,
-    value: null,
+    badges: () => [],
+    extraStats: () => [],
+    typeDetails: () => [],
     equipped: false,
-    allowStack: false,
-    propertiesFight: null,
-    propertiesEquip: null
+    equipActionLabel: 'Equiper',
+    unequipActionLabel: 'Retirer'
   }
 )
 
@@ -107,6 +117,8 @@ const emit = defineEmits<{
   (event: 'drop'): void
 }>()
 
+const detailsExpanded = ref(false)
+
 const imageSrc = computed(() => {
   const src = typeof props.image === 'string' ? props.image.trim() : ''
   if (src.length) return src
@@ -114,83 +126,64 @@ const imageSrc = computed(() => {
   return derived.length ? derived : DEFAULT_IMAGE
 })
 
-const formatWeight = (value: number | null | undefined) => {
-  if (value === null || value === undefined || Number.isNaN(value)) return '—'
-  const numeric = Number(value)
-  if (!numeric) return '0 kg'
-  if (Math.abs(numeric) >= 10) return `${numeric.toFixed(0)} kg`
-  return `${numeric.toFixed(2)} kg`
-}
+const badgesList = computed(() =>
+  (props.badges || []).filter((badge) => Boolean(badge?.label) && Boolean(badge?.value))
+)
 
-const weightTotalLabel = computed(() => formatWeight(props.weightTotal))
-const weightUnitLabel = computed(() => formatWeight(props.weightPerUnit))
+const extraStatsList = computed(() =>
+  (props.extraStats || []).filter((stat) => Boolean(stat?.label) && Boolean(stat?.value))
+)
 
-const formatValue = (value: ValueObject) => {
-  if (!value) return props.valueLabel || '—'
-  const parts: string[] = []
-  if (value.gold) parts.push(`${value.gold} po`)
-  if (value.silver) parts.push(`${value.silver} pa`)
-  if (value.copper) parts.push(`${value.copper} pc`)
-  return parts.length ? parts.join(' ') : props.valueLabel || '—'
-}
+const typeDetailsList = computed(() =>
+  (props.typeDetails || []).filter((detail) => Boolean(detail?.label) && Boolean(detail?.value))
+)
 
-const valueDisplay = computed(() => formatValue(props.value))
+const hasExtraStats = computed(() => extraStatsList.value.length > 0)
+
+const baseId = computed(() => {
+  const source = props.imageId || props.title
+  return source
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+})
+
+const detailsSectionId = computed(() => `item-card-details-${baseId.value || 'default'}`)
 
 const articleClass = computed(() => ({
   'item-card': true,
   'item-card--equipped': props.equipped,
+  'item-card--expanded': detailsExpanded.value
 }))
 
-const typeDetails = computed(() => {
-  const details: Array<{ label: string; value: string }> = []
-  const type = (props.typeLabel || '').toLowerCase()
-  const normalize = (value: string) =>
-    value
-      .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
+const equipButtonLabel = computed(() =>
+  props.equipped ? props.unequipActionLabel || 'Retirer' : props.equipActionLabel || 'Equiper'
+)
 
-  if (type.includes('bourse') || type.includes('purse')) {
-    details.push({ label: 'Contenu', value: valueDisplay.value })
-  }
-
-  if (type.includes('arme') || type.includes('weapon')) {
-    const fight = props.propertiesFight || {}
-    const damage = fight.damage ?? fight.degats ?? null
-    const damageType = fight.damage_type ?? fight.type ?? fight.damageType ?? fight.degats_type ?? null
-    const value = [damage, damageType].filter(Boolean).join(' ')
-    if (value) {
-      details.push({ label: 'Degats', value })
-    }
-  }
-
-  if (type.includes('armure') || type.includes('protection')) {
-    const equip = props.propertiesEquip || {}
-    const defense = equip.armor_class ?? equip.defense ?? equip.ca
-    if (defense !== undefined) {
-      details.push({ label: "Classe d'armure", value: String(defense) })
-    }
-  }
-
-  if (props.allowStack) {
-    details.push({ label: 'Empilable', value: 'Oui' })
-  }
-
-  return details
+const showEquipButton = computed(() => {
+  const equipLabel = props.equipActionLabel || ''
+  const unequipLabel = props.unequipActionLabel || ''
+  return Boolean(equipLabel.trim() || unequipLabel.trim())
 })
+
+const toggleDetails = () => {
+  if (!hasExtraStats.value) return
+  detailsExpanded.value = !detailsExpanded.value
+}
 </script>
 
 <style scoped>
 .item-card {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   padding: 20px;
   border-radius: 18px;
   border: 1px solid var(--bord);
   background: linear-gradient(180deg, rgba(21, 25, 52, 0.95), rgba(10, 13, 30, 0.96));
   color: var(--texte);
-  min-height: 100%;
+  height: 100%;
 }
 
 .item-card--equipped {
@@ -201,6 +194,7 @@ const typeDetails = computed(() => {
 .item-card__header {
   display: flex;
   gap: 16px;
+  align-items: flex-start;
 }
 
 .item-card__media {
@@ -218,8 +212,16 @@ const typeDetails = computed(() => {
 
 .item-card__summary {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+}
+
+.item-card__summary-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .item-card__title {
@@ -227,6 +229,36 @@ const typeDetails = computed(() => {
   font-size: 18px;
   font-weight: 600;
   color: var(--texte);
+}
+
+.item-card__toggle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 12, 30, 0.6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--texte-2);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.item-card__toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+}
+
+.item-card__toggle--open svg {
+  transform: rotate(180deg);
+}
+
+.item-card__toggle:hover {
+  border-color: var(--accent-border-soft);
+  color: var(--texte);
+  background: rgba(12, 16, 38, 0.8);
 }
 
 .item-card__type {
@@ -242,6 +274,40 @@ const typeDetails = computed(() => {
   font-size: 13px;
   color: var(--texte-2);
   line-height: 1.5;
+}
+
+.item-card__badges {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.item-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--texte-2);
+}
+
+.item-card__badge-value {
+  font-weight: 600;
+  color: var(--texte);
+}
+
+.item-card__details {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 12px 14px;
 }
 
 .item-card__grid {
@@ -269,7 +335,6 @@ const typeDetails = computed(() => {
   font-size: 13px;
   color: var(--texte);
 }
-
 
 .item-card__footer {
   display: flex;
@@ -344,5 +409,16 @@ const typeDetails = computed(() => {
 
 .item-card__type-value {
   text-align: right;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 </style>
