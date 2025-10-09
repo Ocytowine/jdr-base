@@ -56,14 +56,18 @@ import AventureChat, { type AventureMessage } from '@/components/aventure/Aventu
 import AventureFichePersonnage from '@/components/aventure/AventureFichePersonnage.vue'
 import AventureClasse, { type ModuleClasse } from '@/components/aventure/AventureClasse.vue'
 import AventureInventaire from '@/components/aventure/AventureInventaire.vue'
+import type { InventaireItem } from '@/components/aventure/AventureInventaire.vue'
 import AventureQuetes, { type Quete } from '@/components/aventure/AventureQuetes.vue'
 import AventureJournal, { type JournalEntry } from '@/components/aventure/AventureJournal.vue'
 import AventureAides, { type AideMemoire } from '@/components/aventure/AventureAides.vue'
 import AventureCompagnons, { type Compagnon } from '@/components/aventure/AventureCompagnons.vue'
+import { useBonomeCreationStore } from '@/stores/bonomeCreation'
+import { copperToCoins } from '@/utils/creationHelpers'
 
 type EtatSauvegarde = 'chargement' | 'chargee' | 'aucune'
 
 type SectionId =
+  | 'narration'
   | 'fiche'
   | 'classe'
   | 'inventaire'
@@ -77,18 +81,85 @@ const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).
 
 const storePersonnage = usePersonnage()
 const partiesStore = useParties()
+const creation = useBonomeCreationStore()
 
 if (process.client) {
   partiesStore.initialiser()
 }
 
 const etatSauvegarde = ref<EtatSauvegarde>('chargement')
-const activeSection = ref<SectionId>('fiche')
+const activeSection = ref<SectionId>('narration')
 
 const partie = computed<PartieData | null>(() => partiesStore.currentPartie)
 const messages = computed<AventureMessage[]>(() => partie.value?.messages ?? [])
 
+// Inventaire issu de la création (Option A, affichage non destructif)
+const inventaireFromCreation = computed<InventaireItem[]>(() => {
+  const kept = (creation.materialKeptItems?.value ?? []) as Array<{
+    item: any
+    keep: boolean
+  }>
+  if (!kept.length) return []
+
+  const purseKey = creation.materialCoinPurseKey?.value || null
+  const finalCoins = creation.materialFinalCoins?.value || { gold: 0, silver: 0, copper: 0 }
+  const entries = kept.map((entry) => entry.item)
+
+  const assignments = creation.materialAssignments as any
+  const selectedPrimary: string | null = assignments?.primaryWeaponKey || null
+  const selectedSecondary: string | null = assignments?.secondaryWeaponKey || null
+  const selectedProt: string | null = assignments?.protectionKey || null
+  const selectedShield: string | null = assignments?.shieldKey || null
+  const equippedKeys = new Set<string>([
+    ...(selectedPrimary ? [selectedPrimary] : []),
+    ...(selectedSecondary ? [selectedSecondary] : []),
+    ...(selectedProt ? [selectedProt] : []),
+    ...(selectedShield ? [selectedShield] : [])
+  ])
+
+  // Fallback heuristics if no explicit assignments
+  if (equippedKeys.size === 0) {
+    const findFirstKey = (predicate: (it: any) => boolean): string | null => {
+      const found = entries.find((it) => predicate(it))
+      return found ? String(found.key || found.itemId) : null
+    }
+    const weapon = findFirstKey((it) => /arme|weapon/i.test(String(it.type || '')))
+    if (weapon) equippedKeys.add(weapon)
+    const prot = findFirstKey((it) => /armure|bouclier|protection|armor|shield/i.test(String(it.type || '')))
+    if (prot) equippedKeys.add(prot)
+  }
+
+  const toValueLabel = (coins: { gold?: number; silver?: number; copper?: number }) => {
+    const parts: string[] = []
+    if (coins.gold) parts.push(`${coins.gold} po`)
+    if (coins.silver) parts.push(`${coins.silver} pa`)
+    if (coins.copper) parts.push(`${coins.copper} pc`)
+    return parts.join(' ') || null
+  }
+
+  return entries.map((it: any): InventaireItem => {
+    const id = String(it.key || it.itemId)
+    const isPurse = purseKey && id === purseKey
+    const ownCoins = copperToCoins(Number(it.totalCoinsCopper ?? 0))
+    const labelCoins = isPurse ? creation.materialFinalCoins.value : ownCoins
+    return {
+      id,
+      title: String(it.label || it.itemId || 'Objet'),
+      description: it.description ?? null,
+      image: it.image ?? null,
+      typeLabel: it.type ?? null,
+      quantity: Number(it.quantity ?? 1),
+      weightTotal: Number(it.weightTotal ?? 0),
+      valueLabel: toValueLabel(labelCoins),
+      equipped: equippedKeys.has(id),
+      rarity: 'commun',
+      tags: Array.isArray(it.tags) ? it.tags : []
+    }
+  })
+})
+
 const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
+  { id: 'narration', label: 'Narration', hint: 'Fil de discussion' },
   { id: 'fiche', label: 'Fiche personnage', hint: 'Profil complet' },
   { id: 'classe', label: 'Classe & pouvoirs', hint: 'Configuration dynamique a venir' },
   { id: 'inventaire', label: 'Inventaire', hint: 'Equipement et tresors' },
@@ -101,9 +172,12 @@ const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
 onMounted(() => {
   if (!process.client) return
   partiesStore.initialiser()
-  const sauvegarde = localStorage.getItem('JDR_PERSO')
+  const id = partiesStore.currentPartyId
+  if (!id) return
+  const key = `JDR_PERSO_${id}`
+  const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
   if (sauvegarde) {
-    storePersonnage.chargerDepuisLocal()
+    storePersonnage.chargerDepuisLocal(id ?? undefined)
     etatSauvegarde.value = 'chargee'
   } else {
     etatSauvegarde.value = 'aucune'
@@ -116,8 +190,16 @@ watch(
     if (!process.client) return
     if (id) {
       partiesStore.chargerPartie(id)
+      const key = `JDR_PERSO_${id}`
+      const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
+      if (sauvegarde) {
+        storePersonnage.chargerDepuisLocal(id)
+        etatSauvegarde.value = 'chargee'
+      } else {
+        etatSauvegarde.value = 'aucune'
+      }
     }
-    activeSection.value = 'fiche'
+    activeSection.value = 'narration'
   },
   { immediate: true }
 )
@@ -125,6 +207,9 @@ watch(
 const panelConfig = computed(() => {
   if (!partie.value) return null
   const data = partie.value
+  if (activeSection.value === 'narration') {
+    return null
+  }
   switch (activeSection.value) {
     case 'classe':
       return {
@@ -141,7 +226,7 @@ const panelConfig = computed(() => {
       return {
         component: AventureInventaire,
         props: {
-          items: data.inventaire
+          items: inventaireFromCreation.value.length ? inventaireFromCreation.value : data.inventaire
         },
         on: {
           equip: handleEquipItem,
@@ -193,12 +278,14 @@ const panelConfig = computed(() => {
           remove: handleRemoveCompagnon
         }
       }
-    default:
+    case 'fiche':
       return {
         component: AventureFichePersonnage,
         props: {},
         on: {}
       }
+    default:
+      return null
   }
 })
 

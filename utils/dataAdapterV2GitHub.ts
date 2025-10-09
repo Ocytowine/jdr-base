@@ -115,10 +115,18 @@ export class DataAdapterV2GitHub {
     return json;
   }
 
-  async fetchJsonFromRepoPath(repoPath: string) {
-    if (this.fileCache.has(repoPath)) return this.fileCache.get(repoPath);
+  clearCaches() {
+    try { this.indexCache.clear(); } catch (e) {}
+    try { this.fileCache.clear(); } catch (e) {}
+    try { this.collectionCache.clear(); } catch (e) {}
+    try { this.inFlightFetches.clear(); } catch (e) {}
+  }
 
-    if (this.inFlightFetches.has(repoPath)) {
+  async fetchJsonFromRepoPath(repoPath: string, options: { refresh?: boolean } = {}) {
+    const refresh = !!options.refresh;
+    if (!refresh && this.fileCache.has(repoPath)) return this.fileCache.get(repoPath);
+
+    if (!refresh && this.inFlightFetches.has(repoPath)) {
       return this.inFlightFetches.get(repoPath)!;
     }
 
@@ -147,9 +155,12 @@ export class DataAdapterV2GitHub {
     };
 
     const loader = (async () => {
-      let diskCached = await loadFromDisk();
-      if (diskCached) {
-        return diskCached;
+      let diskCached: any | null = null;
+      if (!refresh) {
+        diskCached = await loadFromDisk();
+        if (diskCached) {
+          return diskCached;
+        }
       }
 
       const apiUrl = this.apiContentsUrl(repoPath);
@@ -170,17 +181,20 @@ export class DataAdapterV2GitHub {
             const parsed = await res.json();
             return persist(parsed);
           } catch (rawErr) {
-            diskCached = await loadFromDisk();
-            if (diskCached) {
-              return diskCached;
+            if (!refresh) {
+              diskCached = await loadFromDisk();
+              if (diskCached) {
+                return diskCached;
+              }
             }
             throw rawErr;
           }
         }
-
-        diskCached = await loadFromDisk();
-        if (diskCached) {
-          return diskCached;
+        if (!refresh) {
+          diskCached = await loadFromDisk();
+          if (diskCached) {
+            return diskCached;
+          }
         }
         throw err;
       } finally {
@@ -188,7 +202,9 @@ export class DataAdapterV2GitHub {
       }
     })();
 
-    this.inFlightFetches.set(repoPath, loader);
+    if (!refresh) {
+      this.inFlightFetches.set(repoPath, loader);
+    }
     return loader;
   }
 

@@ -5,7 +5,8 @@ export default defineEventHandler(async () => {
     const [classes, races, backgrounds] = await Promise.all([
       getCatalogEntries('classes'),
       getCatalogEntries('races'),
-      getCatalogEntries('backgrounds')
+      getCatalogEntries('backgrounds'),
+      getCatalogEntries('items')
     ]);
 
     return {

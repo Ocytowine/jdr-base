@@ -1,8 +1,11 @@
 import { getCatalogEntries } from './_utils';
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
   try {
-    return await getCatalogEntries('races');
+    const q = getQuery(event) as Record<string, any>;
+    const refresh = String(q.refresh ?? '').toLowerCase();
+    const force = refresh === '1' || refresh === 'true' || refresh === 'yes';
+    return await getCatalogEntries('races', force);
   } catch (error) {
     console.error('[catalog/races] failed to load catalog', error);
     return [];

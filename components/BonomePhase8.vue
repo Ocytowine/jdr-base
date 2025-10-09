@@ -9,6 +9,30 @@
 
     <BonomePreviewPanel />
 
+    <div class="recap-material">
+      <h4 class="recap-material__title">Préparation du matériel</h4>
+      <section v-if="materialProposals.length" class="recap-material__groups">
+        <article v-for="(group, gi) in materialProposals" :key="group.effectId ?? `grp-${gi}`" class="recap-material__group">
+          <header class="recap-material__group-header">
+            <strong>{{ group.label || group.source || `Groupe ${gi+1}` }}</strong>
+            <span class="recap-material__group-count">Conservés: {{ countKept(group) }} / {{ group.items.length }}</span>
+          </header>
+          <ul class="recap-material__list">
+            <li v-for="it in group.items" :key="it.key" class="recap-material__item">
+              <span class="recap-material__label">{{ formatItem(it) }}</span>
+              <button type="button" class="recap-material__toggle" @click="toggle(it.key)">
+                {{ isKept(it.key) ? 'Jeter' : 'Garder' }}
+              </button>
+              <span class="recap-material__state" :class="{ 'recap-material__state--kept': isKept(it.key) }">
+                {{ isKept(it.key) ? 'gardé' : 'jeté' }}
+              </span>
+            </li>
+          </ul>
+        </article>
+      </section>
+      <p v-else class="phase__message phase__message--info">Aucun matériel proposé par l'adapter.</p>
+    </div>
+
     <div class="recap-applied">
       <h4 class="recap-applied__title">Choix appliqués</h4>
       <ul v-if="appliedChoices.length" class="recap-applied__list">
@@ -19,6 +43,8 @@
       </ul>
       <p v-else class="phase__message phase__message--info">Aucun choix complémentaire appliqué.</p>
     </div>
+
+    
 
     <div class="recap-actions">
       <button type="button" class="phase__action phase__action--ghost" @click="emit('cancel')">Revenir</button>
@@ -55,7 +81,11 @@ const props = defineProps<{
 }>();
 
 const creation = useBonomeCreationStore();
-const { appliedChoices, preview: storePreview } = storeToRefs(creation);
+const { appliedChoices, preview: storePreview, materialProposals } = storeToRefs(creation);
+const isKept = (key: string) => creation.isMaterialItemKept(key);
+const toggle = (key: string) => creation.toggleMaterialItemDecision(key);
+const formatItem = (it: any) => creation.formatMaterialItemDisplay(it);
+const countKept = (group: any) => group.items.reduce((acc: number, it: any) => acc + (isKept(it.key) ? 1 : 0), 0);
 const materialPlan = creation.materialPlan;
 const descriptionFields = creation.descriptionFields;
 
@@ -89,9 +119,23 @@ const stepMeta = computed(() => props.stepMeta);
 
 // expose preview to template/users if needed
 const preview = computed(() => props.preview ?? storePreview.value ?? null);
+
+ 
 </script>
 
 <style scoped>
+.recap-material { display: flex; flex-direction: column; gap: 12px; }
+.recap-material__title { margin: 0; font-size: 16px; font-weight: 600; color: var(--accent-2); }
+.recap-material__groups { display: flex; flex-direction: column; gap: 12px; }
+.recap-material__group { border: 1px solid var(--bord); border-radius: 14px; background: rgba(12, 16, 38, 0.6); padding: 12px; }
+.recap-material__group-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; color: var(--texte); }
+.recap-material__group-count { color: var(--texte-2); font-size: 12px; }
+.recap-material__list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.recap-material__item { display: flex; gap: 10px; align-items: center; }
+.recap-material__label { flex: 1; font-size: 13px; color: var(--texte); }
+.recap-material__toggle { border: 1px solid var(--accent-border-soft); background: transparent; color: var(--accent-2); border-radius: 10px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+.recap-material__state { font-size: 12px; color: var(--texte-2); }
+.recap-material__state--kept { color: #5ce3ab; }
 .recap-applied {
   display: flex;
   flex-direction: column;

@@ -7,9 +7,13 @@
       <section class="aventure-layout__chat">
         <slot name="chat" />
       </section>
-      <section class="aventure-layout__panel">
-        <slot />
-      </section>
+      <transition name="aventure-fade">
+        <section v-if="$slots.default" class="aventure-layout__overlay">
+          <div class="aventure-layout__overlay-card">
+            <slot />
+          </div>
+        </section>
+      </transition>
     </main>
   </div>
 </template>
@@ -38,14 +42,10 @@
 }
 
 .aventure-layout__main {
-  display: grid;
-  grid-template-columns: 2fr 1.1fr;
-  gap: 24px;
-  align-items: stretch;
+  position: relative;
 }
 
-.aventure-layout__chat,
-.aventure-layout__panel {
+.aventure-layout__chat {
   background: rgba(12, 16, 38, 0.9);
   border: 1px solid var(--bord);
   border-radius: 18px;
@@ -59,8 +59,31 @@
   min-height: 540px;
 }
 
-.aventure-layout__panel {
-  min-height: 540px;
+.aventure-layout__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+}
+
+.aventure-layout__overlay-card {
+  background: rgba(12, 16, 38, 0.96);
+  border: 1px solid var(--bord);
+  border-radius: 18px;
+  padding: 24px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.aventure-fade-enter-active,
+.aventure-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.aventure-fade-enter-from,
+.aventure-fade-leave-to {
+  opacity: 0;
 }
 
 @media (max-width: 1280px) {
@@ -69,11 +92,7 @@
   }
 
   .aventure-layout__main {
-    grid-template-columns: 1fr;
-  }
-
-  .aventure-layout__panel {
-    margin-top: 16px;
+    /* single column layout */
   }
 }
 
@@ -90,7 +109,7 @@
   }
 
   .aventure-layout__main {
-    grid-template-columns: 1fr;
+    /* single column layout */
   }
 }
 </style>

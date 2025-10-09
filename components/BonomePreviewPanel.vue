@@ -38,134 +38,24 @@
         </div>
       </div>
 
-      <div class="preview__grid">
-        <section class="preview-section">
-          <h4 class="preview-section__title">Caractéristiques</h4>
-          <table class="preview-table">
-            <tr v-for="(val, key) in displayStats" :key="key">
-              <td>{{ key }}</td>
-              <td>{{ val }}</td>
-            </tr>
-          </table>
-
-          <div class="preview-section__divider"></div>
-          <h5 class="preview-section__subtitle">Compétences / Proficiencies</h5>
-          <ul class="preview-list">
-            <li v-for="p in preview?.previewCharacter?.proficiencies ?? []" :key="p">{{ p }}</li>
-            <li v-if="!(preview?.previewCharacter?.proficiencies ?? []).length" class="preview-list__empty">Aucune</li>
-          </ul>
-
-          <div class="preview-section__divider"></div>
-          <h5 class="preview-section__subtitle">Sens</h5>
-          <ul class="preview-list">
-            <li
-              v-for="s in preview?.previewCharacter?.senses ?? []"
-              :key="JSON.stringify(s)"
-            >
-              {{ s.sense_type ? `${s.sense_type} ${s.range ?? ''} ${s.units ?? ''}`.trim() : JSON.stringify(s) }}
-            </li>
-            <li v-if="!(preview?.previewCharacter?.senses ?? []).length" class="preview-list__empty">Aucun</li>
-          </ul>
-        </section>
-
-        <section class="preview-section">
-          <h4 class="preview-section__title">Magie & capacités</h4>
-          <div v-if="preview?.previewCharacter?.spellcasting" class="preview-section__block">
-            <p>Ability : {{ preview?.previewCharacter?.spellcasting?.ability ?? preview?.previewCharacter?.spellcasting?.meta?.ability ?? '-' }}</p>
-            <p>Spell save DC : {{ preview?.previewCharacter?.spellcasting?.meta?.spell_save_dc ?? '-' }}</p>
-            <p>Spell attack mod : {{ preview?.previewCharacter?.spellcasting?.meta?.spell_attack_mod ?? '-' }}</p>
-            <div class="preview-section__divider"></div>
-            <h5 class="preview-section__subtitle">Slots</h5>
-            <div
-              v-if="preview?.previewCharacter?.spellcasting?.slots && Object.keys(preview.previewCharacter.spellcasting.slots).length"
-              class="preview-section__slots"
-            >
-              <span v-for="(num, lvl) in preview.previewCharacter.spellcasting.slots" :key="lvl">{{ lvl }} : {{ num }}</span>
-            </div>
-            <p v-else class="preview-list__empty">Aucun emplacement</p>
-          </div>
-          <p v-else class="preview-list__empty">Aucune donnée de magie disponible.</p>
-
-          <div class="preview-section__divider"></div>
-          <h5 class="preview-section__subtitle">Features appliqués</h5>
-          <ul class="preview-list">
-            <li v-for="f in preview?.appliedFeatures ?? []" :key="f">{{ f }}</li>
-            <li v-if="!(preview?.appliedFeatures ?? []).length" class="preview-list__empty">Aucun</li>
-          </ul>
-        </section>
-      </div>
-
-      <div class="preview__grid">
-        <section class="preview-section">
-          <h4 class="preview-section__title">Préparation du matériel</h4>
-          <div class="preview-section__tiles">
-            <div v-for="entry in materialSummary" :key="entry.id" class="preview-tile">
-              <span class="preview-tile__label">{{ entry.label }}</span>
-              <span class="preview-tile__value">{{ entry.value || 'À définir' }}</span>
-            </div>
-          </div>
-          <div class="preview-section__notes">
-            <span class="preview-section__subtitle">Notes complémentaires</span>
-            <p>{{ materialNotesDisplay || 'Aucune note pour le moment.' }}</p>
-          </div>
-        </section>
-
-        <section v-if="false" class="preview-section">
-          <h4 class="preview-section__title">Inventaire retenu</h4>
-          <ul class="preview-list">
-            <li v-for="it in keptItemsDisplay" :key="it.key">{{ it.label }}</li>
-            <li v-if="!keptItemsDisplay.length" class="preview-list__empty">Aucun objet conservǸ</li>
-          </ul>
-          <p class="preview-list__hint" v-if="coinPurseFinalLabel">
-            {{ coinPurseLabel }} : {{ coinPurseFinalLabel }}
-          </p>
-        </section>
-
-        <section v-if="false" class="preview-section">
-          <h4 class="preview-section__title">Preparation du materiel (choix par slot)</h4>
-          <div class="preview-section__form">
-            <div v-for="slot in uiSlots" :key="slot.id" class="preview-form__row">
-              <label class="preview-form__label">{{ slot.label }}</label>
-              <select
-                class="preview-form__select"
-                :value="assignmentFor(slot.id)"
-                @change="onAssign(slot.id, ($event.target as HTMLSelectElement).value)"
-              >
-                <option :value="''">-- A definir --</option>
-                <option
-                  v-for="it in candidatesFor(slot.id)"
-                  :key="String(it.key || it.itemId)"
-                  :value="String(it.key || it.itemId)"
-                >
-                  {{ formatItem(it) }}
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <div class="preview-section__divider"></div>
-          <h5 class="preview-section__subtitle">Inventaire</h5>
-          <ul class="preview-list">
-            <li v-for="it in assignedList" :key="'a-'+String(it.item.key || it.item.itemId)">
-              {{ formatItem(it.item) }} — <strong>porté</strong>
-            </li>
-            <li v-for="it in unassignedList" :key="'u-'+String(it.key || it.itemId)">
-              {{ formatItem(it) }} — rangé
-            </li>
-            <li v-if="!assignedList.length && !unassignedList.length" class="preview-list__empty">Aucun objet</li>
-          </ul>
-          <p class="preview-list__hint" v-if="coinPurseFinalLabel">
-            {{ coinPurseLabel }} : {{ coinPurseFinalLabel }}
-          </p>
-
-          <h4 class="preview-section__title">Portrait narratif</h4>
-          <div class="preview-section__tiles">
-            <div v-for="entry in narrativeSummary" :key="entry.id" class="preview-tile">
-              <span class="preview-tile__label">{{ entry.label }}</span>
-              <span class="preview-tile__value preview-tile__value--multiline">{{ entry.value || 'À préciser' }}</span>
-            </div>
-          </div>
-        </section>
+      <div class="preview__grid"> <section class="preview-section"> <h4 class="preview-section__title">Preparation du materiel (choix par slot)</h4> <div class="preview-section__form"> <div v-for="slot in uiSlots" :key="slot.id" class="preview-form__row"> <label class="preview-form__label">{{ slot.label }}</label> <select class="preview-form__select" :value="assignmentFor(slot.id)" @change="onAssign(slot.id, ($event.target as HTMLSelectElement).value)" > <option :value="''">-- A definir --</option> <option v-for="it in candidatesFor(slot.id)" :key="String(it.key || it.itemId)" :value="String(it.key || it.itemId)" > {{ formatItem(it) }} </option> </select> </div> </div>
+        <div class="preview-section__divider"></div>
+        <h5 class="preview-section__subtitle">Inventaire</h5>
+        <ul class="preview-list">
+          <li v-for="it in assignedList" :key="'a-'+String(it.item.key || it.item.itemId)">
+            {{ formatItem(it.item) }} — <strong>porté</strong>
+          </li>
+          <li v-for="it in unassignedList" :key="'u-'+String(it.key || it.itemId)">
+            {{ formatItem(it) }} — rangé
+          </li>
+          <li v-if="!assignedList.length && !unassignedList.length" class="preview-list__empty">
+            Aucun objet
+          </li>
+        </ul>
+        <p class="preview-list__hint" v-if="coinPurseFinalLabel">
+          {{ coinPurseLabel }} : {{ coinPurseFinalLabel }}
+        </p>
+      </section>
       </div>
 
       <div v-if="preview?.errors && preview.errors.length" class="preview__errors">
@@ -688,10 +578,4 @@ async function handleSave() {
 }
 </style>
 
-<style scoped>
-/* Hide legacy preview sections: static material summary and kept-inventory */
-.preview__panel > .preview__grid:nth-of-type(2) > .preview-section:nth-of-type(1),
-.preview__panel > .preview__grid:nth-of-type(2) > .preview-section:nth-of-type(2) {
-  display: none !important;
-}
-</style>
+ 

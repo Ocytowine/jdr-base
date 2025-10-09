@@ -1,4 +1,6 @@
 import { defineStore } from 'pinia'
+import { useSession } from '@/composables/useSession'
+import { useParties } from '@/stores/parties'
 
 export type Caracs = {
   force: number
@@ -120,22 +122,56 @@ export const usePersonnage = defineStore('personnage', {
     listeCompetences: () => DEF_COMPETENCES,
   },
   actions: {
-    chargerDepuisLocal(){
-      if(process.client){
-        const brut = localStorage.getItem('JDR_PERSO')
-        if(brut){ this.perso = JSON.parse(brut) as Personnage }
-      }
+    /**
+     * Construit la clé de stockage locale pour une partie donnée.
+     * Si aucun id n'est fourni, on tente d'utiliser la partie courante ;
+     * en dernier recours, on retombe sur la clé historique globale.
+     */
+    _storageKey(partieId?: string | null) {
+      const id =
+        partieId ??
+        // Préférence: store des parties s'il est initialisé
+        (() => {
+          try {
+            const parties = useParties()
+            return parties.currentPartyId
+          } catch {
+            return null
+          }
+        })() ??
+        // Fallback: session légère
+        (() => {
+          try {
+            const { idCourant } = useSession()
+            return idCourant.value
+          } catch {
+            return null
+          }
+        })()
+
+      return id ? `JDR_PERSO_${id}` : 'JDR_PERSO'
     },
-    sauvegarderLocal(){
-      if(process.client){
-        localStorage.setItem('JDR_PERSO', JSON.stringify(this.perso))
-      }
+
+    chargerDepuisLocal(partieId?: string){
+      if(!process.client) return
+      const key = this._storageKey(partieId)
+      const brut = localStorage.getItem(key) ?? (!partieId ? localStorage.getItem('JDR_PERSO') : null)
+      if(brut){ this.perso = JSON.parse(brut) as Personnage }
     },
-    reinitialiser(){
-      if(process.client){
-        localStorage.removeItem('JDR_PERSO')
-        location.reload()
-      }
+
+    sauvegarderLocal(partieId?: string){
+      if(!process.client) return
+      const key = this._storageKey(partieId)
+      localStorage.setItem(key, JSON.stringify(this.perso))
+    },
+
+    reinitialiser(partieId?: string){
+      if(!process.client) return
+      const key = this._storageKey(partieId)
+      localStorage.removeItem(key)
+      // on ne supprime pas l'ancienne clé globale à moins d'être hors partie
+      if(!partieId) localStorage.removeItem('JDR_PERSO')
+      location.reload()
     }
   }
 })
