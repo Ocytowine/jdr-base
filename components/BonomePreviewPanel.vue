@@ -1,4 +1,5 @@
 <template>
+  <!-- Bloc template : BonomePreviewPanel -->
   <section class="preview">
     <div class="preview__header">
       <h3 class="preview__title">Prévisualisation</h3>
@@ -38,24 +39,47 @@
         </div>
       </div>
 
-      <div class="preview__grid"> <section class="preview-section"> <h4 class="preview-section__title">Preparation du materiel (choix par slot)</h4> <div class="preview-section__form"> <div v-for="slot in uiSlots" :key="slot.id" class="preview-form__row"> <label class="preview-form__label">{{ slot.label }}</label> <select class="preview-form__select" :value="assignmentFor(slot.id)" @change="onAssign(slot.id, ($event.target as HTMLSelectElement).value)" > <option :value="''">-- A definir --</option> <option v-for="it in candidatesFor(slot.id)" :key="String(it.key || it.itemId)" :value="String(it.key || it.itemId)" > {{ formatItem(it) }} </option> </select> </div> </div>
-        <div class="preview-section__divider"></div>
-        <h5 class="preview-section__subtitle">Inventaire</h5>
-        <ul class="preview-list">
-          <li v-for="it in assignedList" :key="'a-'+String(it.item.key || it.item.itemId)">
-            {{ formatItem(it.item) }} — <strong>porté</strong>
-          </li>
-          <li v-for="it in unassignedList" :key="'u-'+String(it.key || it.itemId)">
-            {{ formatItem(it) }} — rangé
-          </li>
-          <li v-if="!assignedList.length && !unassignedList.length" class="preview-list__empty">
-            Aucun objet
-          </li>
-        </ul>
-        <p class="preview-list__hint" v-if="coinPurseFinalLabel">
-          {{ coinPurseLabel }} : {{ coinPurseFinalLabel }}
-        </p>
-      </section>
+      <div class="preview__grid">
+        <!-- Bloc matériel : sélection par slot -->
+        <section class="preview-section">
+          <h4 class="preview-section__title">Preparation du materiel (choix par slot)</h4>
+          <div class="preview-section__form">
+            <div v-for="slot in uiSlots" :key="slot.id" class="preview-form__row">
+              <label class="preview-form__label">{{ slot.label }}</label>
+              <select
+                class="preview-form__select"
+                :value="assignmentFor(slot.id)"
+                @change="onAssign(slot.id, ($event.target as HTMLSelectElement).value)"
+              >
+                <option :value="''">-- A definir --</option>
+                <option
+                  v-for="it in candidatesFor(slot.id)"
+                  :key="String(it.key || it.itemId)"
+                  :value="String(it.key || it.itemId)"
+                >
+                  {{ formatItem(it) }}
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="preview-section__divider"></div>
+          <h5 class="preview-section__subtitle">Inventaire</h5>
+          <ul class="preview-list">
+            <li v-for="it in assignedList" :key="`a-${String(it.item.key || it.item.itemId)}`">
+              {{ formatItem(it.item) }} - <strong>porté</strong>
+            </li>
+            <li v-for="it in unassignedList" :key="`u-${String(it.key || it.itemId)}`">
+              {{ formatItem(it) }} - rangé
+            </li>
+            <li v-if="!assignedList.length && !unassignedList.length" class="preview-list__empty">
+              Aucun objet
+            </li>
+          </ul>
+          <p class="preview-list__hint" v-if="coinPurseFinalLabel">
+            {{ coinPurseLabel }} : {{ coinPurseFinalLabel }}
+          </p>
+        </section>
+        <!-- Fin bloc matériel -->
       </div>
 
       <div v-if="preview?.errors && preview.errors.length" class="preview__errors">
@@ -76,18 +100,17 @@
       </button>
     </div>
   </section>
+  <!-- Fin bloc template : BonomePreviewPanel -->
 </template>
 
 <script setup lang="ts">
+// Bloc script : BonomePreviewPanel (logique d'affectation et sauvegarde)
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from '#app';
 import {
-  DESCRIPTION_FIELD_DEFINITIONS,
   MATERIAL_SLOT_DEFINITIONS,
-  useBonomeCreationStore,
-  type DescriptionFields,
-  type MaterialPlan
+  useBonomeCreationStore
 } from '@/stores/bonomeCreation';
 import { usePersonnage } from '@/stores/personnage';
 import { useParties } from '@/stores/parties';
@@ -108,12 +131,6 @@ const {
   fullCharacterName
 } = storeToRefs(creation);
 
-const materialPlan = creation.materialPlan as MaterialPlan;
-const descriptionFields = creation.descriptionFields as DescriptionFields;
-
-const equipmentSlots = MATERIAL_SLOT_DEFINITIONS;
-const descriptionFieldDefinitions = DESCRIPTION_FIELD_DEFINITIONS;
-
 const trimmedFirstName = computed(() => characterFirstName.value.trim());
 const trimmedLastName = computed(() => characterLastName.value.trim());
 const trimmedNickname = computed(() => characterNickname.value.trim());
@@ -125,35 +142,49 @@ const hasNameParts = computed(
 );
 const trimmedFullName = computed(() => fullCharacterName.value.trim());
 
-const materialSummary = computed(() =>
-  equipmentSlots.map((slot) => {
-    const value = materialPlan[slot.id];
-    return {
-      id: slot.id,
-      label: slot.label,
-      value: typeof value === 'string' ? value.trim() : ''
-    };
-  })
-);
+const resolvedKeptItemsForSlots = computed(() => {
+  const decisions = preview.value?.previewCharacter?.materialDecisions;
+  if (decisions && Array.isArray(decisions.kept) && decisions.kept.length) {
+    return decisions.kept as any[];
+  }
+  const storeKept = creation.materialKeptItems?.value ?? [];
+  return storeKept.map((entry: any) => entry.item);
+});
 
-const narrativeSummary = computed(() =>
-  descriptionFieldDefinitions.map((field) => ({
-    id: field.id,
-    label: field.label,
-    value: descriptionFields[field.id].trim()
-  }))
-);
+const lc = (value: unknown) => String(value ?? '').toLowerCase();
+const field = (item: any) => `${lc(item.type ?? item.resolved?.type)} ${lc(item.label)} ${lc(item.itemId ?? item.id ?? '')}`.trim();
+const isWeapon = (item: any) => /(arme|weapon|focalisateur|arc|epee|fleche|dague|hache|masse|lance|marteau)/.test(field(item));
+const isProtection = (item: any) => /(armure|armor|armour|protection|cuir|maille|plaque|vetement)/.test(field(item));
+const isShield = (item: any) => /(bouclier|shield)/.test(field(item));
+const isAccessory = (item: any) => /(accessoire|accessory|amulette|anneau|baguette|focus|talisman|gantelet|kit)/.test(field(item));
 
-const materialNotesDisplay = computed(() =>
-  typeof materialPlan.notes === 'string' ? materialPlan.notes.trim() : ''
-);
+const slotOptionsForKept = computed(() => {
+  const items = resolvedKeptItemsForSlots.value;
+  return {
+    primaryWeapon: items.filter(isWeapon),
+    secondaryWeapon: items.filter(isWeapon),
+    protection: items.filter(isProtection),
+    shield: items.filter(isShield),
+    accessories: items.filter(isAccessory)
+  };
+});
 
-// Liste simple des objets conservés et bourse finale
-const keptItemsDisplay = computed(() => {
-  const arr = (creation.materialKeptItems?.value ?? []) as Array<{ item: any; keep: boolean }>
-  const fmt = creation.formatMaterialItemDisplay as (item: any) => string
-  return arr.map((entry) => ({ key: String(entry.item.key || entry.item.itemId), label: fmt(entry.item) }))
-})
+const slotCandidatesForUi = computed(() => {
+  const purseKey = creation.materialCoinPurseKey?.value ? String(creation.materialCoinPurseKey.value) : null;
+  const prune = (list: any[]) => {
+    if (!Array.isArray(list)) return [];
+    if (!purseKey) return list;
+    return list.filter((item) => String(item?.key ?? item?.itemId ?? item?.id ?? '') !== purseKey);
+  };
+  const map = slotOptionsForKept.value;
+  return {
+    primaryWeapon: prune(map.primaryWeapon),
+    secondaryWeapon: prune(map.secondaryWeapon),
+    protection: prune(map.protection),
+    shield: prune(map.shield),
+    accessories: prune(map.accessories)
+  };
+});
 
 const coinPurseLabel = computed(() => creation.materialCoinPurseLabel?.value || 'Bourse')
 const coinPurseFinalLabel = computed(() => {
@@ -168,14 +199,15 @@ const coinPurseFinalLabel = computed(() => {
 
 // Helpers for slot assignment UI
 const formatItem = (it: any) => (creation.formatMaterialItemDisplay as (item: any) => string)(it)
-const candidatesFor = (slotId: string) => (creation.slotCandidates as any).value?.[slotId] ?? []
+const candidatesFor = (slotId: string) => (slotCandidatesForUi.value as Record<string, any[]>)[slotId] ?? []
 const assignmentFor = (slotId: string) => {
   const a = creation.materialAssignments as any
+  const normalize = (value: string | null | undefined) => (value ? String(value) : '')
   switch (slotId) {
-    case 'primaryWeapon': return a.primaryWeaponKey
-    case 'secondaryWeapon': return a.secondaryWeaponKey
-    case 'protection': return a.protectionKey
-    case 'shield': return a.shieldKey
+    case 'primaryWeapon': return normalize(a.primaryWeaponKey)
+    case 'secondaryWeapon': return normalize(a.secondaryWeaponKey)
+    case 'protection': return normalize(a.protectionKey)
+    case 'shield': return normalize(a.shieldKey)
     case 'accessories': return '' // multi-select not provided in this UI version
     default: return ''
   }
@@ -188,14 +220,14 @@ const assignedList = computed(() => ((creation.materialAcquired as any).value ??
 
 // UI slots: base definitions minus 'pack' + add 'shield'
 const uiSlots = computed(() => {
-  const list = [...(MATERIAL_SLOT_DEFINITIONS as any)]
-    .filter((s: any) => s.id !== 'pack')
+  const list = [...(MATERIAL_SLOT_DEFINITIONS as any)].filter((s: any) => s.id !== 'pack');
   if (!list.some((s: any) => s.id === 'shield')) {
-    list.splice(3, 0, { id: 'shield', label: 'Bouclier', hint: '', placeholder: '' })
+    list.splice(3, 0, { id: 'shield', label: 'Bouclier', hint: '', placeholder: '' });
   }
-  return list
-})
+  return list;
+});
 
+// Fin bloc script : BonomePreviewPanel
 const canSave = computed(() => preview.value?.ok && !(preview.value?.errors?.length));
 const saving = ref(false);
 const saveError = ref<string | null>(null);
@@ -578,4 +610,3 @@ async function handleSave() {
 }
 </style>
 
- 

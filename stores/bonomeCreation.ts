@@ -82,6 +82,8 @@ export type MaterialProposalItem = {
   weightTotal: number;
   resolved?: any | null;
   raw?: any;
+  kept: boolean;
+  status: 'kept' | 'sold';
 };
 
 export type MaterialProposalGroup = {
@@ -933,6 +935,13 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
             ? normalized.categorie.trim()
             : null;
 
+    const keepFlag =
+      typeof normalized.kept === 'boolean'
+        ? normalized.kept
+        : typeof normalized.status === 'string'
+          ? normalized.status !== 'sold'
+          : true;
+
     return {
       key,
       itemId,
@@ -950,7 +959,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       weightPerUnit,
       weightTotal,
       resolved: normalized.resolved ?? null,
-      raw: normalized
+      raw: normalized,
+      kept: keepFlag,
+      status: keepFlag ? 'kept' : 'sold'
     };
   };
 
@@ -988,7 +999,6 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
     const proposalsInput = Array.isArray(previewCharacter?.item_proposals) ? previewCharacter.item_proposals : [];
     try {
-      // Debug brut pour diagnostiquer l'adapter
       console.debug('[RAW_ITEM_PROPOSALS]', previewCharacter?.item_proposals ?? null)
     } catch {}
     const normalized: MaterialProposalGroup[] = [];
@@ -1027,7 +1037,18 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
     for (const group of normalized) {
       for (const item of group.items) {
-        materialSelections[item.key] = previousSelections[item.key] === false ? false : true;
+        const previousDecision = previousSelections[item.key];
+        const keep =
+          previousDecision === false
+            ? false
+            : previousDecision === true
+              ? true
+              : typeof item.kept === 'boolean'
+                ? item.kept
+                : typeof item.status === 'string'
+                  ? item.status !== 'sold'
+                  : true;
+        setMaterialItemDecision(item.key, keep);
 
         if (!materialCoinPurseKey.value) {
           const idLower = item.itemId.toLowerCase();
@@ -1040,8 +1061,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       }
     }
 
+    refreshMaterialItemsKeptState();
+
     if (!materialCoinPurseKey.value) {
-      const candidate = normalized.flatMap((group) => group.items).find((item) => item.coinsCopper > 0);
+      const candidate = materialProposals.value.flatMap((group) => group.items).find((item) => item.coinsCopper > 0);
       if (candidate) {
         materialCoinPurseKey.value = candidate.key;
         materialCoinPurseLabel.value = candidate.label || 'Bourse';
@@ -1059,25 +1082,33 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   };
 
   const setMaterialItemDecision = (key: string, keep: boolean) => {
-    if (!key) {
+    const normalized = String(key ?? '');
+    if (!normalized.length) {
       return;
     }
-    materialSelections[key] = keep;
+    materialSelections[normalized] = keep;
+    applyMaterialItemKeptFlag(normalized, keep);
+    if (!keep) {
+      clearAssignmentsForItem(normalized);
+    }
   };
 
   const toggleMaterialItemDecision = (key: string) => {
-    if (!key) {
+    const normalized = String(key ?? '');
+    if (!normalized.length) {
       return;
     }
-    materialSelections[key] = !isMaterialItemKept(key);
+    const next = !isMaterialItemKept(normalized);
+    setMaterialItemDecision(normalized, next);
   };
 
   const resetMaterialSelections = () => {
     for (const group of materialProposals.value) {
       for (const item of group.items) {
-        materialSelections[item.key] = true;
+        setMaterialItemDecision(item.key, true);
       }
     }
+    refreshMaterialItemsKeptState();
   };
 
   const materialItems = computed(() =>
@@ -1172,12 +1203,30 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   type SlotId = 'primaryWeapon' | 'secondaryWeapon' | 'protection' | 'shield' | 'accessories';
 
   const lc = (v: unknown) => String(v ?? '').toLowerCase();
+  const matchesType = (it: any, patterns: string[]) => {
+    const typeLower = lc(it.type);
+    if (typeLower.length) {
+      if (patterns.some((pattern) => typeLower.includes(pattern))) {
+        return true;
+      }
+    }
+    return false;
+  };
   const field = (it: any) => `${lc(it.type)} ${lc(it.label)} ${lc(it.itemId)}`.trim();
-  // Type-driven filters per your spec + fallback on label/id if type is missing
-  const isWeapon = (it: any) => /(\barme\b|focalisateur)/.test(field(it)) || /(arc|epee|épée|dague|hache|masse|lance|marteau)/.test(lc(it.itemId) + ' ' + lc(it.label));
-  const isProtection = (it: any) => /(armure|vetement)/.test(field(it));
-  const isShield = (it: any) => /(bouclier)/.test(field(it));
-  const isAccessory = (it: any) => /(accessoire)/.test(field(it));
+  // Type-driven filters per votre spec + fallback sur label/id si type absent
+  const isWeapon = (it: any) =>
+    matchesType(it, ['arme', 'weapon', 'focalisateur']) ||
+    /(\barme\b|focalisateur)/.test(field(it)) ||
+    /(arc|epee|fleche|dague|hache|masse|lance|marteau)/.test(`${lc(it.itemId)} ${lc(it.label)}`);
+  const isProtection = (it: any) =>
+    matchesType(it, ['armure', 'armor', 'armour', 'protection', 'vetement']) ||
+    /(armure|protection|cuir|maille|plaque|armour)/.test(field(it));
+  const isShield = (it: any) =>
+    matchesType(it, ['bouclier', 'shield']) ||
+    /(bouclier|shield)/.test(field(it));
+  const isAccessory = (it: any) =>
+    matchesType(it, ['accessoire', 'accessory', 'amulette', 'anneau', 'baguette', 'focus', 'kit']) ||
+    /(accessoire|amulette|anneau|baguette|focus|talisman|gantelet)/.test(field(it));
 
   const slotCandidates = computed<Record<SlotId, any[]>>(() => {
     const items = materialKeptItems.value.map((e) => e.item);
@@ -1204,23 +1253,77 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     accessoriesKeys: []
   });
 
+  const clearAssignmentsForItem = (key: string | null | undefined) => {
+    const normalized = String(key ?? '');
+    if (!normalized.length) {
+      return;
+    }
+    if (materialAssignments.primaryWeaponKey === normalized) {
+      materialAssignments.primaryWeaponKey = null;
+    }
+    if (materialAssignments.secondaryWeaponKey === normalized) {
+      materialAssignments.secondaryWeaponKey = null;
+    }
+    if (materialAssignments.protectionKey === normalized) {
+      materialAssignments.protectionKey = null;
+    }
+    if (materialAssignments.shieldKey === normalized) {
+      materialAssignments.shieldKey = null;
+    }
+    materialAssignments.accessoriesKeys = materialAssignments.accessoriesKeys.filter((k) => k !== normalized);
+  };
+
+  const applyMaterialItemKeptFlag = (key: string, keep: boolean) => {
+    if (!key) {
+      return;
+    }
+    for (const group of materialProposals.value) {
+      const found = group.items.find((item) => item.key === key);
+      if (found) {
+        found.kept = keep;
+        found.status = keep ? 'kept' : 'sold';
+        return;
+      }
+    }
+  };
+
+  const refreshMaterialItemsKeptState = () => {
+    for (const group of materialProposals.value) {
+      for (const item of group.items) {
+        const keep = isMaterialItemKept(item.key);
+        item.kept = keep;
+        item.status = keep ? 'kept' : 'sold';
+      }
+    }
+  };
+
   const setMaterialAssignment = (slot: SlotId, key: string | null) => {
+    const normalized = key !== null && key !== undefined ? String(key) : null;
+    const keptKey = normalized && isMaterialItemKept(normalized) ? normalized : null;
+
     switch (slot) {
       case 'primaryWeapon':
-        materialAssignments.primaryWeaponKey = key;
+        materialAssignments.primaryWeaponKey = keptKey;
         break;
       case 'secondaryWeapon':
-        materialAssignments.secondaryWeaponKey = key;
+        materialAssignments.secondaryWeaponKey = keptKey;
         break;
       case 'protection':
-        materialAssignments.protectionKey = key;
+        materialAssignments.protectionKey = keptKey;
         break;
       case 'shield':
-        materialAssignments.shieldKey = key;
+        materialAssignments.shieldKey = keptKey;
         break;
       case 'accessories':
-        if (key === null) materialAssignments.accessoriesKeys = [];
-        else if (!materialAssignments.accessoriesKeys.includes(key)) materialAssignments.accessoriesKeys.push(key);
+        if (!keptKey) {
+          if (key === null) {
+            materialAssignments.accessoriesKeys = [];
+          }
+          break;
+        }
+        if (!materialAssignments.accessoriesKeys.includes(keptKey)) {
+          materialAssignments.accessoriesKeys.push(keptKey);
+        }
         break;
     }
   };
@@ -1593,9 +1696,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
     const equipmentList = [...baseEquipment, ...keptMaterialDisplays];
 
-    const trimValue = (value: string): string => value.trim();
-    const toNullableString = (value: string): string | null => {
-      const trimmed = value.trim();
+    const trimValue = (value: string | null | undefined): string => (value ?? '').trim();
+    const toNullableString = (value: string | null | undefined): string | null => {
+      const trimmed = (value ?? '').trim();
       return trimmed.length ? trimmed : null;
     };
 
@@ -1923,3 +2026,4 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     materialAcquired
   };
 });
+
