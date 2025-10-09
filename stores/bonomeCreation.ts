@@ -9,6 +9,7 @@ import { useSession } from '@/composables/useSession';
 
 import { createCardPlaceholder, coinsToCopper, copperToCoins, ensureCardImage, ensureDescription, humanizeLabel, normalizeCatalogEntries, normalizeCoinsValue, resolveCardVisuals, toFiniteNumber, valueExists } from '@/utils/creationHelpers';
 import type { CoinBreakdown } from '@/utils/creationHelpers';
+import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
 
 export type CatalogEntry = {
   id: string;
@@ -1688,23 +1689,66 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     }, {});
 
     const languages = toList(previewCharacter.languages);
-    const baseEquipment = toList(previewCharacter.equipment);
-
-    const keptMaterialDisplays = materialKeptItems.value
-      .map(({ item }) => {
-        const isCoinPurse = materialCoinPurseKey.value ? item.key === materialCoinPurseKey.value : false;
-        const coinsOverride = isCoinPurse ? materialFinalCoins.value : null;
-        return formatMaterialItemDisplay(item, coinsOverride);
-      })
-      .filter((entry) => typeof entry === 'string' && entry.trim().length);
-
-    const equipmentList = [...baseEquipment, ...keptMaterialDisplays];
 
     const trimValue = (value: string | null | undefined): string => (value ?? '').trim();
     const toNullableString = (value: string | null | undefined): string | null => {
       const trimmed = (value ?? '').trim();
       return trimmed.length ? trimmed : null;
     };
+
+    const keptItemsRaw = materialKeptItems.value.map((entry) => entry.item);
+    const normalizeKey = (value: unknown): string | null => {
+      if (value === null || value === undefined) return null;
+      const str = String(value).trim();
+      return str.length ? str : null;
+    };
+
+    const inventoryTransition = buildCreationInventoryTransition({
+      entries: keptItemsRaw,
+      assignments: {
+        primaryWeaponKey: materialAssignments.primaryWeaponKey,
+        secondaryWeaponKey: materialAssignments.secondaryWeaponKey,
+        protectionKey: materialAssignments.protectionKey,
+        shieldKey: materialAssignments.shieldKey
+      },
+      purseKey: materialCoinPurseKey.value ? String(materialCoinPurseKey.value) : null,
+      finalCoins: materialFinalCoins.value ?? null
+    });
+
+    const originToSlug = new Map<string, string>();
+    for (const item of inventoryTransition.items) {
+      if (item.originId) {
+        originToSlug.set(item.originId, item.id);
+      }
+    }
+
+    const slugForOrigin = (key: string | null): string | null => {
+      if (!key) return null;
+      return originToSlug.get(key) ?? key;
+    };
+
+    const labelForKey = (key: string | null): string | null => {
+      if (!key) return null;
+      const target = keptItemsRaw.find((item: any) => String(item.key || item.itemId) === key);
+      if (!target) return null;
+      const label = target.label ?? target.itemId;
+      return label ? String(label) : null;
+    };
+
+    const primaryOriginKey = normalizeKey(materialAssignments.primaryWeaponKey);
+    const secondaryOriginKey = normalizeKey(materialAssignments.secondaryWeaponKey);
+    const protectionOriginKey = normalizeKey(materialAssignments.protectionKey);
+    const shieldOriginKey = normalizeKey(materialAssignments.shieldKey);
+    const accessoiresIds = Array.isArray(materialAssignments.accessoriesKeys)
+      ? materialAssignments.accessoriesKeys
+          .map((id: unknown) => slugForOrigin(normalizeKey(id)))
+          .filter((id): id is string => Boolean(id))
+      : [];
+
+    const primaryKey = slugForOrigin(primaryOriginKey);
+    const secondaryKey = slugForOrigin(secondaryOriginKey);
+    const protectionKey = slugForOrigin(protectionOriginKey);
+    const shieldKey = slugForOrigin(shieldOriginKey);
 
     const personnage: Personnage = {
       id: toDisplayString(previewCharacter.id, `pj_${Date.now()}`),
@@ -1727,7 +1771,6 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       caracs,
       competences: proficiencies,
       langues: languages.length ? languages.join(', ') : 'Commun',
-      equipement: equipmentList.join(', '),
       armure: { type: 'aucune' },
       bouclier: Boolean(previewCharacter.bouclier ?? false),
       monture: {
@@ -1736,12 +1779,22 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         notes: toDisplayString(previewCharacter.monture?.notes ?? '')
       },
       inspiration: Boolean(previewCharacter.inspiration ?? false),
+      inventaire: inventoryTransition.items,
       materielPersonnalise: {
-        armePrincipale: toNullableString(materialPlan.primaryWeapon),
-        armeSecondaire: toNullableString(materialPlan.secondaryWeapon),
-        protection: toNullableString(materialPlan.protection),
+        armePrincipale: toNullableString(materialPlan.primaryWeapon) ?? labelForKey(primaryOriginKey),
+        armePrincipaleId: primaryKey,
+        armeSecondaire: toNullableString(materialPlan.secondaryWeapon) ?? labelForKey(secondaryOriginKey),
+        armeSecondaireId: secondaryKey,
+        protection: toNullableString(materialPlan.protection) ?? labelForKey(protectionOriginKey),
+        protectionId: protectionKey,
+        bouclier: toNullableString(materialPlan.shield) ?? labelForKey(shieldOriginKey),
+        bouclierId: shieldKey,
         paquetage: toNullableString(materialPlan.pack),
+        paquetageId: null,
         accessoires: toNullableString(materialPlan.accessories),
+        accessoiresIds,
+        keptIds: inventoryTransition.keptIds,
+        equippedIds: inventoryTransition.equippedIds,
         notes: trimValue(materialPlan.notes)
       },
       descriptionDetaillee: {

@@ -3,6 +3,7 @@ import { useUid } from '@/composables/useUid'
 import { useSession } from '@/composables/useSession'
 import type { AventureMessage } from '@/components/aventure/AventureChat.vue'
 import type { InventaireItem } from '@/components/aventure/AventureInventaire.vue'
+import { DEFAULT_PARTIE_INVENTORY_ID_SET } from '@/utils/inventaireTransition'
 import type { JournalEntry } from '@/components/aventure/AventureJournal.vue'
 import type { Quete } from '@/components/aventure/AventureQuetes.vue'
 import type { AideMemoire } from '@/components/aventure/AventureAides.vue'
@@ -24,6 +25,7 @@ export type PartieData = {
   id: string
   createdAt: string
   updatedAt: string
+  inventaireInitialise: boolean
   messages: AventureMessage[]
   inventaire: InventaireItem[]
   journalEntries: JournalEntry[]
@@ -42,6 +44,7 @@ const createDefaultPartieData = (id: string): PartieData => {
     id,
     createdAt: now,
     updatedAt: now,
+    inventaireInitialise: false,
     messages: [
       {
         id: randomId(),
@@ -152,12 +155,18 @@ const ensureArray = <T>(value: unknown, fallback: T[]): T[] => (Array.isArray(va
 
 const sanitizePartie = (raw: Partial<PartieData> | undefined, id: string): PartieData => {
   const now = isoNow()
+  const inventaire = ensureArray<InventaireItem>(raw?.inventaire, [])
+  const inferInventaireInitialise =
+    typeof raw?.inventaireInitialise === 'boolean'
+      ? raw.inventaireInitialise
+      : inventaire.some((item) => !DEFAULT_PARTIE_INVENTORY_ID_SET.has(item.id))
   return {
     id,
     createdAt: typeof raw?.createdAt === 'string' ? raw.createdAt : now,
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : now,
+    inventaireInitialise: inferInventaireInitialise,
     messages: ensureArray<AventureMessage>(raw?.messages, []),
-    inventaire: ensureArray<InventaireItem>(raw?.inventaire, []),
+    inventaire,
     journalEntries: ensureArray<JournalEntry>(raw?.journalEntries, []),
     quetes: ensureArray<Quete>(raw?.quetes, []),
     aides: ensureArray<AideMemoire>(raw?.aides, []),

@@ -5,6 +5,11 @@
         <h1>Table d'aventure</h1>
         <p>Gerez votre expedition, consultez vos ressources et discutez avec le narrateur IA.</p>
       </div>
+      <div class="aventure-page__header-actions">
+        <button class="aventure-page__debug-button" type="button" @click="toggleDebugPanel">
+          {{ showDebugPanel ? 'Masquer la sauvegarde' : 'Afficher la sauvegarde' }}
+        </button>
+      </div>
       <span v-if="partie" class="aventure-page__badge aventure-page__badge--loaded">
         Partie: {{ partie.id }}
       </span>
@@ -17,6 +22,56 @@
     </p>
 
     <template v-else>
+      <section v-if="showDebugPanel" class="aventure-page__debug">
+        <header class="aventure-page__debug-header">
+          <h2>Sauvegardes locales</h2>
+          <button type="button" class="aventure-page__debug-refresh" @click="refreshDebugSnapshots">
+            Actualiser
+          </button>
+        </header>
+        <div class="aventure-page__debug-grid">
+          <article class="aventure-page__debug-card">
+            <h3>Partie (cache courant)</h3>
+            <ul class="aventure-page__debug-summary" v-if="summariseDebugSource(debugPartieCache).length">
+              <li v-for="row in summariseDebugSource(debugPartieCache)" :key="row.label">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.value }}</strong>
+              </li>
+            </ul>
+            <details>
+              <summary>Voir les donnees</summary>
+              <pre>{{ formatDebugValue(debugPartieCache) }}</pre>
+            </details>
+          </article>
+          <article class="aventure-page__debug-card">
+            <h3>Partie (localStorage)</h3>
+            <ul class="aventure-page__debug-summary" v-if="summariseDebugSource(debugPartieStorage).length">
+              <li v-for="row in summariseDebugSource(debugPartieStorage)" :key="row.label">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.value }}</strong>
+              </li>
+            </ul>
+            <details>
+              <summary>Voir les donnees</summary>
+              <pre>{{ formatDebugValue(debugPartieStorage) }}</pre>
+            </details>
+          </article>
+          <article class="aventure-page__debug-card">
+            <h3>Fiche personnage</h3>
+            <ul class="aventure-page__debug-summary" v-if="summariseDebugSource(debugPersonnageStorage).length">
+              <li v-for="row in summariseDebugSource(debugPersonnageStorage)" :key="row.label">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.value }}</strong>
+              </li>
+            </ul>
+            <details>
+              <summary>Voir les donnees</summary>
+              <pre>{{ formatDebugValue(debugPersonnageStorage) }}</pre>
+            </details>
+          </article>
+        </div>
+      </section>
+
       <p v-if="etatSauvegarde === 'aucune'" class="aventure-page__notice">
         Aucune fiche personnage sauvegardee. Terminez la creation pour lier vos donnees a cette partie.
       </p>
@@ -62,7 +117,7 @@ import AventureJournal, { type JournalEntry } from '@/components/aventure/Aventu
 import AventureAides, { type AideMemoire } from '@/components/aventure/AventureAides.vue'
 import AventureCompagnons, { type Compagnon } from '@/components/aventure/AventureCompagnons.vue'
 import { useBonomeCreationStore } from '@/stores/bonomeCreation'
-import { copperToCoins } from '@/utils/creationHelpers'
+import { buildCreationInventoryTransition } from '@/utils/inventaireTransition'
 
 type EtatSauvegarde = 'chargement' | 'chargee' | 'aucune'
 
@@ -89,74 +144,215 @@ if (process.client) {
 
 const etatSauvegarde = ref<EtatSauvegarde>('chargement')
 const activeSection = ref<SectionId>('narration')
+const showDebugPanel = ref(false)
+const debugPartieCache = ref<any | null>(null)
+const debugPartieStorage = ref<any | null>(null)
+const debugPersonnageStorage = ref<any | null>(null)
+const inventaireOriginal = ref<InventaireItem[]>([])
+const inventaireDraft = ref<InventaireItem[]>([])
+const isSyncingInventaire = ref(false)
 
 const partie = computed<PartieData | null>(() => partiesStore.currentPartie)
 const messages = computed<AventureMessage[]>(() => partie.value?.messages ?? [])
 
 // Inventaire issu de la création (Option A, affichage non destructif)
-const inventaireFromCreation = computed<InventaireItem[]>(() => {
+const creationInventoryTransition = computed(() => {
   const kept = (creation.materialKeptItems?.value ?? []) as Array<{
-    item: any
+    item: unknown
     keep: boolean
   }>
-  if (!kept.length) return []
-
-  const purseKey = creation.materialCoinPurseKey?.value || null
-  const finalCoins = creation.materialFinalCoins?.value || { gold: 0, silver: 0, copper: 0 }
-  const entries = kept.map((entry) => entry.item)
-
-  const assignments = creation.materialAssignments as any
-  const selectedPrimary: string | null = assignments?.primaryWeaponKey || null
-  const selectedSecondary: string | null = assignments?.secondaryWeaponKey || null
-  const selectedProt: string | null = assignments?.protectionKey || null
-  const selectedShield: string | null = assignments?.shieldKey || null
-  const equippedKeys = new Set<string>([
-    ...(selectedPrimary ? [selectedPrimary] : []),
-    ...(selectedSecondary ? [selectedSecondary] : []),
-    ...(selectedProt ? [selectedProt] : []),
-    ...(selectedShield ? [selectedShield] : [])
-  ])
-
-  // Fallback heuristics if no explicit assignments
-  if (equippedKeys.size === 0) {
-    const findFirstKey = (predicate: (it: any) => boolean): string | null => {
-      const found = entries.find((it) => predicate(it))
-      return found ? String(found.key || found.itemId) : null
-    }
-    const weapon = findFirstKey((it) => /arme|weapon/i.test(String(it.type || '')))
-    if (weapon) equippedKeys.add(weapon)
-    const prot = findFirstKey((it) => /armure|bouclier|protection|armor|shield/i.test(String(it.type || '')))
-    if (prot) equippedKeys.add(prot)
-  }
-
-  const toValueLabel = (coins: { gold?: number; silver?: number; copper?: number }) => {
-    const parts: string[] = []
-    if (coins.gold) parts.push(`${coins.gold} po`)
-    if (coins.silver) parts.push(`${coins.silver} pa`)
-    if (coins.copper) parts.push(`${coins.copper} pc`)
-    return parts.join(' ') || null
-  }
-
-  return entries.map((it: any): InventaireItem => {
-    const id = String(it.key || it.itemId)
-    const isPurse = purseKey && id === purseKey
-    const ownCoins = copperToCoins(Number(it.totalCoinsCopper ?? 0))
-    const labelCoins = isPurse ? creation.materialFinalCoins.value : ownCoins
+  if (!kept.length) {
     return {
-      id,
-      title: String(it.label || it.itemId || 'Objet'),
-      description: it.description ?? null,
-      image: it.image ?? null,
-      typeLabel: it.type ?? null,
-      quantity: Number(it.quantity ?? 1),
-      weightTotal: Number(it.weightTotal ?? 0),
-      valueLabel: toValueLabel(labelCoins),
-      equipped: equippedKeys.has(id),
-      rarity: 'commun',
-      tags: Array.isArray(it.tags) ? it.tags : []
+      items: [] as InventaireItem[],
+      keptIds: [] as string[],
+      equippedIds: [] as string[]
     }
+  }
+  return buildCreationInventoryTransition({
+    entries: kept.map((entry) => entry.item),
+    assignments: (creation.materialAssignments as Record<string, string | null> | undefined) ?? null,
+    purseKey: creation.materialCoinPurseKey?.value || null,
+    finalCoins: creation.materialFinalCoins?.value ?? null
   })
 })
+
+const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
+  if (typeof storePersonnage._storageKey === 'function') {
+    return storePersonnage._storageKey(partyId)
+  }
+  return partyId ? `JDR_PERSO_${partyId}` : 'JDR_PERSO'
+}
+
+const refreshDebugSnapshots = () => {
+  if (!process.client) {
+    debugPartieCache.value = null
+    debugPartieStorage.value = null
+    debugPersonnageStorage.value = null
+    return
+  }
+  const currentId = partiesStore.currentPartyId
+  const cached = currentId ? partiesStore.getPartie(currentId) : null
+  debugPartieCache.value = cached ?? null
+  const partieKey = currentId ? `JDR_PARTIE_DATA_${currentId}` : null
+  debugPartieStorage.value = partieKey
+    ? (() => {
+        const raw = localStorage.getItem(partieKey)
+        if (!raw) return null
+        try {
+          return JSON.parse(raw)
+        } catch (error) {
+          return { erreur: 'JSON invalide', raw }
+        }
+      })()
+    : null
+  const personnageKey = resolvePersonnageStorageKey(currentId)
+  debugPersonnageStorage.value = (() => {
+    const raw = localStorage.getItem(personnageKey)
+    if (!raw) return null
+    try {
+      return JSON.parse(raw)
+    } catch (error) {
+      return { erreur: 'JSON invalide', raw }
+    }
+  })()
+}
+
+const formatDebugValue = (value: unknown) => {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch (error) {
+    return String(value)
+  }
+}
+
+const summariseDebugSource = (value: any) => {
+  if (!value || typeof value !== 'object') return [] as Array<{ label: string; value: string }>
+  const rows: Array<{ label: string; value: string }> = []
+  if ('id' in value && typeof value.id === 'string') rows.push({ label: 'ID', value: value.id })
+  if ('updatedAt' in value && typeof value.updatedAt === 'string') rows.push({ label: 'Mis a jour', value: value.updatedAt })
+  if ('inventaire' in value && Array.isArray(value.inventaire)) rows.push({ label: 'Objets', value: String(value.inventaire.length) })
+  if ('journalEntries' in value && Array.isArray(value.journalEntries)) rows.push({ label: 'Journal', value: String(value.journalEntries.length) })
+  if ('quetes' in value && Array.isArray(value.quetes)) rows.push({ label: 'Quetes', value: String(value.quetes.length) })
+  if ('aides' in value && Array.isArray(value.aides)) rows.push({ label: 'Aides', value: String(value.aides.length) })
+  return rows
+}
+
+const toggleDebugPanel = () => {
+  showDebugPanel.value = !showDebugPanel.value
+  if (showDebugPanel.value) {
+    refreshDebugSnapshots()
+  }
+}
+
+const cloneInventaireItems = (items: InventaireItem[] | undefined | null): InventaireItem[] =>
+  (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    tags: Array.isArray(item.tags) ? [...item.tags] : []
+  }))
+
+const areInventairesEqual = (left: InventaireItem[], right: InventaireItem[]) =>
+  JSON.stringify(left) === JSON.stringify(right)
+
+const syncInventaireState = (items: InventaireItem[]) => {
+  const cloned = cloneInventaireItems(items)
+  inventaireOriginal.value = cloned
+  inventaireDraft.value = cloneInventaireItems(cloned)
+  if (!isSyncingInventaire.value) {
+    isSyncingInventaire.value = true
+    storePersonnage.perso.inventaire = cloneInventaireItems(cloned)
+    isSyncingInventaire.value = false
+  }
+}
+
+const hasPendingInventoryChanges = computed(() => {
+  return JSON.stringify(inventaireDraft.value) !== JSON.stringify(inventaireOriginal.value)
+})
+
+watch(
+  [partie, creationInventoryTransition],
+  ([currentPartie, transition]) => {
+    if (!process.client) return
+    if (!currentPartie) {
+      if (!hasPendingInventoryChanges.value) {
+        syncInventaireState([])
+      }
+      return
+    }
+    if (currentPartie.inventaireInitialise) {
+      if (!hasPendingInventoryChanges.value) {
+        const cloned = cloneInventaireItems(currentPartie.inventaire)
+        syncInventaireState(cloned)
+      }
+      return
+    }
+    if (!transition.items.length) {
+      if (!hasPendingInventoryChanges.value) {
+        const cloned = cloneInventaireItems(currentPartie.inventaire)
+        syncInventaireState(cloned)
+      }
+      return
+    }
+    const initialItems = cloneInventaireItems(transition.items)
+    partiesStore.updatePartie(currentPartie.id, {
+      inventaire: initialItems,
+      inventaireInitialise: true
+    })
+    syncInventaireState(initialItems)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => partie.value?.inventaire,
+  (inventaire) => {
+    if (!partie.value) {
+      if (!hasPendingInventoryChanges.value) {
+        syncInventaireState([])
+      }
+      return
+    }
+    if (!partie.value.inventaireInitialise) return
+    if (hasPendingInventoryChanges.value || isSyncingInventaire.value) return
+    const cloned = cloneInventaireItems(inventaire)
+    if (areInventairesEqual(cloned, inventaireOriginal.value)) return
+    isSyncingInventaire.value = true
+    syncInventaireState(cloned)
+    isSyncingInventaire.value = false
+  },
+  { deep: true }
+)
+
+watch(
+  () => storePersonnage.perso.inventaire,
+  (inventaire) => {
+    if (!partie.value) return
+    if (!partie.value.inventaireInitialise) return
+    if (hasPendingInventoryChanges.value || isSyncingInventaire.value) return
+    const cloned = cloneInventaireItems(inventaire)
+    if (areInventairesEqual(cloned, inventaireOriginal.value)) return
+    isSyncingInventaire.value = true
+    partiesStore.updatePartie(partie.value.id, {
+      inventaire: cloned,
+      inventaireInitialise: true
+    })
+    syncInventaireState(cloned)
+    storePersonnage.sauvegarderLocal(partie.value.id)
+    isSyncingInventaire.value = false
+  },
+  { deep: true }
+)
+
+watch(
+  () => partiesStore.cache,
+  () => {
+    if (showDebugPanel.value) {
+      refreshDebugSnapshots()
+    }
+  },
+  { deep: true }
+)
 
 const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
   { id: 'narration', label: 'Narration', hint: 'Fil de discussion' },
@@ -174,6 +370,12 @@ onMounted(() => {
   partiesStore.initialiser()
   const id = partiesStore.currentPartyId
   if (!id) return
+  partiesStore.chargerPartie(id)
+  const current = partiesStore.getPartie(id)
+  if (current) {
+    const cloned = cloneInventaireItems(current.inventaire)
+    syncInventaireState(cloned)
+  }
   const key = `JDR_PERSO_${id}`
   const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
   if (sauvegarde) {
@@ -181,6 +383,9 @@ onMounted(() => {
     etatSauvegarde.value = 'chargee'
   } else {
     etatSauvegarde.value = 'aucune'
+  }
+  if (showDebugPanel.value) {
+    refreshDebugSnapshots()
   }
 })
 
@@ -190,6 +395,11 @@ watch(
     if (!process.client) return
     if (id) {
       partiesStore.chargerPartie(id)
+      const current = partiesStore.getPartie(id)
+      if (current && !hasPendingInventoryChanges.value) {
+        const cloned = cloneInventaireItems(current.inventaire)
+        syncInventaireState(cloned)
+      }
       const key = `JDR_PERSO_${id}`
       const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
       if (sauvegarde) {
@@ -200,6 +410,9 @@ watch(
       }
     }
     activeSection.value = 'narration'
+    if (showDebugPanel.value) {
+      refreshDebugSnapshots()
+    }
   },
   { immediate: true }
 )
@@ -226,12 +439,17 @@ const panelConfig = computed(() => {
       return {
         component: AventureInventaire,
         props: {
-          items: inventaireFromCreation.value.length ? inventaireFromCreation.value : data.inventaire
+          items: inventaireDraft.value,
+          pendingChanges: hasPendingInventoryChanges.value,
+          disabled: !partie.value,
+          readonly: false
         },
         on: {
-          equip: handleEquipItem,
-          drop: handleDropItem,
-          inspect: handleInspectItem
+          equip: handleDraftEquip,
+          drop: handleDraftDrop,
+          inspect: handleDraftInspect,
+          validate: handleValidateInventory,
+          reset: handleResetInventory
         }
       }
     case 'quetes':
@@ -316,27 +534,37 @@ const handleSendMessage = ({ content }: { content: string }) => {
   }, 400)
 }
 
-const handleEquipItem = ({ itemId, equip }: { itemId: string; equip: boolean }) => {
-  if (!partie.value) return
-  const updated = partie.value.inventaire.map((item) =>
-    item.id === itemId ? { ...item, equipped: equip } : item
+const handleDraftEquip = ({ item, equip }: { item: InventaireItem; equip: boolean }) => {
+  inventaireDraft.value = inventaireDraft.value.map((entry) =>
+    entry.id === item.id ? { ...entry, equipped: equip } : entry
   )
-  partiesStore.updatePartie(partie.value.id, { inventaire: updated })
-  pushSystemMessage(equip ? 'Objet equipe.' : 'Objet range dans le sac.')
 }
 
-const handleDropItem = ({ itemId }: { itemId: string }) => {
-  if (!partie.value) return
-  const updated = partie.value.inventaire.filter((item) => item.id !== itemId)
-  partiesStore.updatePartie(partie.value.id, { inventaire: updated })
-  pushSystemMessage('Objet retire de votre inventaire.')
+const handleDraftDrop = ({ item }: { item: InventaireItem }) => {
+  inventaireDraft.value = inventaireDraft.value.filter((entry) => entry.id !== item.id)
 }
 
-const handleInspectItem = ({ itemId }: { itemId: string }) => {
+const handleDraftInspect = ({ item }: { item: InventaireItem }) => {
+  const summary = `Inspection: ${item.title}. ${item.description ?? ''}`.trim()
+  pushSystemMessage(summary)
+}
+
+const handleValidateInventory = () => {
   if (!partie.value) return
-  const item = partie.value.inventaire.find((entry) => entry.id === itemId)
-  if (!item) return
-  pushSystemMessage(`Inspection: ${item.title}. ${item.description ?? ''}`.trim())
+  if (!hasPendingInventoryChanges.value) return
+  const updated = cloneInventaireItems(inventaireDraft.value)
+  partiesStore.updatePartie(partie.value.id, {
+    inventaire: updated,
+    inventaireInitialise: true
+  })
+  syncInventaireState(updated)
+  storePersonnage.sauvegarderLocal(partie.value.id)
+  pushSystemMessage('Inventaire mis a jour.')
+  if (showDebugPanel.value) refreshDebugSnapshots()
+}
+
+const handleResetInventory = () => {
+  inventaireDraft.value = cloneInventaireItems(inventaireOriginal.value)
 }
 
 const handleToggleQuete = ({ id }: { id: string }) => {
@@ -482,6 +710,125 @@ const pushSystemMessage = (content: string) => {
 .aventure-page__badge--loaded {
   background: rgba(92, 227, 171, 0.18);
   color: #5ce3ab;
+}
+
+.aventure-page__header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aventure-page__debug-button,
+.aventure-page__debug-refresh {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 12, 30, 0.7);
+  color: var(--texte);
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.aventure-page__debug-button:hover,
+.aventure-page__debug-refresh:hover {
+  background: rgba(20, 26, 48, 0.85);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.aventure-page__debug {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(8, 12, 30, 0.65);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.aventure-page__debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aventure-page__debug-header h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--texte);
+}
+
+.aventure-page__debug-grid {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 900px) {
+  .aventure-page__debug-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.aventure-page__debug-card {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  background: rgba(10, 14, 32, 0.75);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aventure-page__debug-card h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--texte-2);
+}
+
+.aventure-page__debug-card details {
+  font-size: 12px;
+  color: var(--texte-2);
+}
+
+.aventure-page__debug-card pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.4;
+  background: rgba(4, 6, 16, 0.85);
+  border-radius: 8px;
+  padding: 12px;
+  color: #93a1ff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.aventure-page__debug-summary {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--texte);
+}
+
+.aventure-page__debug-summary li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.aventure-page__debug-summary strong {
+  font-weight: 600;
+  color: var(--texte);
 }
 
 .aventure-page__state,

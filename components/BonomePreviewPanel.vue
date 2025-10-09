@@ -114,6 +114,7 @@ import {
 } from '@/stores/bonomeCreation';
 import { usePersonnage } from '@/stores/personnage';
 import { useParties } from '@/stores/parties';
+import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
 
 const router = useRouter();
 const creation = useBonomeCreationStore();
@@ -320,6 +321,19 @@ async function handleSave() {
       if (partieId) {
         partiesStore.setCurrentParty(partieId);
       }
+    }
+    if (partieId) {
+      const keptEntries = (creation.materialKeptItems?.value ?? []) as Array<{ item: unknown }>;
+      const transition = buildCreationInventoryTransition({
+        entries: keptEntries.map((entry) => entry.item),
+        assignments: (creation.materialAssignments as Record<string, string | null> | undefined) ?? null,
+        purseKey: creation.materialCoinPurseKey?.value || null,
+        finalCoins: creation.materialFinalCoins?.value ?? null
+      });
+      partiesStore.updatePartie(partieId, {
+        inventaire: transition.items,
+        inventaireInitialise: true
+      });
     }
     personnageStore.sauvegarderLocal(partieId ?? undefined);
     creation.lockCreation();

@@ -29,6 +29,12 @@
         <dd>{{ equipped ? 'Equipe' : 'Sac' }}</dd>
       </div>
     </dl>
+    <div v-if="typeDetails.length" class="item-card__type-extra">
+      <div v-for="detail in typeDetails" :key="detail.label" class="item-card__type-row">
+        <span class="item-card__type-label">{{ detail.label }}</span>
+        <span class="item-card__type-value">{{ detail.value }}</span>
+      </div>
+    </div>
     <footer class="item-card__footer">
       <div class="item-card__tags" v-if="tags && tags.length">
         <span v-for="tag in tags" :key="tag" class="item-card__tag">{{ tag }}</span>
@@ -114,6 +120,32 @@ const articleClass = computed(() => ({
   'item-card': true,
   'item-card--equipped': props.equipped,
 }))
+
+const typeDetails = computed(() => {
+  const details: Array<{ label: string; value: string }> = []
+  const type = (props.typeLabel || '').toLowerCase()
+  const normalize = (value: string) =>
+    value
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+  if (type.includes('bourse') || type.includes('purse')) {
+    const contenu = props.valueLabel || (props.quantity ? `${props.quantity} unites` : 'Contenu inconnu')
+    details.push({ label: 'Contenu', value: contenu })
+  }
+  if (type.includes('arme') || type.includes('weapon')) {
+    const damageTag = (props.tags || []).find((tag) => /tranchant|perforant|contendant|degats|damage/.test(normalize(tag)))
+    const damage = damageTag ? damageTag : 'Degats variables'
+    details.push({ label: 'Degats', value: damage })
+  }
+  if (type.includes('armure') || type.includes('protection')) {
+    const protectionTag = (props.tags || []).find((tag) => /classe d'armure|armure|defense|protection/.test(normalize(tag)))
+    if (protectionTag) {
+      details.push({ label: 'Protection', value: protectionTag })
+    }
+  }
+  return details
+})
 </script>
 
 <style scoped>
@@ -313,3 +345,27 @@ const articleClass = computed(() => ({
   color: #ffb0a3;
 }
 </style>
+.item-card__type-extra {
+  display: grid;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.item-card__type-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--texte);
+}
+
+.item-card__type-label {
+  font-weight: 600;
+  color: var(--texte-2);
+}
+
+.item-card__type-value {
+  text-align: right;
+}

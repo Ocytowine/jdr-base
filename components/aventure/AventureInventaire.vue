@@ -21,14 +21,32 @@
         v-for="item in displayedItems"
         :key="item.id"
         v-bind="toCardProps(item)"
-        @equip="(equip) => emit('equip', { itemId: item.id, equip })"
-        @inspect="emit('inspect', { itemId: item.id })"
-        @drop="emit('drop', { itemId: item.id })"
+        @equip="(equip) => emit('equip', { item, equip })"
+        @inspect="emit('inspect', { item })"
+        @drop="emit('drop', { item })"
       />
     </section>
     <p v-else class="aventure-inventaire__empty">
       Aucun objet ne correspond a votre recherche.
     </p>
+    <footer v-if="!readonly" class="aventure-inventaire__footer">
+      <button
+        type="button"
+        class="aventure-inventaire__action"
+        :disabled="!pendingChanges || disabled"
+        @click="emit('validate')"
+      >
+        Valider les changements
+      </button>
+      <button
+        type="button"
+        class="aventure-inventaire__action aventure-inventaire__action--secondary"
+        :disabled="!pendingChanges"
+        @click="emit('reset')"
+      >
+        Annuler
+      </button>
+    </footer>
   </div>
 </template>
 
@@ -38,6 +56,7 @@ import CardItemAventure from './CardItemAventure.vue'
 
 export type InventaireItem = {
   id: string
+  originId?: string | null
   title: string
   description?: string | null
   image?: string | null
@@ -50,12 +69,26 @@ export type InventaireItem = {
   tags?: string[]
 }
 
-const props = defineProps<{ items: InventaireItem[] }>()
+const props = withDefaults(
+  defineProps<{
+    items: InventaireItem[]
+    pendingChanges?: boolean
+    readonly?: boolean
+    disabled?: boolean
+  }>(),
+  {
+    pendingChanges: false,
+    readonly: false,
+    disabled: false
+  }
+)
 
 const emit = defineEmits<{
-  (event: 'equip', payload: { itemId: string; equip: boolean }): void
-  (event: 'drop', payload: { itemId: string }): void
-  (event: 'inspect', payload: { itemId: string }): void
+  (event: 'equip', payload: { item: InventaireItem; equip: boolean }): void
+  (event: 'drop', payload: { item: InventaireItem }): void
+  (event: 'inspect', payload: { item: InventaireItem }): void
+  (event: 'validate'): void
+  (event: 'reset'): void
 }>()
 
 const search = ref('')
@@ -66,7 +99,7 @@ const displayedItems = computed(() => {
   return props.items.filter((item) => {
     if (equippedOnly.value && !item.equipped) return false
     if (!needle) return true
-    const fields = [item.title, item.description, item.typeLabel, ...(item.tags || [])]
+    const fields = [item.title, item.description, item.typeLabel, item.valueLabel, ...(item.tags || [])]
     return fields.some((field) => (field || '').toLowerCase().includes(needle))
   })
 })
@@ -148,6 +181,36 @@ const toCardProps = (item: InventaireItem) => ({
   margin: 0;
   font-size: 14px;
   color: var(--texte-2);
+}
+
+.aventure-inventaire__footer {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.aventure-inventaire__action {
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--accent);
+  color: #08122b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.aventure-inventaire__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.aventure-inventaire__action--secondary {
+  background: transparent;
+  color: var(--texte);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .sr-only {
