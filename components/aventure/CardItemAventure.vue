@@ -1,11 +1,11 @@
 <template>
   <article :class="articleClass">
-    <header class="item-card__header">
-      <div class="item-card__media">
-        <img :src="imageSrc" :alt="title" class="item-card__image" loading="lazy" />
-      </div>
-      <div class="item-card__summary">
-        <div class="item-card__summary-row">
+    <div class="item-card__media">
+      <img :src="imageSrc" :alt="title" class="item-card__image" loading="lazy" />
+    </div>
+    <div class="item-card__content">
+      <header class="item-card__header">
+        <div class="item-card__heading">
           <h3 class="item-card__title">{{ title }}</h3>
           <button
             v-if="hasExtraStats"
@@ -37,51 +37,44 @@
             <span class="item-card__badge-value">{{ badge.value }}</span>
           </li>
         </ul>
-      </div>
-    </header>
+      </header>
 
-    <section v-if="hasExtraStats" :id="detailsSectionId" class="item-card__details" v-show="detailsExpanded">
-      <dl class="item-card__grid">
-        <div v-for="stat in extraStatsList" :key="stat.label">
-          <dt>{{ stat.label }}</dt>
-          <dd>{{ stat.value }}</dd>
+      <section v-if="hasExtraStats" :id="detailsSectionId" class="item-card__details" v-show="detailsExpanded">
+        <dl class="item-card__grid">
+          <div v-for="stat in extraStatsList" :key="stat.label">
+            <dt>{{ stat.label }}</dt>
+            <dd>{{ stat.value }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <div v-if="typeDetailsList.length" class="item-card__type-extra">
+        <div v-for="detail in typeDetailsList" :key="detail.label" class="item-card__type-row">
+          <span class="item-card__type-label">{{ detail.label }}</span>
+          <span class="item-card__type-value">{{ detail.value }}</span>
         </div>
-      </dl>
-    </section>
-
-    <div v-if="typeDetailsList.length" class="item-card__type-extra">
-      <div v-for="detail in typeDetailsList" :key="detail.label" class="item-card__type-row">
-        <span class="item-card__type-label">{{ detail.label }}</span>
-        <span class="item-card__type-value">{{ detail.value }}</span>
       </div>
+
+      <footer v-if="hasActionSelect" class="item-card__footer">
+        <label class="item-card__action-select">
+          <span class="sr-only">Choisir une action</span>
+          <select ref="actionSelect" v-model="selectedAction" @change="handleActionChange">
+            <option value="" disabled>Actions...</option>
+            <option v-for="action in actionsList" :key="action.key" :value="action.key">
+              {{ action.label }}
+            </option>
+          </select>
+        </label>
+      </footer>
     </div>
-
-    <footer class="item-card__footer">
-      <div class="item-card__actions">
-        <button
-          v-if="showEquipButton"
-          type="button"
-          class="item-card__action item-card__action--primary"
-          @click="emit('equip', !equipped)"
-        >
-          {{ equipButtonLabel }}
-        </button>
-        <button type="button" class="item-card__action" @click="emit('inspect')">Inspecter</button>
-        <button type="button" class="item-card__action item-card__action--danger" @click="emit('drop')">Jeter</button>
-      </div>
-    </footer>
   </article>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import type { CardItemAction, CardItemStat } from './useInventoryCardPresenter'
 
 const DEFAULT_IMAGE = '/images/card.jpg'
-
-type StatEntry = {
-  label: string
-  value: string
-}
 
 const props = withDefaults(
   defineProps<{
@@ -90,12 +83,11 @@ const props = withDefaults(
     image?: string | null
     imageId?: string | null
     typeLabel?: string | null
-    badges?: StatEntry[]
-    extraStats?: StatEntry[]
-    typeDetails?: StatEntry[]
+    badges?: CardItemStat[]
+    extraStats?: CardItemStat[]
+    typeDetails?: CardItemStat[]
+    actions?: CardItemAction[]
     equipped?: boolean
-    equipActionLabel?: string | null
-    unequipActionLabel?: string | null
   }>(),
   {
     description: null,
@@ -105,9 +97,8 @@ const props = withDefaults(
     badges: () => [],
     extraStats: () => [],
     typeDetails: () => [],
-    equipped: false,
-    equipActionLabel: 'Equiper',
-    unequipActionLabel: 'Retirer'
+    actions: () => [],
+    equipped: false
   }
 )
 
@@ -118,6 +109,8 @@ const emit = defineEmits<{
 }>()
 
 const detailsExpanded = ref(false)
+const selectedAction = ref('')
+const actionSelect = ref<HTMLSelectElement | null>(null)
 
 const imageSrc = computed(() => {
   const src = typeof props.image === 'string' ? props.image.trim() : ''
@@ -138,7 +131,20 @@ const typeDetailsList = computed(() =>
   (props.typeDetails || []).filter((detail) => Boolean(detail?.label) && Boolean(detail?.value))
 )
 
+const actionsList = computed(() =>
+  (props.actions || []).filter((action) => Boolean(action?.key) && Boolean(action?.label))
+)
+
+const actionByKey = computed(() => {
+  const map: Record<string, CardItemAction> = {}
+  actionsList.value.forEach((action) => {
+    map[action.key] = action
+  })
+  return map
+})
+
 const hasExtraStats = computed(() => extraStatsList.value.length > 0)
+const hasActionSelect = computed(() => actionsList.value.length > 0)
 
 const baseId = computed(() => {
   const source = props.imageId || props.title
@@ -153,23 +159,41 @@ const detailsSectionId = computed(() => `item-card-details-${baseId.value || 'de
 
 const articleClass = computed(() => ({
   'item-card': true,
-  'item-card--equipped': props.equipped,
-  'item-card--expanded': detailsExpanded.value
+  'item-card--equipped': props.equipped
 }))
-
-const equipButtonLabel = computed(() =>
-  props.equipped ? props.unequipActionLabel || 'Retirer' : props.equipActionLabel || 'Equiper'
-)
-
-const showEquipButton = computed(() => {
-  const equipLabel = props.equipActionLabel || ''
-  const unequipLabel = props.unequipActionLabel || ''
-  return Boolean(equipLabel.trim() || unequipLabel.trim())
-})
 
 const toggleDetails = () => {
   if (!hasExtraStats.value) return
   detailsExpanded.value = !detailsExpanded.value
+}
+
+const handleActionChange = () => {
+  const key = selectedAction.value
+  if (!key) return
+
+  const action = actionByKey.value[key]
+  if (!action) {
+    selectedAction.value = ''
+    return
+  }
+
+  switch (action.kind) {
+    case 'equip':
+      emit('equip', true)
+      break
+    case 'unequip':
+      emit('equip', false)
+      break
+    case 'inspect':
+      emit('inspect')
+      break
+    case 'drop':
+      emit('drop')
+      break
+  }
+
+  selectedAction.value = ''
+  actionSelect.value?.blur()
 }
 </script>
 
@@ -177,13 +201,14 @@ const toggleDetails = () => {
 .item-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px;
+  gap: 0;
   border-radius: 18px;
   border: 1px solid var(--bord);
   background: linear-gradient(180deg, rgba(21, 25, 52, 0.95), rgba(10, 13, 30, 0.96));
   color: var(--texte);
   height: 100%;
+  min-height: 360px;
+  overflow: hidden;
 }
 
 .item-card--equipped {
@@ -191,33 +216,38 @@ const toggleDetails = () => {
   box-shadow: 0 0 0 1px rgba(92, 227, 171, 0.2);
 }
 
-.item-card__header {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-
 .item-card__media {
-  flex: 0 0 68px;
-  border-radius: 12px;
-  overflow: hidden;
+  position: relative;
+  flex: 0 0 33%;
+  min-height: 120px;
+  width: 100%;
   background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
 }
 
 .item-card__image {
-  width: 68px;
-  height: 68px;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
 }
 
-.item-card__summary {
+.item-card__content {
+  flex: 1 1 auto;
   display: flex;
-  flex: 1;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
+  padding: 20px;
 }
 
-.item-card__summary-row {
+.item-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.item-card__heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -336,56 +366,6 @@ const toggleDetails = () => {
   color: var(--texte);
 }
 
-.item-card__footer {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: auto;
-}
-
-.item-card__actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.item-card__action {
-  flex: 1;
-  min-width: 110px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: transparent;
-  color: var(--texte-2);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.item-card__action:hover {
-  transform: translateY(-1px);
-  border-color: var(--accent-border-soft);
-  color: var(--texte);
-}
-
-.item-card__action--primary {
-  background: var(--accent);
-  color: #08122b;
-  border-color: transparent;
-}
-
-.item-card__action--danger {
-  background: rgba(255, 99, 71, 0.12);
-  border-color: rgba(255, 99, 71, 0.3);
-  color: #ff8a7a;
-}
-
-.item-card__action--danger:hover {
-  border-color: #ff8a7a;
-  color: #ffb0a3;
-}
-
 .item-card__type-extra {
   display: grid;
   gap: 8px;
@@ -409,6 +389,32 @@ const toggleDetails = () => {
 
 .item-card__type-value {
   text-align: right;
+}
+
+.item-card__footer {
+  margin-top: auto;
+}
+
+.item-card__action-select {
+  display: block;
+}
+
+.item-card__action-select select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 12, 30, 0.75);
+  color: var(--texte);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.item-card__action-select select:hover {
+  border-color: var(--accent-border-soft);
+  background: rgba(12, 16, 38, 0.9);
 }
 
 .sr-only {

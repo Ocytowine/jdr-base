@@ -840,6 +840,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       normalized = { id: normalized };
     }
 
+    const resolvedData = normalized && typeof normalized.resolved === 'object' ? { ...normalized.resolved } : null;
+    if (resolvedData) {
+      normalized = { ...resolvedData, ...normalized };
+      normalized.resolved = resolvedData;
+    }
+
     const itemIdCandidate =
       normalized.itemId ??
       normalized.item_id ??
@@ -2083,4 +2089,3 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     materialAcquired
   };
 });
-

@@ -5,6 +5,14 @@ export type CardItemStat = {
   value: string
 }
 
+export type CardItemActionKind = 'equip' | 'unequip' | 'inspect' | 'drop'
+
+export type CardItemAction = {
+  key: string
+  label: string
+  kind: CardItemActionKind
+}
+
 export type PresentedCardItem = {
   title: string
   description: string | null
@@ -14,12 +22,45 @@ export type PresentedCardItem = {
   badges: CardItemStat[]
   extraStats: CardItemStat[]
   typeDetails: CardItemStat[]
+  actions: CardItemAction[]
   equipped: boolean
-  equipActionLabel: string
-  unequipActionLabel: string
 }
 
 const DEFAULT_VALUE = '-'
+
+const EQUIP_TYPES = [
+  'arme',
+  'armes',
+  'weapon',
+  'weapons',
+  'munition',
+  'munitions',
+  'ammo',
+  'accessoire',
+  'accessoires',
+  'accessory',
+  'accessories',
+  'grimoire',
+  'grimoires',
+  'spellbook',
+  'spellbooks',
+  'outil',
+  'outils',
+  'tool',
+  'tools'
+]
+
+const WEAPON_TYPE_TOKENS = ['arme', 'armes', 'weapon', 'weapons']
+const ARMOR_TYPE_TOKENS = ['armure', 'armures', 'armor', 'armors', 'bouclier', 'shield']
+
+const tokenizeType = (normalizedType: string): string[] =>
+  normalizedType.split(/[^a-z0-9]+/).filter((token) => token.length > 0)
+
+const matchesTypeTokens = (normalizedType: string, tokens: string[]): boolean => {
+  if (!normalizedType) return false
+  const parts = tokenizeType(normalizedType)
+  return parts.some((part) => tokens.includes(part))
+}
 
 const formatWeight = (value: number | null | undefined): string => {
   if (value === null || value === undefined || Number.isNaN(value)) return DEFAULT_VALUE
@@ -109,11 +150,11 @@ const computeTypeDetails = (
     details.push({ label: 'Contenu', value: valueDisplay })
   }
 
-  if (normalizedType === 'arme') {
+  if (matchesTypeTokens(normalizedType, WEAPON_TYPE_TOKENS)) {
     details.push(...getCombatDetails(item.properties_fight ?? null))
   }
 
-  if (normalizedType === 'armure') {
+  if (matchesTypeTokens(normalizedType, ARMOR_TYPE_TOKENS)) {
     details.push(...getArmorDetails(item.properties_equip ?? null))
   }
 
@@ -128,11 +169,28 @@ const computeTypeDetails = (
   return details
 }
 
+const computeActions = (item: InventaireItem, normalizedType: string): CardItemAction[] => {
+  const actions: CardItemAction[] = []
+  const canEquip = EQUIP_TYPES.includes(normalizedType)
+
+  if (canEquip) {
+    actions.push(
+      item.equipped
+        ? { key: 'unequip', label: 'Ranger', kind: 'unequip' }
+        : { key: 'equip', label: 'Equiper', kind: 'equip' }
+    )
+  }
+
+  actions.push({ key: 'inspect', label: 'Inspecter', kind: 'inspect' })
+  actions.push({ key: 'drop', label: 'Jeter', kind: 'drop' })
+
+  return actions
+}
+
 export const toPresentedCardItem = (item: InventaireItem): PresentedCardItem => {
   const quantity = Number.isFinite(item.quantity) ? Number(item.quantity) : 1
   const normalizedType = normalizeType(item.type)
   const valueDisplay = formatValue(item.value ?? null)
-  const isWeapon = normalizedType === 'arme' || normalizedType === 'weapon'
 
   return {
     title: item.name,
@@ -143,8 +201,14 @@ export const toPresentedCardItem = (item: InventaireItem): PresentedCardItem => 
     badges: computeBadges(item),
     extraStats: computeExtraStats(item, quantity),
     typeDetails: computeTypeDetails(item, normalizedType, valueDisplay),
-    equipped: Boolean(item.equipped),
-    equipActionLabel: 'Equiper',
-    unequipActionLabel: isWeapon ? 'Ranger' : 'Retirer'
+    actions: computeActions(item, normalizedType),
+    equipped: Boolean(item.equipped)
   }
 }
+
+
+
+
+
+
+
