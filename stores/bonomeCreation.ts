@@ -1301,6 +1301,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     const normalized = key !== null && key !== undefined ? String(key) : null;
     const keptKey = normalized && isMaterialItemKept(normalized) ? normalized : null;
 
+    if (keptKey) {
+      clearAssignmentsForItem(keptKey);
+    }
+
     switch (slot) {
       case 'primaryWeapon':
         materialAssignments.primaryWeaponKey = keptKey;

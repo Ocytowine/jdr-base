@@ -68,10 +68,10 @@
             <li v-for="it in assignedList" :key="`a-${String(it.item.key || it.item.itemId)}`">
               {{ formatItem(it.item) }} - <strong>porté</strong>
             </li>
-            <li v-for="it in unassignedList" :key="`u-${String(it.key || it.itemId)}`">
+            <li v-for="it in inventoryItems" :key="`u-${String(it.key || it.itemId)}`">
               {{ formatItem(it) }} - rangé
             </li>
-            <li v-if="!assignedList.length && !unassignedList.length" class="preview-list__empty">
+            <li v-if="!assignedList.length && !inventoryItems.length" class="preview-list__empty">
               Aucun objet
             </li>
           </ul>
@@ -151,12 +151,20 @@ const resolvedKeptItemsForSlots = computed(() => {
   return storeKept.map((entry: any) => entry.item);
 });
 
+const itemKey = (item: any) => String(item?.key ?? item?.itemId ?? item?.id ?? '');
 const lc = (value: unknown) => String(value ?? '').toLowerCase();
-const field = (item: any) => `${lc(item.type ?? item.resolved?.type)} ${lc(item.label)} ${lc(item.itemId ?? item.id ?? '')}`.trim();
-const isWeapon = (item: any) => /(arme|weapon|focalisateur|arc|epee|fleche|dague|hache|masse|lance|marteau)/.test(field(item));
-const isProtection = (item: any) => /(armure|armor|armour|protection|cuir|maille|plaque|vetement)/.test(field(item));
-const isShield = (item: any) => /(bouclier|shield)/.test(field(item));
-const isAccessory = (item: any) => /(accessoire|accessory|amulette|anneau|baguette|focus|talisman|gantelet|kit)/.test(field(item));
+const typeTag = (item: any) => lc(item.type ?? item.resolved?.type ?? '');
+const matchesTypeTag = (item: any, patterns: string[]) => {
+  const tag = typeTag(item);
+  if (!tag.length) {
+    return false;
+  }
+  return patterns.some((pattern) => tag.includes(pattern));
+};
+const isWeapon = (item: any) => matchesTypeTag(item, ['arme', 'weapon', 'focalisateur']);
+const isProtection = (item: any) => matchesTypeTag(item, ['armure', 'armor', 'armour', 'protection', 'vetement']);
+const isShield = (item: any) => matchesTypeTag(item, ['bouclier', 'shield']);
+const isAccessory = (item: any) => matchesTypeTag(item, ['accessoire', 'accessory', 'amulette', 'anneau', 'baguette', 'focus', 'talisman', 'gantelet', 'kit']);
 
 const slotOptionsForKept = computed(() => {
   const items = resolvedKeptItemsForSlots.value;
@@ -174,7 +182,7 @@ const slotCandidatesForUi = computed(() => {
   const prune = (list: any[]) => {
     if (!Array.isArray(list)) return [];
     if (!purseKey) return list;
-    return list.filter((item) => String(item?.key ?? item?.itemId ?? item?.id ?? '') !== purseKey);
+    return list.filter((item) => itemKey(item) !== purseKey);
   };
   const map = slotOptionsForKept.value;
   return {
@@ -198,25 +206,80 @@ const coinPurseFinalLabel = computed(() => {
 })
 
 // Helpers for slot assignment UI
-const formatItem = (it: any) => (creation.formatMaterialItemDisplay as (item: any) => string)(it)
-const candidatesFor = (slotId: string) => (slotCandidatesForUi.value as Record<string, any[]>)[slotId] ?? []
-const assignmentFor = (slotId: string) => {
-  const a = creation.materialAssignments as any
-  const normalize = (value: string | null | undefined) => (value ? String(value) : '')
+const formatItem = (it: any) => (creation.formatMaterialItemDisplay as (item: any) => string)(it);
+
+const assignmentsBySlot = computed(() => {
+  const a = creation.materialAssignments as any;
+  return {
+    primaryWeapon: a?.primaryWeaponKey ? String(a.primaryWeaponKey) : null,
+    secondaryWeapon: a?.secondaryWeaponKey ? String(a.secondaryWeaponKey) : null,
+    protection: a?.protectionKey ? String(a.protectionKey) : null,
+    shield: a?.shieldKey ? String(a.shieldKey) : null,
+    accessories: Array.isArray(a?.accessoriesKeys) ? a.accessoriesKeys.map((k: any) => String(k)) : []
+  };
+});
+
+const assignedKeySet = computed(() => {
+  const map = assignmentsBySlot.value;
+  const set = new Set<string>();
+  const push = (value: string | null) => { if (value) set.add(value); };
+  push(map.primaryWeapon);
+  push(map.secondaryWeapon);
+  push(map.protection);
+  push(map.shield);
+  for (const key of map.accessories) push(key);
+  return set;
+});
+
+const candidatesFor = (slotId: string) => {
+  const list = (slotCandidatesForUi.value as Record<string, any[]>)[slotId] ?? [];
+  const map = assignmentsBySlot.value;
+  const forbidden = new Set(assignedKeySet.value);
+  const allow = (value: string | null) => { if (value) forbidden.delete(value); };
   switch (slotId) {
-    case 'primaryWeapon': return normalize(a.primaryWeaponKey)
-    case 'secondaryWeapon': return normalize(a.secondaryWeaponKey)
-    case 'protection': return normalize(a.protectionKey)
-    case 'shield': return normalize(a.shieldKey)
-    case 'accessories': return '' // multi-select not provided in this UI version
-    default: return ''
+    case 'primaryWeapon': allow(map.primaryWeapon); break;
+    case 'secondaryWeapon': allow(map.secondaryWeapon); break;
+    case 'protection': allow(map.protection); break;
+    case 'shield': allow(map.shield); break;
+    case 'accessories':
+      for (const key of map.accessories) forbidden.delete(key);
+      break;
   }
-}
+  return list.filter((item) => {
+    const key = itemKey(item);
+    return !key || !forbidden.has(key);
+  });
+};
+
+const assignmentFor = (slotId: string) => {
+  const map = assignmentsBySlot.value;
+  switch (slotId) {
+    case 'primaryWeapon': return map.primaryWeapon ?? '';
+    case 'secondaryWeapon': return map.secondaryWeapon ?? '';
+    case 'protection': return map.protection ?? '';
+    case 'shield': return map.shield ?? '';
+    case 'accessories':
+      return '';
+    default: return '';
+  }
+};
+
 const onAssign = (slotId: string, key: string) => {
-  (creation.setMaterialAssignment as any)(slotId, key && key.length ? key : null)
-}
-const unassignedList = computed(() => (creation.unassignedKeptItems as any).value ?? [])
-const assignedList = computed(() => ((creation.materialAcquired as any).value ?? []).filter((e: any) => e.status === 'porte'))
+  (creation.setMaterialAssignment as any)(slotId, key && key.length ? key : null);
+};
+
+const inventoryItems = computed(() => {
+  const assigned = assignedKeySet.value;
+  return resolvedKeptItemsForSlots.value.filter((item) => {
+    const key = itemKey(item);
+    if (!key) {
+      return true;
+    }
+    return !assigned.has(key);
+  });
+});
+
+const assignedList = computed(() => ((creation.materialAcquired as any).value ?? []).filter((e: any) => e.status === 'porte'));
 
 // UI slots: base definitions minus 'pack' + add 'shield'
 const uiSlots = computed(() => {
