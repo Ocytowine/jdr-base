@@ -110,7 +110,54 @@
           </div>
         </section>
 
-        <section class="preview-section">
+        <section v-if="false" class="preview-section">
+          <h4 class="preview-section__title">Inventaire retenu</h4>
+          <ul class="preview-list">
+            <li v-for="it in keptItemsDisplay" :key="it.key">{{ it.label }}</li>
+            <li v-if="!keptItemsDisplay.length" class="preview-list__empty">Aucun objet conservǸ</li>
+          </ul>
+          <p class="preview-list__hint" v-if="coinPurseFinalLabel">
+            {{ coinPurseLabel }} : {{ coinPurseFinalLabel }}
+          </p>
+        </section>
+
+        <section v-if="false" class="preview-section">
+          <h4 class="preview-section__title">Preparation du materiel (choix par slot)</h4>
+          <div class="preview-section__form">
+            <div v-for="slot in uiSlots" :key="slot.id" class="preview-form__row">
+              <label class="preview-form__label">{{ slot.label }}</label>
+              <select
+                class="preview-form__select"
+                :value="assignmentFor(slot.id)"
+                @change="onAssign(slot.id, ($event.target as HTMLSelectElement).value)"
+              >
+                <option :value="''">-- A definir --</option>
+                <option
+                  v-for="it in candidatesFor(slot.id)"
+                  :key="String(it.key || it.itemId)"
+                  :value="String(it.key || it.itemId)"
+                >
+                  {{ formatItem(it) }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <div class="preview-section__divider"></div>
+          <h5 class="preview-section__subtitle">Inventaire</h5>
+          <ul class="preview-list">
+            <li v-for="it in assignedList" :key="'a-'+String(it.item.key || it.item.itemId)">
+              {{ formatItem(it.item) }} — <strong>porté</strong>
+            </li>
+            <li v-for="it in unassignedList" :key="'u-'+String(it.key || it.itemId)">
+              {{ formatItem(it) }} — rangé
+            </li>
+            <li v-if="!assignedList.length && !unassignedList.length" class="preview-list__empty">Aucun objet</li>
+          </ul>
+          <p class="preview-list__hint" v-if="coinPurseFinalLabel">
+            {{ coinPurseLabel }} : {{ coinPurseFinalLabel }}
+          </p>
+
           <h4 class="preview-section__title">Portrait narratif</h4>
           <div class="preview-section__tiles">
             <div v-for="entry in narrativeSummary" :key="entry.id" class="preview-tile">
@@ -153,6 +200,7 @@ import {
   type MaterialPlan
 } from '@/stores/bonomeCreation';
 import { usePersonnage } from '@/stores/personnage';
+import { useParties } from '@/stores/parties';
 
 const router = useRouter();
 const creation = useBonomeCreationStore();
@@ -210,6 +258,54 @@ const materialNotesDisplay = computed(() =>
   typeof materialPlan.notes === 'string' ? materialPlan.notes.trim() : ''
 );
 
+// Liste simple des objets conservés et bourse finale
+const keptItemsDisplay = computed(() => {
+  const arr = (creation.materialKeptItems?.value ?? []) as Array<{ item: any; keep: boolean }>
+  const fmt = creation.formatMaterialItemDisplay as (item: any) => string
+  return arr.map((entry) => ({ key: String(entry.item.key || entry.item.itemId), label: fmt(entry.item) }))
+})
+
+const coinPurseLabel = computed(() => creation.materialCoinPurseLabel?.value || 'Bourse')
+const coinPurseFinalLabel = computed(() => {
+  const coins = creation.materialFinalCoins?.value
+  if (!coins) return ''
+  const parts: string[] = []
+  if (coins.gold) parts.push(`${coins.gold} po`)
+  if (coins.silver) parts.push(`${coins.silver} pa`)
+  if (coins.copper) parts.push(`${coins.copper} pc`)
+  return parts.join(' ')
+})
+
+// Helpers for slot assignment UI
+const formatItem = (it: any) => (creation.formatMaterialItemDisplay as (item: any) => string)(it)
+const candidatesFor = (slotId: string) => (creation.slotCandidates as any).value?.[slotId] ?? []
+const assignmentFor = (slotId: string) => {
+  const a = creation.materialAssignments as any
+  switch (slotId) {
+    case 'primaryWeapon': return a.primaryWeaponKey
+    case 'secondaryWeapon': return a.secondaryWeaponKey
+    case 'protection': return a.protectionKey
+    case 'shield': return a.shieldKey
+    case 'accessories': return '' // multi-select not provided in this UI version
+    default: return ''
+  }
+}
+const onAssign = (slotId: string, key: string) => {
+  (creation.setMaterialAssignment as any)(slotId, key && key.length ? key : null)
+}
+const unassignedList = computed(() => (creation.unassignedKeptItems as any).value ?? [])
+const assignedList = computed(() => ((creation.materialAcquired as any).value ?? []).filter((e: any) => e.status === 'porte'))
+
+// UI slots: base definitions minus 'pack' + add 'shield'
+const uiSlots = computed(() => {
+  const list = [...(MATERIAL_SLOT_DEFINITIONS as any)]
+    .filter((s: any) => s.id !== 'pack')
+  if (!list.some((s: any) => s.id === 'shield')) {
+    list.splice(3, 0, { id: 'shield', label: 'Bouclier', hint: '', placeholder: '' })
+  }
+  return list
+})
+
 const canSave = computed(() => preview.value?.ok && !(preview.value?.errors?.length));
 const saving = ref(false);
 const saveError = ref<string | null>(null);
@@ -229,7 +325,18 @@ async function handleSave() {
     }
 
     personnageStore.perso = payload;
-    personnageStore.sauvegarderLocal();
+    const partiesStore = useParties();
+    if (process.client) {
+      partiesStore.initialiser();
+    }
+    let partieId = partiesStore.currentPartyId as string | null;
+    if (!partieId) {
+      partieId = partiesStore.creerPartie() as string | null;
+      if (partieId) {
+        partiesStore.setCurrentParty(partieId);
+      }
+    }
+    personnageStore.sauvegarderLocal(partieId ?? undefined);
     creation.lockCreation();
 
     await router.push('/aventure');
@@ -578,5 +685,13 @@ async function handleSave() {
   margin: 0;
   font-size: 13px;
   color: var(--ko);
+}
+</style>
+
+<style scoped>
+/* Hide legacy preview sections: static material summary and kept-inventory */
+.preview__panel > .preview__grid:nth-of-type(2) > .preview-section:nth-of-type(1),
+.preview__panel > .preview__grid:nth-of-type(2) > .preview-section:nth-of-type(2) {
+  display: none !important;
 }
 </style>
