@@ -1,4 +1,5 @@
 import type { InventaireItem, InventaireValue } from './AventureInventaire.vue'
+import { useDataStore } from '@/stores/data'
 
 export type CardItemStat = {
   label: string
@@ -14,7 +15,8 @@ export type CardItemAction = {
 }
 
 export type PresentedCardItem = {
-  title: string
+  name: string
+  title?: string
   description: string | null
   imageId: string | null
   image: string | null
@@ -187,22 +189,67 @@ const computeActions = (item: InventaireItem, normalizedType: string): CardItemA
   return actions
 }
 
+const enrichWithData = (item: InventaireItem): InventaireItem => {
+  try {
+    const data = useDataStore()
+    const raw = data?.maps?.items?.[item.id]
+    if (!raw || typeof raw !== 'object') return item
+    const coalesce = <T>(a: T | undefined, b: T | undefined): T | undefined => (a !== undefined && a !== null ? a : b)
+
+    const rawName = (raw.name ?? raw.nom ?? raw.label) as any
+    const existingName = item.name as any
+    const isPlaceholder = !existingName || /^item-\d+$/i.test(String(existingName))
+    const name = (rawName ?? (isPlaceholder ? undefined : existingName) ?? item.id) as any
+
+    const description = coalesce((raw.description ?? raw.desc) as any, item.description as any) ?? null
+    const type = coalesce((raw.type ?? raw.resolved?.type) as any, item.type as any) ?? null
+    const weight = coalesce((raw.weight ?? raw.resolved?.weight) as any, item.weight as any) ?? null
+    const value = ((): InventaireValue | null => {
+      const v = raw.value ?? raw.resolved?.value
+      if (v && typeof v === 'object') {
+        return { gold: Number(v.gold)||0, silver: Number(v.silver)||0, copper: Number(v.copper)||0 }
+      }
+      return item.value ?? null
+    })()
+    const properties_fight = coalesce(item.properties_fight as any, raw.properties_fight as any) ?? null
+    const properties_equip = coalesce(item.properties_equip as any, raw.properties_equip as any) ?? null
+    const allow_stack = Boolean(coalesce(item.allow_stack as any, (raw.allow_stack ?? raw.allowStack) as any))
+    const harmonisable = Boolean(coalesce(item.harmonisable as any, (raw.harmonisable ?? raw.harmonizable) as any))
+    return {
+      ...item,
+      name: String(name),
+      description: description ? String(description) : null,
+      type: type ? String(type) : null,
+      weight: typeof weight === 'number' ? weight : item.weight ?? null,
+      value: value ?? item.value ?? null,
+      properties_fight,
+      properties_equip,
+      allow_stack,
+      harmonisable
+    }
+  } catch {
+    return item
+  }
+}
+
 export const toPresentedCardItem = (item: InventaireItem): PresentedCardItem => {
+  const base = enrichWithData(item)
   const quantity = Number.isFinite(item.quantity) ? Number(item.quantity) : 1
-  const normalizedType = normalizeType(item.type)
-  const valueDisplay = formatValue(item.value ?? null)
+  const normalizedType = normalizeType(base.type)
+  const valueDisplay = formatValue(base.value ?? null)
 
   return {
-    title: item.name,
-    description: item.description ?? null,
-    imageId: item.id ?? null,
+    name: base.name,
+    title: base.name,
+    description: base.description ?? null,
+    imageId: base.id ?? null,
     image: null,
-    typeLabel: item.type ?? null,
-    badges: computeBadges(item),
-    extraStats: computeExtraStats(item, quantity),
-    typeDetails: computeTypeDetails(item, normalizedType, valueDisplay),
-    actions: computeActions(item, normalizedType),
-    equipped: Boolean(item.equipped)
+    typeLabel: base.type ?? null,
+    badges: computeBadges(base),
+    extraStats: computeExtraStats(base, quantity),
+    typeDetails: computeTypeDetails(base, normalizedType, valueDisplay),
+    actions: computeActions(base, normalizedType),
+    equipped: Boolean(base.equipped)
   }
 }
 

@@ -1756,6 +1756,36 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     const protectionKey = slugForOrigin(protectionOriginKey);
     const shieldKey = slugForOrigin(shieldOriginKey);
 
+    const appliedFeaturesIds: string[] = Array.isArray((preview.value as any)?.appliedFeatures)
+      ? (preview.value as any).appliedFeatures.map((x: any) => String(x))
+      : [];
+    const knownSpells: string[] = Array.isArray(previewCharacter?.spellcasting?.known)
+      ? (previewCharacter.spellcasting.known as any[]).map((s) => String(s))
+      : [];
+
+    // Construire l'inventaire minimal a partir des items conserves (proposals) pour garder les IDs stables (itemId)
+    const minimalInventory = (() => {
+      const purseKey = materialCoinPurseKey.value ? String(materialCoinPurseKey.value) : null;
+      const keptEntries = materialKeptItems.value as Array<{ item: any; keep?: boolean }>;
+      const out: { id: string; quantity: number; coins?: { gold: number; silver: number; copper: number } | null }[] = [];
+      for (const entry of keptEntries) {
+        const it = entry?.item ?? {};
+        // Priorite a itemId (ID de repo), fallback sur id/resolved.id
+        const stableId = String(
+          it.itemId ?? it.id ?? it.resolved?.id ?? ''
+        ).trim();
+        if (!stableId) continue;
+        const quantity = Number(it.quantity ?? it.qte ?? 1) || 1;
+        const e: any = { id: stableId, quantity };
+        const key = String(it.key ?? '');
+        if (purseKey && key && key === purseKey) {
+          e.coins = materialFinalCoins.value ?? null;
+        }
+        out.push(e);
+      }
+      return out;
+    })();
+
     const personnage: Personnage = {
       id: toDisplayString(previewCharacter.id, `pj_${Date.now()}`),
       nom: displayCharacterName.value,
@@ -1785,7 +1815,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         notes: toDisplayString(previewCharacter.monture?.notes ?? '')
       },
       inspiration: Boolean(previewCharacter.inspiration ?? false),
-      inventaire: inventoryTransition.items,
+      inventaire: minimalInventory,
+      classeId: selectedClass.value || null,
+      raceId: selectedRace.value || null,
+      backgroundId: selectedBackground.value || null,
+      featureIds: appliedFeaturesIds,
+      spellIds: knownSpells,
       materielPersonnalise: {
         armePrincipale: toNullableString(materialPlan.primaryWeapon) ?? labelForKey(primaryOriginKey),
         armePrincipaleId: primaryKey,

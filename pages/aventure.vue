@@ -102,6 +102,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRequestFetch } from '#app'
 import { usePersonnage } from '@/stores/personnage'
 import { useParties } from '@/stores/parties'
 import type { PartieData } from '@/stores/parties'
@@ -117,6 +118,7 @@ import AventureJournal, { type JournalEntry } from '@/components/aventure/Aventu
 import AventureAides, { type AideMemoire } from '@/components/aventure/AventureAides.vue'
 import AventureCompagnons, { type Compagnon } from '@/components/aventure/AventureCompagnons.vue'
 import { useBonomeCreationStore } from '@/stores/bonomeCreation'
+import { useDataStore } from '@/stores/data'
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition'
 
 type EtatSauvegarde = 'chargement' | 'chargee' | 'aucune'
@@ -137,9 +139,12 @@ const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).
 const storePersonnage = usePersonnage()
 const partiesStore = useParties()
 const creation = useBonomeCreationStore()
+const dataStore = useDataStore()
+const requestFetch = useRequestFetch()
 
 if (process.client) {
   partiesStore.initialiser()
+  try { dataStore.load(partiesStore.currentPartyId || undefined) } catch {}
 }
 
 const etatSauvegarde = ref<EtatSauvegarde>('chargement')
@@ -154,6 +159,91 @@ const isSyncingInventaire = ref(false)
 
 const partie = computed<PartieData | null>(() => partiesStore.currentPartie)
 const messages = computed<AventureMessage[]>(() => partie.value?.messages ?? [])
+const classeDisplayLabel = computed(() => {
+  const cid = (storePersonnage as any).perso?.classeId || null
+  if (cid && dataStore.maps.classes[cid]) {
+    const raw = dataStore.maps.classes[cid]
+    return String(raw?.name || raw?.nom || raw?.label || storePersonnage.perso.classe || 'Classe')
+  }
+  return storePersonnage.perso.classe || 'Classe'
+})
+
+// Modules de classe a partir des features/sorts (data + ids du personnage)
+const classeModulesFromData = computed<ModuleClasse[]>(() => {
+  const out: ModuleClasse[] = []
+  try {
+    const perso: any = (storePersonnage as any).perso
+    const featureIds: string[] = Array.isArray(perso?.featureIds) ? perso.featureIds.map((x: any) => String(x)) : []
+    const spellIds: string[] = Array.isArray(perso?.spellIds) ? perso.spellIds.map((x: any) => String(x)) : []
+
+    for (const fid of featureIds) {
+      const raw = dataStore.maps.features[fid]
+      if (!raw) continue
+      const title = String(raw?.name || raw?.label || fid)
+      const description = String(
+        raw?.description || raw?.desc || raw?.summary || raw?.flavor || raw?.text || ''
+      )
+      const usage = ((): string | undefined => {
+        const u = raw?.usage || raw?.mecanique?.usage || raw?.recharge || raw?.cooldown
+        return u ? String(u) : undefined
+      })()
+      const cooldown = ((): string | undefined => {
+        const c = raw?.cooldown || raw?.mecanique?.cooldown || raw?.recharge
+        return c ? String(c) : undefined
+      })()
+      out.push({ id: fid, title, description, usage, cooldown })
+    }
+
+    for (const sid of spellIds) {
+      const raw = dataStore.maps.spells[sid]
+      if (!raw) continue
+      const title = String(raw?.name || raw?.nom || raw?.label || sid)
+      const pieces: string[] = []
+      if (raw?.school) pieces.push(String(raw.school))
+      if (raw?.level !== undefined) pieces.push(`Niv. ${raw.level}`)
+      const head = pieces.length ? `Sort • ${pieces.join(' • ')}` : 'Sort'
+      const description = String(raw?.description || raw?.desc || '')
+      out.push({ id: sid, title: `${head}: ${title}`, description })
+    }
+  } catch {}
+  return out
+})
+
+// Construit un item affichable a partir d'un couple (id, quantity) et des donnees brutes du store data
+const buildItemFromData = (id: string, quantity: number, coins: any | null | undefined) => {
+  const raw = dataStore.maps.items[id] || null
+  const name = (raw?.name || raw?.nom || raw?.label || id)
+  const description = raw?.description || raw?.desc || null
+  const type = raw?.type || raw?.resolved?.type || null
+  const weight = raw?.weight || raw?.resolved?.weight || null
+  const value = coins ? { gold: coins.gold||0, silver: coins.silver||0, copper: coins.copper||0 } : (raw?.value || raw?.resolved?.value || null)
+  const properties_fight = raw?.properties_fight || null
+  const properties_equip = raw?.properties_equip || null
+  return {
+    id,
+    originId: id,
+    name: String(name),
+    description: typeof description === 'string' ? description : null,
+    type: typeof type === 'string' ? type : null,
+    quantity: Number(quantity) || 1,
+    weight: typeof weight === 'number' ? weight : null,
+    value: value ? { gold: Number(value.gold)||0, silver: Number(value.silver)||0, copper: Number(value.copper)||0 } : null,
+    equipped: false,
+    allow_stack: Boolean(raw?.allow_stack || raw?.allowStack),
+    harmonisable: Boolean(raw?.harmonisable || raw?.harmonizable),
+    properties_fight: properties_fight ?? null,
+    properties_equip: properties_equip ?? null
+  } as InventaireItem
+}
+
+const inventaireFromData = computed<InventaireItem[]>(() => {
+  try {
+    const entries = Array.isArray((storePersonnage as any).perso?.inventaire) ? (storePersonnage as any).perso.inventaire : []
+    return entries.map((e: any) => buildItemFromData(String(e.id), Number(e.quantity)||1, e.coins || null))
+  } catch {
+    return []
+  }
+})
 
 // Inventaire issu de la création (Option A, affichage non destructif)
 const creationInventoryTransition = computed(() => {
@@ -255,17 +345,10 @@ const cloneInventaireItems = (items: InventaireItem[] | undefined | null): Inven
 const areInventairesEqual = (left: InventaireItem[], right: InventaireItem[]) =>
   JSON.stringify(left) === JSON.stringify(right)
 
-const syncInventaireState = (items: InventaireItem[], mirrorStore = true) => {
+const syncInventaireState = (items: InventaireItem[], mirrorStore = false) => {
   const cloned = cloneInventaireItems(items)
   inventaireOriginal.value = cloned
   inventaireDraft.value = cloneInventaireItems(cloned)
-  if (mirrorStore) {
-    isSyncingInventaire.value = true
-    storePersonnage.perso.inventaire = cloneInventaireItems(cloned)
-    nextTick(() => {
-      isSyncingInventaire.value = false
-    })
-  }
 }
 
 const hasPendingInventoryChanges = computed(() => {
@@ -285,9 +368,31 @@ watch(
     if (currentPartie.inventaireInitialise) {
       if (!hasPendingInventoryChanges.value) {
         const cloned = cloneInventaireItems(currentPartie.inventaire)
+        // Si inventaire contient des placeholders (ex: id comme 'item-0'), tenter remplacement via data
+        const hasPlaceholders = cloned.some((it) => /^item-\d+$/i.test(String(it.id)) || !it.name)
+        const dataItems = inventaireFromData.value
+        if (hasPlaceholders && dataItems.length) {
+          partiesStore.updatePartie(currentPartie.id, {
+            inventaire: dataItems,
+            inventaireInitialise: true
+          })
+          syncInventaireState(cloneInventaireItems(dataItems))
+          try { dataStore.load(currentPartie.id) } catch {}
+          return
+        }
         syncInventaireState(cloned)
-        storePersonnage.sauvegarderLocal(currentPartie.id)
       }
+      return
+    }
+    // Si la partie n'a pas encore un inventaire initialise, tenter d'abord les IDs + data
+    const dataItems = inventaireFromData.value
+    if (dataItems.length) {
+      partiesStore.updatePartie(currentPartie.id, {
+        inventaire: dataItems,
+        inventaireInitialise: true
+      })
+      syncInventaireState(cloneInventaireItems(dataItems))
+      try { dataStore.load(currentPartie.id) } catch {}
       return
     }
     if (!transition.items.length) {
@@ -306,7 +411,7 @@ watch(
     syncInventaireState(initialItems)
     storePersonnage.sauvegarderLocal(currentPartie.id)
   },
-  { immediate: true }
+  { immediate: false }
 )
 
 watch(
@@ -323,32 +428,11 @@ watch(
     const cloned = cloneInventaireItems(inventaire)
     if (areInventairesEqual(cloned, inventaireOriginal.value)) return
     syncInventaireState(cloned)
-    storePersonnage.sauvegarderLocal(partie.value.id)
   },
   { deep: true }
 )
 
-watch(
-  () => storePersonnage.perso.inventaire,
-  (inventaire) => {
-    if (!partie.value) return
-    if (!partie.value.inventaireInitialise) return
-    if (hasPendingInventoryChanges.value || isSyncingInventaire.value) return
-    const cloned = cloneInventaireItems(inventaire)
-    if (areInventairesEqual(cloned, inventaireOriginal.value)) return
-    isSyncingInventaire.value = true
-    partiesStore.updatePartie(partie.value.id, {
-      inventaire: cloned,
-      inventaireInitialise: true
-    })
-    syncInventaireState(cloned, false)
-    storePersonnage.sauvegarderLocal(partie.value.id)
-    nextTick(() => {
-      isSyncingInventaire.value = false
-    })
-  },
-  { deep: true }
-)
+// Le store personnage conserve des IDs minimaux; on ne synchronise plus vers la partie ici.
 
 watch(
   () => partiesStore.cache,
@@ -371,30 +455,81 @@ const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
   { id: 'compagnons', label: 'Compagnons', hint: 'Allies et familiers' }
 ]
 
-onMounted(() => {
+onMounted(async () => {
   if (!process.client) return
   partiesStore.initialiser()
   const id = partiesStore.currentPartyId
   if (!id) return
   partiesStore.chargerPartie(id)
-  const current = partiesStore.getPartie(id)
-  if (current) {
-    const cloned = cloneInventaireItems(current.inventaire)
-    syncInventaireState(cloned)
-    storePersonnage.sauvegarderLocal(id)
-  }
-  const key = `JDR_PERSO_${id}`
-  const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
-  if (sauvegarde) {
+  // Charger d'abord la fiche personnage avant toute sauvegarde
+  try {
     storePersonnage.chargerDepuisLocal(id ?? undefined)
     etatSauvegarde.value = 'chargee'
-  } else {
+  } catch {
     etatSauvegarde.value = 'aucune'
+  }
+  // Synchroniser l'inventaire UI a partir de la partie si present, sinon laisser les watchers reconstruire via data/personnage
+  const current = partiesStore.getPartie(id)
+  if (current && Array.isArray(current.inventaire) && current.inventaire.length) {
+    const cloned = cloneInventaireItems(current.inventaire)
+    syncInventaireState(cloned)
+  } else {
+    // Tenter de reconstruire via data/personnage
+    await ensureDataForCurrent()
+    const dataItems = inventaireFromData.value
+    if (current && dataItems.length) {
+      partiesStore.updatePartie(id, { inventaire: dataItems, inventaireInitialise: true })
+      syncInventaireState(cloneInventaireItems(dataItems))
+    }
   }
   if (showDebugPanel.value) {
     refreshDebugSnapshots()
   }
 })
+
+// Auto-complete des donnees manquantes (items/classes/etc.) via /api/creation/complete
+const ensureDataForCurrent = async () => {
+  if (!process.client) return
+  try {
+    const perso: any = (storePersonnage as any).perso
+    if (!perso) return
+    const itemIds: string[] = Array.isArray(perso.inventaire) ? perso.inventaire.map((e: any) => String(e.id)) : []
+    const missing = itemIds.filter((id) => !dataStore.maps.items[id])
+    const needEntities = missing.length > 0 || (perso.classeId && !dataStore.maps.classes[perso.classeId])
+    if (!needEntities) return
+    const selection = {
+      class: perso.classeId || null,
+      race: perso.raceId || null,
+      background: perso.backgroundId || null,
+      niveau: perso.niveau || 1,
+      chosenOptions: {}
+    }
+    const completion = await requestFetch('/api/creation/complete', {
+      method: 'POST',
+      body: { selection, previewCharacter: null, personnage: perso }
+    }).catch(() => null)
+    if (completion?.ok && completion.enriched) {
+      dataStore.merge(completion.enriched)
+      try { if (partiesStore.currentPartyId) dataStore.save(partiesStore.currentPartyId) } catch {}
+    }
+  } catch {}
+}
+
+watch(
+  () => (storePersonnage as any).perso?.inventaire,
+  async () => { await ensureDataForCurrent() },
+  { deep: true, immediate: true }
+)
+
+watch(
+  () => [
+    (storePersonnage as any).perso?.classeId,
+    JSON.stringify((storePersonnage as any).perso?.featureIds || []),
+    JSON.stringify((storePersonnage as any).perso?.spellIds || [])
+  ],
+  async () => { await ensureDataForCurrent() },
+  { immediate: true }
+)
 
 watch(
   () => partiesStore.currentPartyId,
@@ -436,8 +571,8 @@ const panelConfig = computed(() => {
       return {
         component: AventureClasse,
         props: {
-          classeLabel: storePersonnage.perso.classe || 'Classe a definir',
-          modules: data.modulesClasse
+          classeLabel: classeDisplayLabel.value || 'Classe a definir',
+          modules: (classeModulesFromData.value.length ? classeModulesFromData.value : data.modulesClasse)
         },
         on: {
           add: handleAddModule
@@ -855,3 +990,12 @@ const pushSystemMessage = (content: string) => {
   border-color: rgba(255, 208, 122, 0.24);
 }
 </style>
+// Synchronise le store de donnees enrichies avec la partie courante
+watch(
+  () => partiesStore.currentPartyId,
+  (id) => {
+    if (!process.client) return
+    try { dataStore.load(id || undefined) } catch {}
+  },
+  { immediate: false }
+)

@@ -313,6 +313,7 @@ export const useParties = defineStore('parties', {
       let data: PartieData
       if (raw) {
         try {
+          // Les anciennes sauvegardes peuvent encore contenir un inventaire -> on le lit mais sanitize retire les doublons
           data = sanitizePartie(JSON.parse(raw) as PartieData, id)
         } catch (error) {
           console.warn(`Impossible de charger la partie ${id}`, error)
@@ -381,7 +382,9 @@ export const useParties = defineStore('parties', {
       if (!process.client) return
       const data = this.cache[id]
       if (!data) return
-      localStorage.setItem(PARTY_DATA_PREFIX + id, JSON.stringify(data))
+      // Ne persiste pas l'inventaire dans la sauvegarde de partie (evite le doublon avec data/personnage)
+      const { inventaire: _discardInv, inventaireInitialise: _discardInit, ...rest } = data
+      localStorage.setItem(PARTY_DATA_PREFIX + id, JSON.stringify(rest))
     },
     persistCurrent() {
       if (!process.client) return

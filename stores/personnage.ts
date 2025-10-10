@@ -16,6 +16,12 @@ export type CompetenceDef = { id: string; nom: string; carac: keyof Caracs }
 
 type InventaireSnapshotItem = CreationInventoryTransition['items'][number]
 
+export type PersonnageInventoryEntry = {
+  id: string
+  quantity: number
+  coins?: { gold: number; silver: number; copper: number } | null
+}
+
 export type Personnage = {
   id: string
   nom: string
@@ -35,7 +41,14 @@ export type Personnage = {
   bouclier?: boolean
   monture: { nom: string; vitesse: string; notes: string }
   inspiration: boolean
-  inventaire: InventaireSnapshotItem[]
+  // inventaire minimal: uniquement id et quantite; la bourse contient coins
+  inventaire: PersonnageInventoryEntry[]
+  // IDs de reference (uniquement des identifiants; les donnees brutes sont dans stores/data)
+  classeId?: string | null
+  raceId?: string | null
+  backgroundId?: string | null
+  featureIds?: string[]
+  spellIds?: string[]
   materielPersonnalise: {
     armePrincipale: string | null
     armePrincipaleId: string | null
@@ -234,7 +247,17 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
 
   const slugUsage = new Map<string, number>()
   const rawInventaire = Array.isArray(source.inventaire) ? source.inventaire : []
-  const inventaire = rawInventaire.map((entry, index) => {
+  const inventaire: PersonnageInventoryEntry[] = rawInventaire.map((entry, index) => {
+    // support nouveau format deja minimal
+    if (entry && typeof entry === 'object' && 'id' in entry && 'quantity' in entry && !('name' in entry)) {
+      const e = entry as any
+      return {
+        id: String(e.id),
+        quantity: Number(e.quantity) || 1,
+        coins: e.coins ? { gold: Number(e.coins.gold) || 0, silver: Number(e.coins.silver) || 0, copper: Number(e.coins.copper) || 0 } : null
+      }
+    }
+    // fallback: ancien format riche -> convertir en minimal
     const fallbackName = `Objet ${index + 1}`
     const normalized = normalizeInventoryBase(entry, fallbackName)
     const baseId = normalized.idCandidate ?? normalized.originId ?? normalized.name ?? `item-${index}`
@@ -242,37 +265,21 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
     if (!slugBase && normalized.name) slugBase = slugify(normalized.name)
     if (!slugBase) slugBase = `item-${index}`
     const id = makeUniqueSlug(slugBase, slugUsage)
-    const originId = normalized.originId ?? normalized.idCandidate ?? id
+    // detect purse value -> store as coins
+    const coins = normalized.value ?? null
     return {
       id,
-      originId,
-      name: normalized.name,
-      description: normalized.description,
-      type: normalized.type,
-      quantity: normalized.quantity,
-      weight: normalized.weight,
-      value: normalized.value,
-      equipped: normalized.equipped,
-      allow_stack: normalized.allow_stack,
-      harmonisable: normalized.harmonisable,
-      properties_fight: normalized.properties_fight,
-      properties_equip: normalized.properties_equip
-    } satisfies InventaireSnapshotItem
+      quantity: Number(normalized.quantity) || 1,
+      coins
+    }
   })
 
   const slugByOrigin = new Map<string, string>()
-  for (const item of inventaire) {
-    slugByOrigin.set(item.id, item.id)
-    if (item.originId) {
-      slugByOrigin.set(item.originId, item.id)
-    }
-  }
-
   const adaptId = (value: unknown): string | null => {
     if (value === null || value === undefined) return null
     const str = String(value).trim()
     if (!str.length) return null
-    return slugByOrigin.get(str) ?? str
+    return str
   }
 
   const adaptIdArray = (value: unknown): string[] => {
@@ -304,6 +311,11 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
     caracs,
     competences,
     inventaire,
+    classeId: typeof source.classeId === 'string' ? source.classeId : base.classeId,
+    raceId: typeof source.raceId === 'string' ? source.raceId : base.raceId,
+    backgroundId: typeof source.backgroundId === 'string' ? source.backgroundId : base.backgroundId,
+    featureIds: Array.isArray(source.featureIds) ? source.featureIds.map((x: any) => String(x)) : (base.featureIds ?? []),
+    spellIds: Array.isArray(source.spellIds) ? source.spellIds.map((x: any) => String(x)) : (base.spellIds ?? []),
     materielPersonnalise: {
       ...base.materielPersonnalise,
       ...materielSource,
@@ -374,6 +386,20 @@ export const usePersonnage = defineStore('personnage', {
     sauvegarderLocal(partieId?: string) {
       if (!process.client) return
       const key = this._storageKey(partieId)
+      try {
+        const existingRaw = localStorage.getItem(key)
+        if (existingRaw) {
+          try {
+            const existing = JSON.parse(existingRaw) as any
+            const prevInv = Array.isArray(existing?.inventaire) ? existing.inventaire : []
+            const curInv = Array.isArray((this as any).perso?.inventaire) ? (this as any).perso.inventaire : []
+            if (prevInv.length > 0 && curInv.length === 0) {
+              // Evite d�'�craser une sauvegarde utile par un inventaire vide accidentel
+              ;(this as any).perso.inventaire = prevInv
+            }
+          } catch {}
+        }
+      } catch {}
       localStorage.setItem(key, JSON.stringify(this.perso))
     },
 

@@ -107,12 +107,13 @@
 // Bloc script : BonomePreviewPanel (logique d'affectation et sauvegarde)
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { useRouter } from '#app';
+import { useRouter, useRequestFetch } from '#app';
 import {
   MATERIAL_SLOT_DEFINITIONS,
   useBonomeCreationStore
 } from '@/stores/bonomeCreation';
 import { usePersonnage } from '@/stores/personnage';
+import { useDataStore } from '@/stores/data';
 import { useParties } from '@/stores/parties';
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
 import type { InventaireItem } from '@/components/aventure/AventureInventaire.vue';
@@ -120,6 +121,8 @@ import type { InventaireItem } from '@/components/aventure/AventureInventaire.vu
 const router = useRouter();
 const creation = useBonomeCreationStore();
 const personnageStore = usePersonnage();
+const dataStore = useDataStore();
+const requestFetch = useRequestFetch();
 
 const cloneInventoryItems = (items: InventaireItem[] | null | undefined): InventaireItem[] =>
   (Array.isArray(items) ? items : []).map((item) => ({
@@ -319,6 +322,28 @@ async function handleSave() {
       throw new Error("La génération du personnage n'a retourné aucune donnée.");
     }
 
+    // Completion des donnees enrichies pour l'aventure
+    try {
+      const selection = {
+        class: creation.selectedClass,
+        race: creation.selectedRace,
+        background: creation.selectedBackground,
+        niveau: creation.niveau,
+        chosenOptions: creation.chosenOptions
+      } as any;
+      const previewCharacter = creation.preview?.value?.previewCharacter ?? null;
+      const completion = await requestFetch('/api/creation/complete', {
+        method: 'POST',
+        body: { selection, previewCharacter, personnage: payload }
+      }).catch(() => null);
+      if (completion?.ok && completion.enriched) {
+        dataStore.merge(completion.enriched);
+      }
+    } catch (e) {
+      // non-bloquant
+      try { console.warn('[BonomePreviewPanel] completion fetch failed', e); } catch {}
+    }
+
     personnageStore.perso = payload;
     const partiesStore = useParties();
     if (process.client) {
@@ -332,6 +357,8 @@ async function handleSave() {
       }
     }
     if (partieId) {
+      // Persist enriched data alongside the party
+      try { dataStore.save(partieId); } catch {}
       const keptEntries = (creation.materialKeptItems?.value ?? []) as Array<{ item: unknown }>;
       const transition = buildCreationInventoryTransition({
         entries: keptEntries.map((entry) => entry.item),

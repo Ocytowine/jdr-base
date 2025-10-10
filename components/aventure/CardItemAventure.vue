@@ -1,12 +1,12 @@
 <template>
   <article :class="articleClass">
     <div class="item-card__media">
-      <img :src="imageSrc" :alt="title" class="item-card__image" loading="lazy" />
+      <img :src="imageSrc" :alt="displayTitle" class="item-card__image" loading="lazy" />
     </div>
     <div class="item-card__content">
       <header class="item-card__header">
         <div class="item-card__heading">
-          <h3 class="item-card__title">{{ title }}</h3>
+          <h3 class="item-card__title">{{ displayTitle }}</h3>
           <button
             v-if="hasExtraStats"
             type="button"
@@ -78,6 +78,7 @@ const DEFAULT_IMAGE = '/images/card.jpg'
 
 const props = withDefaults(
   defineProps<{
+    name?: string | null
     title: string
     description?: string | null
     image?: string | null
@@ -111,6 +112,8 @@ const emit = defineEmits<{
 const detailsExpanded = ref(false)
 const selectedAction = ref('')
 const actionSelect = ref<HTMLSelectElement | null>(null)
+
+const displayTitle = computed(() => (props.name && props.name.length ? props.name : props.title))
 
 const imageSrc = computed(() => {
   const src = typeof props.image === 'string' ? props.image.trim() : ''
@@ -147,7 +150,7 @@ const hasExtraStats = computed(() => extraStatsList.value.length > 0)
 const hasActionSelect = computed(() => actionsList.value.length > 0)
 
 const baseId = computed(() => {
-  const source = props.imageId || props.title
+  const source = props.imageId || props.name || props.title
   return source
     .toString()
     .toLowerCase()
