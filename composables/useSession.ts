@@ -3,7 +3,8 @@ export function useSession(){
   const idCourant = useState<string | null>('idPartie', () => null)
 
   function activerSession(){ sessionActive.value = true }
-  function definirIdPartie(id: string){ idCourant.value = id }
+  function definirIdPartie(id: string | null){ idCourant.value = id }
 
   return { sessionActive, idCourant, activerSession, definirIdPartie }
 }
+

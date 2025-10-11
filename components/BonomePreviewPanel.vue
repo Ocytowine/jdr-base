@@ -1,4 +1,5 @@
 <template>
+  <!-- Bloc template : BonomePreviewPanel -->
   <section class="preview">
     <div class="preview__header">
       <h3 class="preview__title">Prévisualisation</h3>
@@ -39,86 +40,46 @@
       </div>
 
       <div class="preview__grid">
+        <!-- Bloc matériel : sélection par slot -->
         <section class="preview-section">
-          <h4 class="preview-section__title">Caractéristiques</h4>
-          <table class="preview-table">
-            <tr v-for="(val, key) in displayStats" :key="key">
-              <td>{{ key }}</td>
-              <td>{{ val }}</td>
-            </tr>
-          </table>
-
+          <h4 class="preview-section__title">Preparation du materiel (choix par slot)</h4>
+          <div class="preview-section__form">
+            <div v-for="slot in uiSlots" :key="slot.id" class="preview-form__row">
+              <label class="preview-form__label">{{ slot.label }}</label>
+              <select
+                class="preview-form__select"
+                :value="assignmentFor(slot.id)"
+                @change="onAssign(slot.id, ($event.target as HTMLSelectElement).value)"
+              >
+                <option :value="''">-- A definir --</option>
+                <option
+                  v-for="it in candidatesFor(slot.id)"
+                  :key="String(it.key || it.itemId)"
+                  :value="String(it.key || it.itemId)"
+                >
+                  {{ formatItem(it) }}
+                </option>
+              </select>
+            </div>
+          </div>
           <div class="preview-section__divider"></div>
-          <h5 class="preview-section__subtitle">Compétences / Proficiencies</h5>
+          <h5 class="preview-section__subtitle">Inventaire</h5>
           <ul class="preview-list">
-            <li v-for="p in preview?.previewCharacter?.proficiencies ?? []" :key="p">{{ p }}</li>
-            <li v-if="!(preview?.previewCharacter?.proficiencies ?? []).length" class="preview-list__empty">Aucune</li>
-          </ul>
-
-          <div class="preview-section__divider"></div>
-          <h5 class="preview-section__subtitle">Sens</h5>
-          <ul class="preview-list">
-            <li
-              v-for="s in preview?.previewCharacter?.senses ?? []"
-              :key="JSON.stringify(s)"
-            >
-              {{ s.sense_type ? `${s.sense_type} ${s.range ?? ''} ${s.units ?? ''}`.trim() : JSON.stringify(s) }}
+            <li v-for="it in assignedList" :key="`a-${String(it.item.key || it.item.itemId)}`">
+              {{ formatItem(it.item) }} - <strong>porté</strong>
             </li>
-            <li v-if="!(preview?.previewCharacter?.senses ?? []).length" class="preview-list__empty">Aucun</li>
+            <li v-for="it in inventoryItems" :key="`u-${String(it.key || it.itemId)}`">
+              {{ formatItem(it) }} - rangé
+            </li>
+            <li v-if="!assignedList.length && !inventoryItems.length" class="preview-list__empty">
+              Aucun objet
+            </li>
           </ul>
+          <p class="preview-list__hint" v-if="coinPurseFinalLabel">
+            {{ coinPurseLabel }} : {{ coinPurseFinalLabel }}
+          </p>
         </section>
-
-        <section class="preview-section">
-          <h4 class="preview-section__title">Magie & capacités</h4>
-          <div v-if="preview?.previewCharacter?.spellcasting" class="preview-section__block">
-            <p>Ability : {{ preview?.previewCharacter?.spellcasting?.ability ?? preview?.previewCharacter?.spellcasting?.meta?.ability ?? '-' }}</p>
-            <p>Spell save DC : {{ preview?.previewCharacter?.spellcasting?.meta?.spell_save_dc ?? '-' }}</p>
-            <p>Spell attack mod : {{ preview?.previewCharacter?.spellcasting?.meta?.spell_attack_mod ?? '-' }}</p>
-            <div class="preview-section__divider"></div>
-            <h5 class="preview-section__subtitle">Slots</h5>
-            <div
-              v-if="preview?.previewCharacter?.spellcasting?.slots && Object.keys(preview.previewCharacter.spellcasting.slots).length"
-              class="preview-section__slots"
-            >
-              <span v-for="(num, lvl) in preview.previewCharacter.spellcasting.slots" :key="lvl">{{ lvl }} : {{ num }}</span>
-            </div>
-            <p v-else class="preview-list__empty">Aucun emplacement</p>
-          </div>
-          <p v-else class="preview-list__empty">Aucune donnée de magie disponible.</p>
-
-          <div class="preview-section__divider"></div>
-          <h5 class="preview-section__subtitle">Features appliqués</h5>
-          <ul class="preview-list">
-            <li v-for="f in preview?.appliedFeatures ?? []" :key="f">{{ f }}</li>
-            <li v-if="!(preview?.appliedFeatures ?? []).length" class="preview-list__empty">Aucun</li>
-          </ul>
-        </section>
-      </div>
-
-      <div class="preview__grid">
-        <section class="preview-section">
-          <h4 class="preview-section__title">Préparation du matériel</h4>
-          <div class="preview-section__tiles">
-            <div v-for="entry in materialSummary" :key="entry.id" class="preview-tile">
-              <span class="preview-tile__label">{{ entry.label }}</span>
-              <span class="preview-tile__value">{{ entry.value || 'À définir' }}</span>
-            </div>
-          </div>
-          <div class="preview-section__notes">
-            <span class="preview-section__subtitle">Notes complémentaires</span>
-            <p>{{ materialNotesDisplay || 'Aucune note pour le moment.' }}</p>
-          </div>
-        </section>
-
-        <section class="preview-section">
-          <h4 class="preview-section__title">Portrait narratif</h4>
-          <div class="preview-section__tiles">
-            <div v-for="entry in narrativeSummary" :key="entry.id" class="preview-tile">
-              <span class="preview-tile__label">{{ entry.label }}</span>
-              <span class="preview-tile__value preview-tile__value--multiline">{{ entry.value || 'À préciser' }}</span>
-            </div>
-          </div>
-        </section>
+        <!-- Fin bloc matériel -->
       </div>
 
       <div v-if="preview?.errors && preview.errors.length" class="preview__errors">
@@ -139,24 +100,37 @@
       </button>
     </div>
   </section>
+  <!-- Fin bloc template : BonomePreviewPanel -->
 </template>
 
 <script setup lang="ts">
+// Bloc script : BonomePreviewPanel (logique d'affectation et sauvegarde)
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { useRouter } from '#app';
+import { useRouter, useRequestFetch } from '#app';
 import {
-  DESCRIPTION_FIELD_DEFINITIONS,
   MATERIAL_SLOT_DEFINITIONS,
-  useBonomeCreationStore,
-  type DescriptionFields,
-  type MaterialPlan
+  useBonomeCreationStore
 } from '@/stores/bonomeCreation';
 import { usePersonnage } from '@/stores/personnage';
+import { useDataStore } from '@/stores/data';
+import { useParties } from '@/stores/parties';
+import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
+import type { InventaireItem } from '@/components/aventure/AventureInventaire.vue';
 
 const router = useRouter();
 const creation = useBonomeCreationStore();
 const personnageStore = usePersonnage();
+const dataStore = useDataStore();
+const requestFetch = useRequestFetch();
+
+const cloneInventoryItems = (items: InventaireItem[] | null | undefined): InventaireItem[] =>
+  (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    value: item.value ? { ...item.value } : null,
+    properties_fight: item.properties_fight ? { ...item.properties_fight } : null,
+    properties_equip: item.properties_equip ? { ...item.properties_equip } : null
+  }))
 
 const {
   preview,
@@ -170,12 +144,6 @@ const {
   fullCharacterName
 } = storeToRefs(creation);
 
-const materialPlan = creation.materialPlan as MaterialPlan;
-const descriptionFields = creation.descriptionFields as DescriptionFields;
-
-const equipmentSlots = MATERIAL_SLOT_DEFINITIONS;
-const descriptionFieldDefinitions = DESCRIPTION_FIELD_DEFINITIONS;
-
 const trimmedFirstName = computed(() => characterFirstName.value.trim());
 const trimmedLastName = computed(() => characterLastName.value.trim());
 const trimmedNickname = computed(() => characterNickname.value.trim());
@@ -187,29 +155,155 @@ const hasNameParts = computed(
 );
 const trimmedFullName = computed(() => fullCharacterName.value.trim());
 
-const materialSummary = computed(() =>
-  equipmentSlots.map((slot) => {
-    const value = materialPlan[slot.id];
-    return {
-      id: slot.id,
-      label: slot.label,
-      value: typeof value === 'string' ? value.trim() : ''
-    };
-  })
-);
+const resolvedKeptItemsForSlots = computed(() => {
+  const decisions = preview.value?.previewCharacter?.materialDecisions;
+  if (decisions && Array.isArray(decisions.kept) && decisions.kept.length) {
+    return decisions.kept as any[];
+  }
+  const storeKept = creation.materialKeptItems?.value ?? [];
+  return storeKept.map((entry: any) => entry.item);
+});
 
-const narrativeSummary = computed(() =>
-  descriptionFieldDefinitions.map((field) => ({
-    id: field.id,
-    label: field.label,
-    value: descriptionFields[field.id].trim()
-  }))
-);
+const itemKey = (item: any) => String(item?.key ?? item?.itemId ?? item?.id ?? '');
+const lc = (value: unknown) => String(value ?? '').toLowerCase();
+const typeTag = (item: any) => lc(item.type ?? item.resolved?.type ?? '');
+const matchesTypeTag = (item: any, patterns: string[]) => {
+  const tag = typeTag(item);
+  if (!tag.length) {
+    return false;
+  }
+  return patterns.some((pattern) => tag.includes(pattern));
+};
+const isWeapon = (item: any) => matchesTypeTag(item, ['arme', 'weapon', 'focalisateur']);
+const isProtection = (item: any) => matchesTypeTag(item, ['armure', 'armor', 'armour', 'protection', 'vetement']);
+const isShield = (item: any) => matchesTypeTag(item, ['bouclier', 'shield']);
+const isAccessory = (item: any) => matchesTypeTag(item, ['accessoire', 'accessory', 'amulette', 'anneau', 'baguette', 'focus', 'talisman', 'gantelet', 'kit']);
 
-const materialNotesDisplay = computed(() =>
-  typeof materialPlan.notes === 'string' ? materialPlan.notes.trim() : ''
-);
+const slotOptionsForKept = computed(() => {
+  const items = resolvedKeptItemsForSlots.value;
+  return {
+    primaryWeapon: items.filter(isWeapon),
+    secondaryWeapon: items.filter(isWeapon),
+    protection: items.filter(isProtection),
+    shield: items.filter(isShield),
+    accessories: items.filter(isAccessory)
+  };
+});
 
+const slotCandidatesForUi = computed(() => {
+  const purseKey = creation.materialCoinPurseKey?.value ? String(creation.materialCoinPurseKey.value) : null;
+  const prune = (list: any[]) => {
+    if (!Array.isArray(list)) return [];
+    if (!purseKey) return list;
+    return list.filter((item) => itemKey(item) !== purseKey);
+  };
+  const map = slotOptionsForKept.value;
+  return {
+    primaryWeapon: prune(map.primaryWeapon),
+    secondaryWeapon: prune(map.secondaryWeapon),
+    protection: prune(map.protection),
+    shield: prune(map.shield),
+    accessories: prune(map.accessories)
+  };
+});
+
+const coinPurseLabel = computed(() => creation.materialCoinPurseLabel?.value || 'Bourse')
+const coinPurseFinalLabel = computed(() => {
+  const coins = creation.materialFinalCoins?.value
+  if (!coins) return ''
+  const parts: string[] = []
+  if (coins.gold) parts.push(`${coins.gold} po`)
+  if (coins.silver) parts.push(`${coins.silver} pa`)
+  if (coins.copper) parts.push(`${coins.copper} pc`)
+  return parts.join(' ')
+})
+
+// Helpers for slot assignment UI
+const formatItem = (it: any) => (creation.formatMaterialItemDisplay as (item: any) => string)(it);
+
+const assignmentsBySlot = computed(() => {
+  const a = creation.materialAssignments as any;
+  return {
+    primaryWeapon: a?.primaryWeaponKey ? String(a.primaryWeaponKey) : null,
+    secondaryWeapon: a?.secondaryWeaponKey ? String(a.secondaryWeaponKey) : null,
+    protection: a?.protectionKey ? String(a.protectionKey) : null,
+    shield: a?.shieldKey ? String(a.shieldKey) : null,
+    accessories: Array.isArray(a?.accessoriesKeys) ? a.accessoriesKeys.map((k: any) => String(k)) : []
+  };
+});
+
+const assignedKeySet = computed(() => {
+  const map = assignmentsBySlot.value;
+  const set = new Set<string>();
+  const push = (value: string | null) => { if (value) set.add(value); };
+  push(map.primaryWeapon);
+  push(map.secondaryWeapon);
+  push(map.protection);
+  push(map.shield);
+  for (const key of map.accessories) push(key);
+  return set;
+});
+
+const candidatesFor = (slotId: string) => {
+  const list = (slotCandidatesForUi.value as Record<string, any[]>)[slotId] ?? [];
+  const map = assignmentsBySlot.value;
+  const forbidden = new Set(assignedKeySet.value);
+  const allow = (value: string | null) => { if (value) forbidden.delete(value); };
+  switch (slotId) {
+    case 'primaryWeapon': allow(map.primaryWeapon); break;
+    case 'secondaryWeapon': allow(map.secondaryWeapon); break;
+    case 'protection': allow(map.protection); break;
+    case 'shield': allow(map.shield); break;
+    case 'accessories':
+      for (const key of map.accessories) forbidden.delete(key);
+      break;
+  }
+  return list.filter((item) => {
+    const key = itemKey(item);
+    return !key || !forbidden.has(key);
+  });
+};
+
+const assignmentFor = (slotId: string) => {
+  const map = assignmentsBySlot.value;
+  switch (slotId) {
+    case 'primaryWeapon': return map.primaryWeapon ?? '';
+    case 'secondaryWeapon': return map.secondaryWeapon ?? '';
+    case 'protection': return map.protection ?? '';
+    case 'shield': return map.shield ?? '';
+    case 'accessories':
+      return '';
+    default: return '';
+  }
+};
+
+const onAssign = (slotId: string, key: string) => {
+  (creation.setMaterialAssignment as any)(slotId, key && key.length ? key : null);
+};
+
+const inventoryItems = computed(() => {
+  const assigned = assignedKeySet.value;
+  return resolvedKeptItemsForSlots.value.filter((item) => {
+    const key = itemKey(item);
+    if (!key) {
+      return true;
+    }
+    return !assigned.has(key);
+  });
+});
+
+const assignedList = computed(() => ((creation.materialAcquired as any).value ?? []).filter((e: any) => e.status === 'porte'));
+
+// UI slots: base definitions minus 'pack' + add 'shield'
+const uiSlots = computed(() => {
+  const list = [...(MATERIAL_SLOT_DEFINITIONS as any)].filter((s: any) => s.id !== 'pack');
+  if (!list.some((s: any) => s.id === 'shield')) {
+    list.splice(3, 0, { id: 'shield', label: 'Bouclier', hint: '', placeholder: '' });
+  }
+  return list;
+});
+
+// Fin bloc script : BonomePreviewPanel
 const canSave = computed(() => preview.value?.ok && !(preview.value?.errors?.length));
 const saving = ref(false);
 const saveError = ref<string | null>(null);
@@ -228,8 +322,81 @@ async function handleSave() {
       throw new Error("La génération du personnage n'a retourné aucune donnée.");
     }
 
+    // Completion des donnees enrichies pour l'aventure
+    try {
+      const selection = {
+        class: creation.selectedClass,
+        race: creation.selectedRace,
+        background: creation.selectedBackground,
+        niveau: creation.niveau,
+        chosenOptions: creation.chosenOptions
+      } as any;
+      const previewCharacter = creation.preview?.value?.previewCharacter ?? null;
+      const completion = await requestFetch('/api/creation/complete', {
+        method: 'POST',
+        body: { selection, previewCharacter, personnage: payload }
+      }).catch(() => null);
+      if (completion?.ok && completion.enriched) {
+        dataStore.merge(completion.enriched);
+      }
+    } catch (e) {
+      // non-bloquant
+      try { console.warn('[BonomePreviewPanel] completion fetch failed', e); } catch {}
+    }
+
     personnageStore.perso = payload;
-    personnageStore.sauvegarderLocal();
+    const partiesStore = useParties();
+    if (process.client) {
+      partiesStore.initialiser();
+    }
+    let partieId = partiesStore.currentPartyId as string | null;
+    if (!partieId) {
+      partieId = partiesStore.creerPartie() as string | null;
+      if (partieId) {
+        partiesStore.setCurrentParty(partieId);
+      }
+    }
+    if (partieId) {
+      // Persist enriched data alongside the party
+      try { dataStore.save(partieId); } catch {}
+      const keptEntries = (creation.materialKeptItems?.value ?? []) as Array<{ item: unknown }>;
+      const transition = buildCreationInventoryTransition({
+        entries: keptEntries.map((entry) => entry.item),
+        assignments: (creation.materialAssignments as Record<string, string | null> | undefined) ?? null,
+        purseKey: creation.materialCoinPurseKey?.value || null,
+        finalCoins: creation.materialFinalCoins?.value ?? null
+      });
+
+      let inventoryItems = cloneInventoryItems(transition.items);
+
+      if (!inventoryItems.length) {
+        const fallbackFromPersonnage = cloneInventoryItems(personnageStore.perso.inventaire);
+        if (fallbackFromPersonnage.length) {
+          inventoryItems = fallbackFromPersonnage;
+        }
+      }
+
+      if (!inventoryItems.length) {
+        const existingPartie = partiesStore.getPartie(partieId);
+        if (existingPartie) {
+          inventoryItems = cloneInventoryItems(existingPartie.inventaire);
+        }
+      }
+
+      const finalized = cloneInventoryItems(inventoryItems)
+
+      partiesStore.updatePartie(partieId, {
+        inventaire: finalized,
+        inventaireInitialise: finalized.length > 0
+      })
+
+      personnageStore.perso = {
+        ...personnageStore.perso,
+        inventaire: finalized
+      }
+    }
+    personnageStore.sauvegarderLocal(partieId ?? undefined);
+    creation.lockCreation();
 
     await router.push('/aventure');
   } catch (err: any) {

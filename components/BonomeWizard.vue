@@ -129,13 +129,16 @@ const resetDescription = () => {
   });
 };
 
+const finalizePreview = async () => {
+  await creation.sendPreview();
+};
+
 const steps: BonomePhaseMeta[] = [
   {
     id: 'identity',
     title: 'Identité du personnage',
     shortTitle: 'Identité',
     description: 'Définissez le nom complet de votre bonôme.',
-    onValidate: refreshPreview,
     onReset: resetIdentity
   },
   {
@@ -143,7 +146,6 @@ const steps: BonomePhaseMeta[] = [
     title: 'Selection de la race',
     shortTitle: 'Race',
     description: 'Choisissez la race principale pour votre personnage.',
-    onValidate: refreshPreview,
     onReset: resetRace
   },
   {
@@ -151,7 +153,6 @@ const steps: BonomePhaseMeta[] = [
     title: 'Selection de la classe',
     shortTitle: 'Classe',
     description: 'Choisissez la classe principale de votre bonome.',
-    onValidate: refreshPreview,
     onReset: resetClass
   },
   {
@@ -159,7 +160,6 @@ const steps: BonomePhaseMeta[] = [
     title: "Selection de l'historique",
     shortTitle: 'Historique',
     description: "Choisissez l'historique principal de votre personnage.",
-    onValidate: refreshPreview,
     onReset: resetBackground
   },
   {
@@ -167,7 +167,6 @@ const steps: BonomePhaseMeta[] = [
     title: 'Niveau et caracteristiques',
     shortTitle: 'Caracs',
     description: 'Ajustez le niveau et les valeurs de base de vos caracteristiques.',
-    onValidate: refreshPreview,
     onReset: resetLevelAndStats
   },
   {
@@ -175,7 +174,6 @@ const steps: BonomePhaseMeta[] = [
     title: 'Choix complémentaires',
     shortTitle: 'Choix',
     description: "Appliquez les options supplémentaires générées par l'assistant.",
-    onValidate: refreshPreview,
     onReset: resetComplementaryChoices
   },
   {
@@ -190,14 +188,15 @@ const steps: BonomePhaseMeta[] = [
     title: 'Description du bonôme',
     shortTitle: 'Description',
     description: 'Rédigez les éléments narratifs de votre personnage.',
-    onReset: resetDescription
+    onReset: resetDescription,
+
+    onValidate: finalizePreview
   },
   {
     id: 'recap',
     title: 'Récapitulatif final',
     shortTitle: 'Récapitulatif',
     description: 'Relisez et confirmez les informations avant la finalisation.',
-    onValidate: refreshPreview
   }
 ];
 
@@ -214,6 +213,10 @@ const phases: BonomePhaseComponentConfig[] = [
 ];
 
 const currentStep = ref(0);
+
+const shouldSendPreviewAfterStep = (id: string | undefined) =>
+  id === 'level' || id === 'choices' || id === 'equipment' || id === 'description';
+
 
 const activeStep = computed(() => steps[currentStep.value] ?? steps[0]);
 const activePhase = computed(() => phases.find((phase) => phase.id === activeStep.value.id) ?? phases[0]);
@@ -257,16 +260,15 @@ const handleValidate = async () => {
   if (step?.onValidate) {
     await step.onValidate();
   }
+  if (shouldSendPreviewAfterStep(step?.id)) {
+    await creation.sendPreview();
+  }
   if (currentStep.value < steps.length - 1) {
     goToStep(currentStep.value + 1);
   }
 };
 
-const handleCancel = async () => {
-  const step = activeStep.value;
-  if (step?.onReset) {
-    await step.onReset();
-  }
+const handleCancel = () => {
   if (currentStep.value > 0) {
     goToStep(currentStep.value - 1);
   }

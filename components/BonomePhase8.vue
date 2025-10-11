@@ -1,4 +1,5 @@
 <template>
+  <!-- Bloc template : BonomePhase8 -->
   <section :data-step="stepMeta.id" :data-preview-ready="!!preview" class="phase carte">
     <header class="phase__heading">
       <h3 class="phase__title">Récapitulatif</h3>
@@ -27,19 +28,17 @@
       </button>
     </div>
   </section>
+  <!-- Fin bloc template : BonomePhase8 -->
 </template>
 
 <script setup lang="ts">
+// Bloc script : BonomePhase8 (ajustez la logique de récapitulatif ici)
 import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 
 import BonomePreviewPanel from '@/components/BonomePreviewPanel.vue';
 import type { BonomePhaseMeta } from '@/components/bonomePhases';
-import {
-  DESCRIPTION_FIELD_DEFINITIONS,
-  MATERIAL_SLOT_DEFINITIONS,
-  useBonomeCreationStore
-} from '@/stores/bonomeCreation';
+import { useBonomeCreationStore } from '@/stores/bonomeCreation';
 
 const emit = defineEmits(['validate', 'cancel', 'refresh']);
 
@@ -56,39 +55,10 @@ const props = defineProps<{
 
 const creation = useBonomeCreationStore();
 const { appliedChoices, preview: storePreview } = storeToRefs(creation);
-const materialPlan = creation.materialPlan;
-const descriptionFields = creation.descriptionFields;
-
-const equipmentSlots = MATERIAL_SLOT_DEFINITIONS;
-const descriptionFieldDefinitions = DESCRIPTION_FIELD_DEFINITIONS;
-
-const materialSummary = computed(() =>
-  equipmentSlots.map((slot) => {
-    const value = materialPlan[slot.id];
-    return {
-      id: slot.id,
-      label: slot.label,
-      value: typeof value === 'string' ? value.trim() : ''
-    };
-  })
-);
-
-const descriptionSummary = computed(() =>
-  descriptionFieldDefinitions.map((field) => ({
-    id: field.id,
-    label: field.label,
-    value: descriptionFields[field.id].trim()
-  }))
-);
-
-const materialNotesDisplay = computed(() =>
-  typeof materialPlan.notes === 'string' ? materialPlan.notes.trim() : ''
-);
 
 const stepMeta = computed(() => props.stepMeta);
-
-// expose preview to template/users if needed
 const preview = computed(() => props.preview ?? storePreview.value ?? null);
+// Fin bloc script : BonomePhase8
 </script>
 
 <style scoped>
@@ -157,3 +127,6 @@ const preview = computed(() => props.preview ?? storePreview.value ?? null);
   }
 }
 </style>
+
+
+

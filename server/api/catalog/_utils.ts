@@ -11,7 +11,7 @@ export type CatalogEntry = {
   effectLabel: string | null;
   effect_label?: string | null;
 };
-type CatalogKind = 'classes' | 'races' | 'backgrounds' | 'spells';
+type CatalogKind = 'classes' | 'races' | 'backgrounds' | 'spells' | 'items';
 
 type IndexEntry = string | number | boolean | { [key: string]: any } | null | undefined;
 
@@ -193,7 +193,7 @@ const normalizeList = (entries: GitHubEntry[] | null | undefined): CatalogEntry[
   return Array.from(output.values());
 };
 
-export async function getCatalogEntries(kind: CatalogKind): Promise<CatalogEntry[]> {
+export async function getCatalogEntries(kind: CatalogKind, refresh = false): Promise<CatalogEntry[]> {
   const adapter: DataAdapterV2GitHub | any = getCatalogAdapter();
   if (!adapter) {
     console.error(`[catalog] Aucun adaptateur configuré pour ${kind}`);
@@ -203,10 +203,10 @@ export async function getCatalogEntries(kind: CatalogKind): Promise<CatalogEntry
   let indexError: unknown = null;
 
   try {
-    const payload = await adapter.fetchJsonFromRepoPath(`${kind}/index.json`);
+    const payload = await adapter.fetchJsonFromRepoPath(`${kind}/index.json`, { refresh });
     const normalized = normalizeIndex(payload);
     if (normalized.length) {
-      return await enrichCatalogEntries(kind, normalized, adapter);
+      return await enrichCatalogEntries(kind, normalized, adapter, refresh);
     }
   } catch (error) {
     indexError = error;
@@ -216,7 +216,7 @@ export async function getCatalogEntries(kind: CatalogKind): Promise<CatalogEntry
     const entries = await adapter.listFilesInPath(kind);
     const normalized = normalizeList(entries);
     if (normalized.length) {
-      return await enrichCatalogEntries(kind, normalized, adapter);
+      return await enrichCatalogEntries(kind, normalized, adapter, refresh);
     }
   } catch (listError) {
     if (indexError) {
@@ -237,7 +237,8 @@ export async function getCatalogEntries(kind: CatalogKind): Promise<CatalogEntry
 async function enrichCatalogEntries(
   kind: CatalogKind,
   entries: CatalogEntry[],
-  adapter: DataAdapterV2GitHub | any
+  adapter: DataAdapterV2GitHub | any,
+  refresh = false
 ): Promise<CatalogEntry[]> {
   if (!Array.isArray(entries) || !entries.length) {
     return entries ?? [];
@@ -257,7 +258,7 @@ async function enrichCatalogEntries(
 
     try {
       const repoPath = `${kind}/${entry.id}.json`;
-      const payload = await adapter.fetchJsonFromRepoPath(repoPath);
+      const payload = await adapter.fetchJsonFromRepoPath(repoPath, { refresh });
       if (!payload || typeof payload !== 'object') {
         return entry;
       }

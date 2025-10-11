@@ -60,14 +60,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useRouter } from '#app';
 import BonomeWizard from '@/components/BonomeWizard.vue';
 import BonomePreviewPanel from '@/components/BonomePreviewPanel.vue';
 import { useBonomeCreationStore } from '@/stores/bonomeCreation';
 
+const router = useRouter();
 const creation = useBonomeCreationStore();
 await creation.initialize({ restoreFromStorage: false });
 
-const { preview, loading } = storeToRefs(creation);
+const { preview, loading, creationLocked } = storeToRefs(creation);
+
+if (process.client && creationLocked.value) {
+  await router.replace('/aventure');
+}
 
 const showPreview = ref(false);
 const pendingChoicesCount = computed(() => (preview.value?.pendingChoices?.length ?? 0));
@@ -84,6 +90,16 @@ const handleValidate = async () => {
 const backToWizard = () => {
   showPreview.value = false;
 };
+
+if (process.client) {
+  watch(creationLocked, async (locked) => {
+    if (!locked) {
+      return;
+    }
+    showPreview.value = false;
+    await router.replace('/aventure');
+  });
+}
 
 watch(preview, (value) => {
   if (!value) {

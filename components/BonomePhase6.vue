@@ -62,7 +62,7 @@
             :weight-total="item.weightTotal"
             :coins-label="item.totalCoinsCopper ? formatCopper(item.totalCoinsCopper) : null"
             :sell-value-label="item.totalSellValueCopper ? formatCopper(item.totalSellValueCopper) : null"
-            :kept="isMaterialItemKept(item.key)"
+            :kept="Boolean(item.kept)"
             @toggle="handleToggle(item.key)"
           />
         </div>
@@ -156,7 +156,7 @@ const getGroupTitle = (group: MaterialProposalGroup, index: number) => {
 };
 
 const countKeptInGroup = (group: MaterialProposalGroup) =>
-  group.items.reduce((acc, item) => acc + (creation.isMaterialItemKept(item.key) ? 1 : 0), 0);
+  group.items.reduce((acc, item) => acc + (item.kept ? 1 : 0), 0);
 
 const handleToggle = (key: string) => {
   creation.toggleMaterialItemDecision(key);
@@ -166,7 +166,6 @@ const handleReset = () => {
   creation.resetMaterialSelections();
 };
 
-const isMaterialItemKept = (key: string) => creation.isMaterialItemKept(key);
 </script>
 
 <style scoped>

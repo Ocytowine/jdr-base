@@ -5,9 +5,11 @@ import { useRequestFetch } from '#app';
 import type { Personnage } from './personnage';
 
 import { useCreationChoices, type CreationChoiceOption } from '@/composables/useCreationChoices';
+import { useSession } from '@/composables/useSession';
 
 import { createCardPlaceholder, coinsToCopper, copperToCoins, ensureCardImage, ensureDescription, humanizeLabel, normalizeCatalogEntries, normalizeCoinsValue, resolveCardVisuals, toFiniteNumber, valueExists } from '@/utils/creationHelpers';
 import type { CoinBreakdown } from '@/utils/creationHelpers';
+import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
 
 export type CatalogEntry = {
   id: string;
@@ -46,7 +48,7 @@ export type MaterialPlan = {
   primaryWeapon: string;
   secondaryWeapon: string;
   protection: string;
-  pack: string;
+  shield: string;
   accessories: string;
   notes: string;
 };
@@ -81,6 +83,8 @@ export type MaterialProposalItem = {
   weightTotal: number;
   resolved?: any | null;
   raw?: any;
+  kept: boolean;
+  status: 'kept' | 'sold';
 };
 
 export type MaterialProposalGroup = {
@@ -90,8 +94,6 @@ export type MaterialProposalGroup = {
   description: string | null;
   items: MaterialProposalItem[];
 };
-
-type PreviewDetail = 'choices' | 'material' | 'final';
 
 export const MATERIAL_SLOT_DEFINITIONS: ReadonlyArray<{
   id: MaterialSlotKey;
@@ -178,45 +180,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   const backgrounds = ref<CatalogEntry[]>([]);
 
   const adapterResetPending = ref(false);
-
-  const creationIndex = ref<any | null>(null);
-
-  const previewNeeds = reactive<Record<PreviewDetail, boolean>>({
-    choices: true,
-    material: true,
-    final: true
-  });
-
+  const getCreationLockKey = () => {
+    const { idCourant } = useSession();
+    const id = idCourant.value as string | null;
+    return id ? `bonome_creation_locked_${id}` : 'bonome_creation_locked';
+  };
   const creationLocked = ref(false);
-
-  const markPreviewDirty = (detail: PreviewDetail) => {
-    if (detail === 'choices') {
-      previewNeeds.choices = true;
-      previewNeeds.material = true;
-      previewNeeds.final = true;
-      return;
-    }
-    if (detail === 'material') {
-      previewNeeds.material = true;
-      previewNeeds.final = true;
-      return;
-    }
-    previewNeeds.final = true;
-  };
-
-  const markPreviewLoaded = (detail: PreviewDetail) => {
-    if (detail === 'final') {
-      previewNeeds.choices = false;
-      previewNeeds.material = false;
-      previewNeeds.final = false;
-      return;
-    }
-    if (detail === 'material') {
-      previewNeeds.material = false;
-      return;
-    }
-    previewNeeds.choices = false;
-  };
 
   const materialProposals = ref<MaterialProposalGroup[]>([]);
   const materialSelections = reactive<Record<string, boolean>>({});
@@ -232,21 +201,18 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   watch(selectedClass, (next, prev) => {
     if (next !== prev) {
       adapterResetPending.value = true;
-      markPreviewDirty('choices');
     }
   });
 
   watch(selectedRace, (next, prev) => {
     if (next !== prev) {
       adapterResetPending.value = true;
-      markPreviewDirty('choices');
     }
   });
 
   watch(selectedBackground, (next, prev) => {
     if (next !== prev) {
       adapterResetPending.value = true;
-      markPreviewDirty('choices');
     }
   });
 
@@ -543,7 +509,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     primaryWeapon: '',
     secondaryWeapon: '',
     protection: '',
-    pack: '',
+    shield: '',
     accessories: '',
     notes: ''
   });
@@ -606,6 +572,43 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       localStorage.setItem('bonome_creation_state', JSON.stringify(payload));
     } catch (err) {
       console.warn('Persist selections failed', err);
+    }
+  };
+
+  const restoreLockState = () => {
+    if (!process.client) {
+      creationLocked.value = false;
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(getCreationLockKey());
+      creationLocked.value = raw === '1';
+    } catch (error) {
+      creationLocked.value = false;
+    }
+  };
+
+  const lockCreation = () => {
+    creationLocked.value = true;
+    if (!process.client) {
+      return;
+    }
+    try {
+      localStorage.setItem(getCreationLockKey(), '1');
+    } catch (error) {
+      console.warn('Failed to persist creation lock', error);
+    }
+  };
+
+  const unlockCreation = () => {
+    creationLocked.value = false;
+    if (!process.client) {
+      return;
+    }
+    try {
+      localStorage.removeItem(getCreationLockKey());
+    } catch (error) {
+      console.warn('Failed to clear creation lock', error);
     }
   };
 
@@ -789,9 +792,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
     const current = (async () => {
       const [classResponse, raceResponse, backgroundResponse] = await Promise.all([
-        requestFetch('/api/catalog/classes').catch(() => null),
-        requestFetch('/api/catalog/races').catch(() => null),
-        requestFetch('/api/catalog/backgrounds').catch(() => null)
+        requestFetch('/api/catalog/classes?refresh=1').catch(() => null),
+        requestFetch('/api/catalog/races?refresh=1').catch(() => null),
+        requestFetch('/api/catalog/backgrounds?refresh=1').catch(() => null)
       ]);
 
       assignCatalog(classes, classResponse);
@@ -801,6 +804,11 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       ensureSelectionValidity(selectedClass, classes.value);
       ensureSelectionValidity(selectedRace, races.value);
       ensureSelectionValidity(selectedBackground, backgrounds.value);
+
+      // Le catalogue est rechargé depuis GitHub avec refresh=1.
+      // Forçons un reset de l'adaptateur de création pour que les "items"
+      // et autres données dépendantes soient re-récupérés sans cache.
+      adapterResetPending.value = true;
     })();
 
     catalogPromise = current;
@@ -830,6 +838,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     let normalized: any = raw;
     if (typeof normalized !== 'object' || Array.isArray(normalized)) {
       normalized = { id: normalized };
+    }
+
+    const resolvedData = normalized && typeof normalized.resolved === 'object' ? { ...normalized.resolved } : null;
+    if (resolvedData) {
+      normalized = { ...resolvedData, ...normalized };
+      normalized.resolved = resolvedData;
     }
 
     const itemIdCandidate =
@@ -928,6 +942,13 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
             ? normalized.categorie.trim()
             : null;
 
+    const keepFlag =
+      typeof normalized.kept === 'boolean'
+        ? normalized.kept
+        : typeof normalized.status === 'string'
+          ? normalized.status !== 'sold'
+          : true;
+
     return {
       key,
       itemId,
@@ -945,7 +966,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       weightPerUnit,
       weightTotal,
       resolved: normalized.resolved ?? null,
-      raw: normalized
+      raw: normalized,
+      kept: keepFlag,
+      status: keepFlag ? 'kept' : 'sold'
     };
   };
 
@@ -982,6 +1005,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     resetMaterialState();
 
     const proposalsInput = Array.isArray(previewCharacter?.item_proposals) ? previewCharacter.item_proposals : [];
+    try {
+      console.debug('[RAW_ITEM_PROPOSALS]', previewCharacter?.item_proposals ?? null)
+    } catch {}
     const normalized: MaterialProposalGroup[] = [];
 
     for (const groupRaw of proposalsInput) {
@@ -1018,7 +1044,18 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
     for (const group of normalized) {
       for (const item of group.items) {
-        materialSelections[item.key] = previousSelections[item.key] === false ? false : true;
+        const previousDecision = previousSelections[item.key];
+        const keep =
+          previousDecision === false
+            ? false
+            : previousDecision === true
+              ? true
+              : typeof item.kept === 'boolean'
+                ? item.kept
+                : typeof item.status === 'string'
+                  ? item.status !== 'sold'
+                  : true;
+        setMaterialItemDecision(item.key, keep);
 
         if (!materialCoinPurseKey.value) {
           const idLower = item.itemId.toLowerCase();
@@ -1031,8 +1068,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       }
     }
 
+    refreshMaterialItemsKeptState();
+
     if (!materialCoinPurseKey.value) {
-      const candidate = normalized.flatMap((group) => group.items).find((item) => item.coinsCopper > 0);
+      const candidate = materialProposals.value.flatMap((group) => group.items).find((item) => item.coinsCopper > 0);
       if (candidate) {
         materialCoinPurseKey.value = candidate.key;
         materialCoinPurseLabel.value = candidate.label || 'Bourse';
@@ -1050,25 +1089,33 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
   };
 
   const setMaterialItemDecision = (key: string, keep: boolean) => {
-    if (!key) {
+    const normalized = String(key ?? '');
+    if (!normalized.length) {
       return;
     }
-    materialSelections[key] = keep;
+    materialSelections[normalized] = keep;
+    applyMaterialItemKeptFlag(normalized, keep);
+    if (!keep) {
+      clearAssignmentsForItem(normalized);
+    }
   };
 
   const toggleMaterialItemDecision = (key: string) => {
-    if (!key) {
+    const normalized = String(key ?? '');
+    if (!normalized.length) {
       return;
     }
-    materialSelections[key] = !isMaterialItemKept(key);
+    const next = !isMaterialItemKept(normalized);
+    setMaterialItemDecision(normalized, next);
   };
 
   const resetMaterialSelections = () => {
     for (const group of materialProposals.value) {
       for (const item of group.items) {
-        materialSelections[item.key] = true;
+        setMaterialItemDecision(item.key, true);
       }
     }
+    refreshMaterialItemsKeptState();
   };
 
   const materialItems = computed(() =>
@@ -1159,6 +1206,188 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     return `${label}${quantitySuffix}`.trim();
   };
 
+  // --- Slot candidates and assignments (for preview material preparation) ---
+  type SlotId = 'primaryWeapon' | 'secondaryWeapon' | 'protection' | 'shield' | 'accessories';
+
+  const lc = (v: unknown) => String(v ?? '').toLowerCase();
+  const matchesType = (it: any, patterns: string[]) => {
+    const typeLower = lc(it.type);
+    if (typeLower.length) {
+      if (patterns.some((pattern) => typeLower.includes(pattern))) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const field = (it: any) => `${lc(it.type)} ${lc(it.label)} ${lc(it.itemId)}`.trim();
+  // Type-driven filters per votre spec + fallback sur label/id si type absent
+  const isWeapon = (it: any) =>
+    matchesType(it, ['arme', 'weapon', 'focalisateur']) ||
+    /(\barme\b|focalisateur)/.test(field(it)) ||
+    /(arc|epee|fleche|dague|hache|masse|lance|marteau)/.test(`${lc(it.itemId)} ${lc(it.label)}`);
+  const isProtection = (it: any) =>
+    matchesType(it, ['armure', 'armor', 'armour', 'protection', 'vetement']) ||
+    /(armure|protection|cuir|maille|plaque|armour)/.test(field(it));
+  const isShield = (it: any) =>
+    matchesType(it, ['bouclier', 'shield']) ||
+    /(bouclier|shield)/.test(field(it));
+  const isAccessory = (it: any) =>
+    matchesType(it, ['accessoire', 'accessory', 'amulette', 'anneau', 'baguette', 'focus', 'kit']) ||
+    /(accessoire|amulette|anneau|baguette|focus|talisman|gantelet)/.test(field(it));
+
+  const slotCandidates = computed<Record<SlotId, any[]>>(() => {
+    const items = materialKeptItems.value.map((e) => e.item);
+    return {
+      primaryWeapon: items.filter(isWeapon),
+      secondaryWeapon: items.filter(isWeapon),
+      protection: items.filter(isProtection),
+      shield: items.filter(isShield),
+      accessories: items.filter(isAccessory)
+    };
+  });
+
+  const materialAssignments = reactive<{
+    primaryWeaponKey: string | null
+    secondaryWeaponKey: string | null
+    protectionKey: string | null
+    shieldKey: string | null
+    accessoriesKeys: string[]
+  }>({
+    primaryWeaponKey: null,
+    secondaryWeaponKey: null,
+    protectionKey: null,
+    shieldKey: null,
+    accessoriesKeys: []
+  });
+
+  const clearAssignmentsForItem = (key: string | null | undefined) => {
+    const normalized = String(key ?? '');
+    if (!normalized.length) {
+      return;
+    }
+    if (materialAssignments.primaryWeaponKey === normalized) {
+      materialAssignments.primaryWeaponKey = null;
+    }
+    if (materialAssignments.secondaryWeaponKey === normalized) {
+      materialAssignments.secondaryWeaponKey = null;
+    }
+    if (materialAssignments.protectionKey === normalized) {
+      materialAssignments.protectionKey = null;
+    }
+    if (materialAssignments.shieldKey === normalized) {
+      materialAssignments.shieldKey = null;
+    }
+    materialAssignments.accessoriesKeys = materialAssignments.accessoriesKeys.filter((k) => k !== normalized);
+  };
+
+  const applyMaterialItemKeptFlag = (key: string, keep: boolean) => {
+    if (!key) {
+      return;
+    }
+    for (const group of materialProposals.value) {
+      const found = group.items.find((item) => item.key === key);
+      if (found) {
+        found.kept = keep;
+        found.status = keep ? 'kept' : 'sold';
+        return;
+      }
+    }
+  };
+
+  const refreshMaterialItemsKeptState = () => {
+    for (const group of materialProposals.value) {
+      for (const item of group.items) {
+        const keep = isMaterialItemKept(item.key);
+        item.kept = keep;
+        item.status = keep ? 'kept' : 'sold';
+      }
+    }
+  };
+
+  const setMaterialAssignment = (slot: SlotId, key: string | null) => {
+    const normalized = key !== null && key !== undefined ? String(key) : null;
+    const keptKey = normalized && isMaterialItemKept(normalized) ? normalized : null;
+
+    if (keptKey) {
+      clearAssignmentsForItem(keptKey);
+    }
+
+    switch (slot) {
+      case 'primaryWeapon':
+        materialAssignments.primaryWeaponKey = keptKey;
+        break;
+      case 'secondaryWeapon':
+        materialAssignments.secondaryWeaponKey = keptKey;
+        break;
+      case 'protection':
+        materialAssignments.protectionKey = keptKey;
+        break;
+      case 'shield':
+        materialAssignments.shieldKey = keptKey;
+        break;
+      case 'accessories':
+        if (!keptKey) {
+          if (key === null) {
+            materialAssignments.accessoriesKeys = [];
+          }
+          break;
+        }
+        if (!materialAssignments.accessoriesKeys.includes(keptKey)) {
+          materialAssignments.accessoriesKeys.push(keptKey);
+        }
+        break;
+    }
+  };
+
+  const clearAccessoryAssignment = (key: string) => {
+    materialAssignments.accessoriesKeys = materialAssignments.accessoriesKeys.filter((k) => k !== key);
+  };
+
+  const unassignedKeptItems = computed(() => {
+    const purseKey = materialCoinPurseKey.value;
+    const selected = new Set<string>();
+    const pushKey = (k: any) => {
+      const id = String(k ?? '');
+      if (id) selected.add(id);
+    };
+    pushKey(materialAssignments.primaryWeaponKey);
+    pushKey(materialAssignments.secondaryWeaponKey);
+    pushKey(materialAssignments.protectionKey);
+    pushKey(materialAssignments.shieldKey);
+    for (const k of materialAssignments.accessoriesKeys) pushKey(k);
+
+    return materialKeptItems.value
+      .map((e) => e.item)
+      .filter((it) => {
+        const id = String(it.key || it.itemId);
+        if (purseKey && id === purseKey) return false;
+        return !selected.has(id);
+      });
+  });
+
+  // Acquired items with status after assignment
+  const materialAcquired = computed(() => {
+    const selected = new Set<string>();
+    const push = (k: string | null | undefined) => { if (k) selected.add(String(k)); };
+    push(materialAssignments.primaryWeaponKey);
+    push(materialAssignments.secondaryWeaponKey);
+    push(materialAssignments.protectionKey);
+    push(materialAssignments.shieldKey);
+    for (const k of materialAssignments.accessoriesKeys) push(String(k));
+
+    const purseKey = materialCoinPurseKey.value;
+    return materialKeptItems.value.map(({ item }) => {
+      const id = String(item.key || item.itemId);
+      const assigned = selected.has(id);
+      const isPurse = purseKey && id === purseKey;
+      return {
+        item,
+        status: assigned ? 'porte' : 'range',
+        isPurse
+      } as { item: any; status: 'porte'|'range'; isPurse: boolean };
+    });
+  });
+
   const sendPreview = async () => {
     const trimmedFullName = fullCharacterName.value.trim();
     const trimmedLegacyName = characterName.value.trim();
@@ -1166,6 +1395,21 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     const trimmedFirstName = normalizeNamePart(characterFirstName.value);
     const trimmedLastName = normalizeNamePart(characterLastName.value);
     const trimmedNickname = normalizeNamePart(characterNickname.value);
+    // Collect kept item keys to inform server of current decisions
+    const keptItemKeys: string[] = (() => {
+      try {
+        const keys: string[] = [];
+        for (const group of materialProposals.value) {
+          for (const it of group.items) {
+            if (isMaterialItemKept(it.key)) keys.push(String(it.key));
+          }
+        }
+        return keys;
+      } catch {
+        return [];
+      }
+    })();
+
     const body = {
       selection: {
         class: selectedClass.value || null,
@@ -1182,6 +1426,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         nickname: trimmedNickname.length ? trimmedNickname : null,
         base_stats_before_race: { ...baseStats }
       },
+      keptItemKeys,
       forceReset: adapterResetPending.value
     };
 
@@ -1450,23 +1695,96 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     }, {});
 
     const languages = toList(previewCharacter.languages);
-    const baseEquipment = toList(previewCharacter.equipment);
 
-    const keptMaterialDisplays = materialKeptItems.value
-      .map(({ item }) => {
-        const isCoinPurse = materialCoinPurseKey.value ? item.key === materialCoinPurseKey.value : false;
-        const coinsOverride = isCoinPurse ? materialFinalCoins.value : null;
-        return formatMaterialItemDisplay(item, coinsOverride);
-      })
-      .filter((entry) => typeof entry === 'string' && entry.trim().length);
-
-    const equipmentList = [...baseEquipment, ...keptMaterialDisplays];
-
-    const trimValue = (value: string): string => value.trim();
-    const toNullableString = (value: string): string | null => {
-      const trimmed = value.trim();
+    const trimValue = (value: string | null | undefined): string => (value ?? '').trim();
+    const toNullableString = (value: string | null | undefined): string | null => {
+      const trimmed = (value ?? '').trim();
       return trimmed.length ? trimmed : null;
     };
+
+    const keptItemsRaw = materialKeptItems.value.map((entry) => entry.item);
+    const normalizeKey = (value: unknown): string | null => {
+      if (value === null || value === undefined) return null;
+      const str = String(value).trim();
+      return str.length ? str : null;
+    };
+
+    const inventoryTransition = buildCreationInventoryTransition({
+      entries: keptItemsRaw,
+      assignments: {
+        primaryWeaponKey: materialAssignments.primaryWeaponKey,
+        secondaryWeaponKey: materialAssignments.secondaryWeaponKey,
+        protectionKey: materialAssignments.protectionKey,
+        shieldKey: materialAssignments.shieldKey
+      },
+      purseKey: materialCoinPurseKey.value ? String(materialCoinPurseKey.value) : null,
+      finalCoins: materialFinalCoins.value ?? null
+    });
+
+    const originToSlug = new Map<string, string>();
+    for (const item of inventoryTransition.items) {
+      if (item.originId) {
+        originToSlug.set(item.originId, item.id);
+      }
+    }
+
+    const slugForOrigin = (key: string | null): string | null => {
+      if (!key) return null;
+      return originToSlug.get(key) ?? key;
+    };
+
+    const labelForKey = (key: string | null): string | null => {
+      if (!key) return null;
+      const target = keptItemsRaw.find((item: any) => String(item.key || item.itemId) === key);
+      if (!target) return null;
+      const label = target.label ?? target.itemId;
+      return label ? String(label) : null;
+    };
+
+    const primaryOriginKey = normalizeKey(materialAssignments.primaryWeaponKey);
+    const secondaryOriginKey = normalizeKey(materialAssignments.secondaryWeaponKey);
+    const protectionOriginKey = normalizeKey(materialAssignments.protectionKey);
+    const shieldOriginKey = normalizeKey(materialAssignments.shieldKey);
+    const accessoiresIds = Array.isArray(materialAssignments.accessoriesKeys)
+      ? materialAssignments.accessoriesKeys
+          .map((id: unknown) => slugForOrigin(normalizeKey(id)))
+          .filter((id): id is string => Boolean(id))
+      : [];
+
+    const primaryKey = slugForOrigin(primaryOriginKey);
+    const secondaryKey = slugForOrigin(secondaryOriginKey);
+    const protectionKey = slugForOrigin(protectionOriginKey);
+    const shieldKey = slugForOrigin(shieldOriginKey);
+
+    const appliedFeaturesIds: string[] = Array.isArray((preview.value as any)?.appliedFeatures)
+      ? (preview.value as any).appliedFeatures.map((x: any) => String(x))
+      : [];
+    const knownSpells: string[] = Array.isArray(previewCharacter?.spellcasting?.known)
+      ? (previewCharacter.spellcasting.known as any[]).map((s) => String(s))
+      : [];
+
+    // Construire l'inventaire minimal a partir des items conserves (proposals) pour garder les IDs stables (itemId)
+    const minimalInventory = (() => {
+      const purseKey = materialCoinPurseKey.value ? String(materialCoinPurseKey.value) : null;
+      const keptEntries = materialKeptItems.value as Array<{ item: any; keep?: boolean }>;
+      const out: { id: string; quantity: number; coins?: { gold: number; silver: number; copper: number } | null }[] = [];
+      for (const entry of keptEntries) {
+        const it = entry?.item ?? {};
+        // Priorite a itemId (ID de repo), fallback sur id/resolved.id
+        const stableId = String(
+          it.itemId ?? it.id ?? it.resolved?.id ?? ''
+        ).trim();
+        if (!stableId) continue;
+        const quantity = Number(it.quantity ?? it.qte ?? 1) || 1;
+        const e: any = { id: stableId, quantity };
+        const key = String(it.key ?? '');
+        if (purseKey && key && key === purseKey) {
+          e.coins = materialFinalCoins.value ?? null;
+        }
+        out.push(e);
+      }
+      return out;
+    })();
 
     const personnage: Personnage = {
       id: toDisplayString(previewCharacter.id, `pj_${Date.now()}`),
@@ -1489,7 +1807,6 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       caracs,
       competences: proficiencies,
       langues: languages.length ? languages.join(', ') : 'Commun',
-      equipement: equipmentList.join(', '),
       armure: { type: 'aucune' },
       bouclier: Boolean(previewCharacter.bouclier ?? false),
       monture: {
@@ -1498,12 +1815,27 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         notes: toDisplayString(previewCharacter.monture?.notes ?? '')
       },
       inspiration: Boolean(previewCharacter.inspiration ?? false),
+      inventaire: minimalInventory,
+      classeId: selectedClass.value || null,
+      raceId: selectedRace.value || null,
+      backgroundId: selectedBackground.value || null,
+      featureIds: appliedFeaturesIds,
+      spellIds: knownSpells,
       materielPersonnalise: {
-        armePrincipale: toNullableString(materialPlan.primaryWeapon),
-        armeSecondaire: toNullableString(materialPlan.secondaryWeapon),
-        protection: toNullableString(materialPlan.protection),
+        armePrincipale: toNullableString(materialPlan.primaryWeapon) ?? labelForKey(primaryOriginKey),
+        armePrincipaleId: primaryKey,
+        armeSecondaire: toNullableString(materialPlan.secondaryWeapon) ?? labelForKey(secondaryOriginKey),
+        armeSecondaireId: secondaryKey,
+        protection: toNullableString(materialPlan.protection) ?? labelForKey(protectionOriginKey),
+        protectionId: protectionKey,
+        bouclier: toNullableString(materialPlan.shield) ?? labelForKey(shieldOriginKey),
+        bouclierId: shieldKey,
         paquetage: toNullableString(materialPlan.pack),
+        paquetageId: null,
         accessoires: toNullableString(materialPlan.accessories),
+        accessoiresIds,
+        keptIds: inventoryTransition.keptIds,
+        equippedIds: inventoryTransition.equippedIds,
         notes: trimValue(materialPlan.notes)
       },
       descriptionDetaillee: {
@@ -1521,11 +1853,18 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
   type InitializeOptions = {
     restoreFromStorage?: boolean;
+    generatePreview?: boolean;
   };
 
   const initialize = async (options: InitializeOptions = {}) => {
-    const { restoreFromStorage = true } = options;
+    const { restoreFromStorage = true, generatePreview = false } = options;
     const wasInitialized = initialized.value;
+
+    if (process.client) {
+      restoreLockState();
+    } else {
+      creationLocked.value = false;
+    }
 
     let restoredBeforeInit = false;
     if (
@@ -1541,13 +1880,21 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     if (!initialized.value) {
       initialized.value = true;
       await loadCatalog();
-      await sendPreview();
+      if (generatePreview && hasPrimarySelection()) {
+        await sendPreview();
+      }
     }
 
     if (restoreFromStorage && process.client && !restoredBeforeInit) {
       const wasRestored = hasRestoredSelections.value;
       const didRestore = restoreSelections();
-      if (!wasRestored && didRestore && !wasInitialized && hasPrimarySelection()) {
+      if (
+        generatePreview &&
+        !wasRestored &&
+        didRestore &&
+        !wasInitialized &&
+        hasPrimarySelection()
+      ) {
         await sendPreview();
       }
     }
@@ -1651,6 +1998,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
 
   const previewGroup = {
     preview,
+    creationLocked,
     rawText,
     showRaw,
     loading,
@@ -1664,7 +2012,10 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     loadCatalog,
     persistSelections,
     restoreSelections,
-    hasRestoredSelections
+    hasRestoredSelections,
+    restoreLockState,
+    lockCreation,
+    unlockCreation
   };
 
   return {
@@ -1689,6 +2040,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     characterLastName,
     characterNickname,
     preview,
+    creationLocked,
     rawText,
     showRaw,
     baseStats,
@@ -1736,8 +2088,11 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     choiceMetadata,
     appliedChoices,
     sendPreview,
+    lockCreation,
+    unlockCreation,
     loadCatalog,
     initialize,
+    restoreLockState,
     materialProposals,
     materialItems,
     materialKeptItems,
@@ -1759,6 +2114,13 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     resetMaterialSelections,
     formatMaterialItemDisplay,
     materialPlan,
-    descriptionFields
+    descriptionFields,
+    // slots & assignments for preview material preparation
+    slotCandidates,
+    materialAssignments,
+    setMaterialAssignment,
+    clearAccessoryAssignment,
+    unassignedKeptItems,
+    materialAcquired
   };
 });
