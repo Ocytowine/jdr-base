@@ -27,6 +27,11 @@ export default defineNuxtConfig({
     }
   },
 
+  // Ajout du plugin dataAdapterV2GitHub
+  plugins: [
+    '~/plugins/dataAdapterV2GitHub.ts'
+  ],
+
   // -------------------------
   // Runtime config (server-only + public)
   // -------------------------

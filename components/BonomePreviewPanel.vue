@@ -322,25 +322,39 @@ async function handleSave() {
       throw new Error("La génération du personnage n'a retourné aucune donnée.");
     }
 
-    // Completion des donnees enrichies pour l'aventure
+    // Enrichissement des données locales (spells/features) pour la classe
     try {
       const selection = {
-        class: creation.selectedClass,
-        race: creation.selectedRace,
-        background: creation.selectedBackground,
-        niveau: creation.niveau,
+        class: creation.selectedClass.value,
+        race: creation.selectedRace.value,
+        background: creation.selectedBackground.value,
+        niveau: creation.niveau.value,
         chosenOptions: creation.chosenOptions
-      } as any;
-      const previewCharacter = creation.preview?.value?.previewCharacter ?? null;
+      };
+      const previewCharacter = creation.preview.value?.previewCharacter ?? null;
+      // Appel l'API pour compléter la base locale avec les sorts/features manquants
       const completion = await requestFetch('/api/creation/complete', {
         method: 'POST',
         body: { selection, previewCharacter, personnage: payload }
       }).catch(() => null);
       if (completion?.ok && completion.enriched) {
         dataStore.merge(completion.enriched);
+      } else {
+        // Fallback : enrichit la base locale avec les sorts/features du preview si non présents
+        const spellIds = Array.isArray(payload.spellIds) ? payload.spellIds : [];
+        const featureIds = Array.isArray(payload.featureIds) ? payload.featureIds : [];
+        for (const sid of spellIds) {
+          if (!dataStore.maps.spells[sid] && previewCharacter?.spells?.[sid]) {
+            dataStore.maps.spells[sid] = previewCharacter.spells[sid];
+          }
+        }
+        for (const fid of featureIds) {
+          if (!dataStore.maps.features[fid] && previewCharacter?.features?.[fid]) {
+            dataStore.maps.features[fid] = previewCharacter.features[fid];
+          }
+        }
       }
     } catch (e) {
-      // non-bloquant
       try { console.warn('[BonomePreviewPanel] completion fetch failed', e); } catch {}
     }
 

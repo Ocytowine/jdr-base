@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRequestFetch } from '#app';
+import { useDataStore } from '@/stores/data';
 
 import type { Personnage } from './personnage';
 
@@ -1845,8 +1846,35 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         objectifs: trimValue(descriptionFields.objectifs),
         relations: trimValue(descriptionFields.relations),
         defauts: trimValue(descriptionFields.defauts)
-      }
+      },
+      // Ajout du template UI de la classe (si présent dans le catalogue)
+      ui_template: null
     };
+
+    // Récupération du template UI de classe
+    let uiTemplate: string | null = null
+    try {
+      const classeId = selectedClass.value || null
+      if (classeId) {
+        // 1. Cherche dans le catalogue (index)
+        const classeEntry = classes.value.find(
+          c => c.id === classeId || c.name?.toLowerCase() === classeId.toLowerCase()
+        )
+        if (classeEntry && typeof classeEntry.ui_template === 'string') {
+          uiTemplate = classeEntry.ui_template
+        }
+        // 2. Si non trouvé, cherche dans le store data (JSON complet)
+        if (!uiTemplate) {
+          const dataStore = useDataStore()
+          const rawClasse = dataStore.maps.classes[classeId]
+          if (rawClasse && typeof rawClasse.ui_template === 'string') {
+            uiTemplate = rawClasse.ui_template
+          }
+        }
+      }
+    } catch {}
+
+    personnage.ui_template = uiTemplate
 
     return personnage;
   };
@@ -2018,6 +2046,90 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     unlockCreation
   };
 
+  // Ajout d'une méthode utilitaire pour récupérer les infos complètes d'un spell ou feature
+  const getSpellOrFeatureDetails = (id: string, type: 'spell' | 'feature') => {
+    const dataStore = useDataStore();
+    if (type === 'spell') {
+      return dataStore.maps.spells?.[id] ?? null;
+    }
+    if (type === 'feature') {
+      return dataStore.maps.features?.[id] ?? null;
+    }
+    return null;
+  };
+
+  /**
+   * Restaure la database locale en complétant les entités manquantes (spells, features, items, classes, races, backgrounds)
+   * à partir des IDs présents dans la fiche du personnage ou du preview.
+   * Utilise l'API /api/creation/complete pour enrichir dataStore.maps.
+   */
+  const restoreDatabaseFromIds = async (personnage?: any) => {
+    const dataStore = useDataStore();
+    // Collecte tous les IDs à compléter
+    const ids = {
+      spells: [],
+      features: [],
+      items: [],
+      classes: [],
+      races: [],
+      backgrounds: []
+    };
+    // Récupère les IDs depuis le personnage ou le preview
+    const source = personnage ?? preview.value?.previewCharacter ?? {};
+    if (Array.isArray(source.spellIds)) ids.spells.push(...source.spellIds);
+    if (Array.isArray(source.featureIds)) ids.features.push(...source.featureIds);
+    if (Array.isArray(source.inventaire)) {
+      for (const entry of source.inventaire) {
+        if (entry && entry.id) ids.items.push(entry.id);
+      }
+    }
+    if (source.classeId) ids.classes.push(source.classeId);
+    if (source.raceId) ids.races.push(source.raceId);
+    if (source.backgroundId) ids.backgrounds.push(source.backgroundId);
+
+    // Filtre les IDs non présents dans la base locale
+    const missing = {
+      spells: ids.spells.filter(id => !dataStore.maps.spells[id]),
+      features: ids.features.filter(id => !dataStore.maps.features[id]),
+      items: ids.items.filter(id => !dataStore.maps.items[id]),
+      classes: ids.classes.filter(id => !dataStore.maps.classes[id]),
+      races: ids.races.filter(id => !dataStore.maps.races[id]),
+      backgrounds: ids.backgrounds.filter(id => !dataStore.maps.backgrounds[id])
+    };
+
+    // Si rien à compléter, ne fait rien
+    if (
+      !missing.spells.length &&
+      !missing.features.length &&
+      !missing.items.length &&
+      !missing.classes.length &&
+      !missing.races.length &&
+      !missing.backgrounds.length
+    ) return;
+
+    // Appel l'API pour enrichir la base locale
+    try {
+      const selection = {
+        class: source.classeId ?? selectedClass.value,
+        race: source.raceId ?? selectedRace.value,
+        background: source.backgroundId ?? selectedBackground.value,
+        niveau: source.niveau ?? niveau.value,
+        chosenOptions: source.chosenOptions ?? chosenOptions
+      };
+      const previewCharacter = source ?? null;
+      const requestFetch = useRequestFetch();
+      const completion = await requestFetch('/api/creation/complete', {
+        method: 'POST',
+        body: { selection, previewCharacter, personnage: source }
+      }).catch(() => null);
+      if (completion?.ok && completion.enriched) {
+        dataStore.merge(completion.enriched);
+      }
+    } catch (e) {
+      try { console.warn('[restoreDatabaseFromIds] completion fetch failed', e); } catch {}
+    }
+  };
+
   return {
     catalog: catalogGroup,
     selections: selectionsGroup,
@@ -2121,6 +2233,8 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     setMaterialAssignment,
     clearAccessoryAssignment,
     unassignedKeptItems,
-    materialAcquired
+    materialAcquired,
+    getSpellOrFeatureDetails,
+    restoreDatabaseFromIds
   };
 });

@@ -132,6 +132,7 @@ import { useBonomeCreationStore } from '@/stores/bonomeCreation'
 import { useDataStore } from '@/stores/data'
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition'
 import { processInput as processCommand, isCommandInput } from '@/utils/commands'
+import { defineAsyncComponent } from 'vue'
 
 type EtatSauvegarde = 'chargement' | 'chargee' | 'aucune'
 
@@ -596,6 +597,18 @@ watch(
   { immediate: true }
 )
 
+const classeTemplates = import.meta.glob('@/UITemplates/classes/*.vue')
+
+// Helper pour charger dynamiquement le composant selon le nom
+const classeUiComponent = computed(() => {
+  const template = storePersonnage.perso.ui_template
+  if (!template) return null
+  // Cherche le template dans le glob
+  const key = Object.keys(classeTemplates).find(k => k.endsWith(`/${template}`))
+  if (!key) return null
+  return defineAsyncComponent(classeTemplates[key])
+})
+
 const panelConfig = computed(() => {
   if (!partie.value) return null
   const data = partie.value
@@ -609,9 +622,9 @@ const panelConfig = computed(() => {
   switch (activeSection.value) {
     case 'classe':
       return {
-        component: AventureClasse,
+        component: classeUiComponent.value || AventureClasse,
         props: {
-          classeLabel: classeDisplayLabel.value || 'Classe a definir',
+          classeLabel: classeDisplayLabel.value || 'Classe à définir',
           modules: (classeModulesFromData.value.length ? classeModulesFromData.value : data.modulesClasse)
         },
         on: {

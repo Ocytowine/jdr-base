@@ -40,7 +40,20 @@ La page `/aventure` recharge la fiche locale, affiche un message approprié en c
 - **Adaptateurs & moteur** :
   - `DataAdapterV2GitHub` interroge l’API GitHub, gère un cache disque optionnel et fournit des helpers de recherche/normalisation. 【F:utils/dataAdapterV2GitHub.ts†L1-L200】
   - `CreationAdapterServer` agrège les features (depuis GitHub ou des JSON locaux) et transforme les choix en effets immédiats (proficiencies, sorts, etc.). 【F:utils/creationAdapterServer.ts†L1-L200】
-  - `EffectEngine` applique les effets normalisés au personnage (stats, sens, maîtrises, équipement, sorts…). 【F:engine/effectEngine.ts†L1-L200】
+
+## UI de classe personnalisée
+
+Les templates d’UI de classe sont stockés dans `components/uiTemplates/classes/` et référencés par le champ `ui_template` dans la fiche personnage.  
+Lors du passage à l’aventure, le template est chargé dynamiquement selon la classe du personnage.  
+Les données (sorts, features, etc.) sont récupérées depuis le repo GitHub via l’adaptateur `DataAdapterV2GitHub` et enrichies localement lors de la sauvegarde.
+
+Pour ajouter une nouvelle UI de classe :
+1. Créez un composant Vue dans `components/uiTemplates/classes/` (ex: `mage.vue`).
+2. Ajoutez le nom du template dans le champ `ui_template` du catalogue de classe sur le repo GitHub.
+3. Lors de la sauvegarde, la base locale est enrichie avec les sorts/features du personnage.
+4. L’UI de classe affichera dynamiquement les pouvoirs et sorts disponibles.
+
+---
 
 ## Tests & outils
 Le script `npm run test` compile et exécute les fichiers `tests/*.test.ts` via esbuild, tout en remappant les alias Nuxt. 【F:package.json†L5-L12】【F:scripts/run-tests.mjs†L1-L52】
@@ -95,7 +108,7 @@ Demande à faire :
 
 UI de classe : (présente les sorts, technique de combat...)
 
-  j'aimerai créer une UI particulière à appliqué pour les classes de personnage, qui apparaitra dans l'onglet 'classe et pouvoirs' (déja existant) le template de l'UI de classes devra être télécharger et appliqué lors du passage à l'aventure depuis la création (plus tard suite à l'aquisition d'un avantage à préciser), peut tu m'aider à concrétiser l'idée, (ne modifie rien pour l'instant) peut on ce servir de mon repo github pour cela ?
+  j'aimerai créer une UI particulière à appliqué pour les classes de personnage, qui apparaitra dans l'onglet 'classe et pouvoirs' (déja existant) le template de l'UI de classes devra être téléchargé et appliqué lors du passage à l'aventure depuis la création (plus tard suite à l'aquisition d'un avantage à préciser), peut tu m'aider à concrétiser l'idée, (ne modifie rien pour l'instant) peut on ce servir de mon repo github pour cela ?
 
 Runtime IA : (gère le comportement de l'IA)
 

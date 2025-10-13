@@ -1,4 +1,3 @@
-
 <template>
   <div class="aventure-classe">
     <header class="aventure-classe__header">
@@ -25,12 +24,13 @@
     <!-- Ajout du template UI dynamique de classe -->
     <component :is="uiTemplateComponent" v-if="uiTemplateComponent" />
     <div v-else-if="isLoadingTemplate" class="text-gray-400 mt-4">Chargement du template de classe...</div>
+    <div v-else-if="templateError" class="text-red-400 mt-4">{{ templateError }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
 
-import { toRefs, ref, onMounted, defineAsyncComponent } from 'vue'
+import { toRefs, ref, onMounted, defineAsyncComponent, markRaw } from 'vue'
 import { usePersonnage } from '@/stores/personnage'
 import { useNuxtApp } from '#app'
 
@@ -54,29 +54,36 @@ const emit = defineEmits<{
 
 const { classeLabel, modules } = toRefs(props)
 
-// Chargement dynamique du template UI de classe
+// Chargement dynamique du template UI de classe depuis le projet local
 const uiTemplateComponent = ref<any>(null)
 const isLoadingTemplate = ref(false)
+const templateError = ref<string | null>(null)
 
 const personnage = usePersonnage()
-const nuxtApp = useNuxtApp()
+
+// Import dynamique de tous les templates de classe locaux
+const classeTemplates = import.meta.glob('@/components/uiTemplates/classes/*.vue')
 
 onMounted(async () => {
-  // Récupère le nom du template UI depuis la fiche du personnage
   const templateName = personnage.ui_template || null
   if (!templateName) return
   isLoadingTemplate.value = true
+  templateError.value = null
   try {
-    // Utilise l'adaptateur pour récupérer le code du template depuis le repo GitHub
-    // Ici, on suppose que l'adaptateur est accessible via nuxtApp.$dataAdapterV2GitHub
-    const adapter = nuxtApp.$dataAdapterV2GitHub
-    const templateCode = await adapter.fetchRawFile(`UiTemplates/classes/${templateName}`)
-    // Compile le template en composant Vue dynamique
-    uiTemplateComponent.value = defineAsyncComponent(() => Promise.resolve({ template: templateCode }))
-  } catch (e) {
+    // Cherche le template dans le glob import
+    const key = Object.keys(classeTemplates).find(k => k.endsWith(`/${templateName}`))
+    if (!key) {
+      templateError.value = `Template UI de classe "${templateName}" introuvable dans components/uiTemplates/classes/`
+      uiTemplateComponent.value = null
+      return
+    }
+    // Correction : utiliser markRaw pour éviter la réactivité du composant
+    uiTemplateComponent.value = markRaw(defineAsyncComponent(classeTemplates[key]))
+  } catch (e: any) {
     // eslint-disable-next-line no-console
     console.warn('Erreur chargement template UI classe', e)
     uiTemplateComponent.value = null
+    if (!templateError.value) templateError.value = String(e?.message || e)
   } finally {
     isLoadingTemplate.value = false
   }

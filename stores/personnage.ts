@@ -331,7 +331,9 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   let uiTemplate: string | null = null
   try {
     const classeKey = (source.classe ?? base.classe)?.toLowerCase()
-    const classeObj = Object.values(dataStore.maps.classes).find((c: any) => c?.name?.toLowerCase() === classeKey || c?.id?.toLowerCase() === classeKey)
+    const classeObj = Object.values(dataStore.maps.classes).find((c: any) =>
+      c?.name?.toLowerCase() === classeKey || c?.id?.toLowerCase() === classeKey
+    )
     uiTemplate = classeObj?.ui_template ?? null
   } catch (e) {
     uiTemplate = null
@@ -370,7 +372,7 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
       notes: typeof materielSource.notes === 'string' ? materielSource.notes : base.materielPersonnalise.notes
     },
     // Injection du template UI depuis le catalogue
-    ui_template: uiTemplate
+    ui_template: uiTemplate // <-- Ajout explicite ici
   }
 }
 
