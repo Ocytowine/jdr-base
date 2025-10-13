@@ -1,28 +1,41 @@
+// Mapping classe → template UI
+function getUiTemplateForClasse(classe: string): string | null {
+  switch (classe?.toLowerCase()) {
+    case 'mage':
+      return 'mage.vue'
+    case 'guerrier':
+      return 'guerrier.vue'
+    // Ajoute d'autres classes ici
+    default:
+      return null
+  }
+}
 import { defineStore } from 'pinia'
 import { useSession } from '@/composables/useSession'
 import { useParties } from '@/stores/parties'
-import type { CreationInventoryTransition } from '@/utils/inventaireTransition'
+import { useDataStore } from '@/stores/data'
 
-export type Caracs = {
-  force: number
-  dexterite: number
-  constitution: number
-  intelligence: number
-  sagesse: number
-  charisme: number
-}
+const DEF_COMPETENCES: CompetenceDef[] = [
+  { id: 'athletisme', nom: 'Athletisme', carac: 'force' },
+  { id: 'acrobaties', nom: 'Acrobaties', carac: 'dexterite' },
+  { id: 'discretion', nom: 'Discretion', carac: 'dexterite' },
+  { id: 'escamotage', nom: 'Escamotage', carac: 'dexterite' },
+  { id: 'dressage', nom: 'Dressage', carac: 'sagesse' },
+  { id: 'intimidation', nom: 'Intimidation', carac: 'charisme' },
+  { id: 'persuasion', nom: 'Persuasion', carac: 'charisme' },
+  { id: 'representation', nom: 'Representation', carac: 'charisme' },
+  { id: 'histoire', nom: 'Histoire', carac: 'intelligence' },
+  { id: 'arcanes', nom: 'Arcanes', carac: 'intelligence' },
+  { id: 'investigation', nom: 'Investigation', carac: 'intelligence' },
+  { id: 'nature', nom: 'Nature', carac: 'intelligence' },
+  { id: 'religion', nom: 'Religion', carac: 'intelligence' },
+  { id: 'medecine', nom: 'Medecine', carac: 'sagesse' },
+  { id: 'perception', nom: 'Perception', carac: 'sagesse' },
+  { id: 'perspicacite', nom: 'Perspicacite', carac: 'sagesse' },
+  { id: 'survie', nom: 'Survie', carac: 'sagesse' }
+]
 
-export type CompetenceDef = { id: string; nom: string; carac: keyof Caracs }
-
-type InventaireSnapshotItem = CreationInventoryTransition['items'][number]
-
-export type PersonnageInventoryEntry = {
-  id: string
-  quantity: number
-  coins?: { gold: number; silver: number; copper: number } | null
-}
-
-export type Personnage = {
+type Personnage = {
   id: string
   nom: string
   lignee: string
@@ -32,7 +45,6 @@ export type Personnage = {
   classe: string
   sousClasse: string
   niveau: number
-  // Experience totale accumulée par le personnage (base test locale)
   xp?: number
   dv: number
   pvActuels: number
@@ -43,9 +55,7 @@ export type Personnage = {
   bouclier?: boolean
   monture: { nom: string; vitesse: string; notes: string }
   inspiration: boolean
-  // inventaire minimal: uniquement id et quantite; la bourse contient coins
   inventaire: PersonnageInventoryEntry[]
-  // IDs de reference (uniquement des identifiants; les donnees brutes sont dans stores/data)
   classeId?: string | null
   raceId?: string | null
   backgroundId?: string | null
@@ -76,27 +86,8 @@ export type Personnage = {
     relations: string
     defauts: string
   }
+  ui_template?: string | null
 }
-
-const DEF_COMPETENCES: CompetenceDef[] = [
-  { id: 'athletisme', nom: 'Athletisme', carac: 'force' },
-  { id: 'acrobaties', nom: 'Acrobaties', carac: 'dexterite' },
-  { id: 'discretion', nom: 'Discretion', carac: 'dexterite' },
-  { id: 'escamotage', nom: 'Escamotage', carac: 'dexterite' },
-  { id: 'dressage', nom: 'Dressage', carac: 'sagesse' },
-  { id: 'intimidation', nom: 'Intimidation', carac: 'charisme' },
-  { id: 'persuasion', nom: 'Persuasion', carac: 'charisme' },
-  { id: 'representation', nom: 'Representation', carac: 'charisme' },
-  { id: 'histoire', nom: 'Histoire', carac: 'intelligence' },
-  { id: 'arcanes', nom: 'Arcanes', carac: 'intelligence' },
-  { id: 'investigation', nom: 'Investigation', carac: 'intelligence' },
-  { id: 'nature', nom: 'Nature', carac: 'intelligence' },
-  { id: 'religion', nom: 'Religion', carac: 'intelligence' },
-  { id: 'medecine', nom: 'Medecine', carac: 'sagesse' },
-  { id: 'perception', nom: 'Perception', carac: 'sagesse' },
-  { id: 'perspicacite', nom: 'Perspicacite', carac: 'sagesse' },
-  { id: 'survie', nom: 'Survie', carac: 'sagesse' }
-]
 
 const createDefaultPerso = (): Personnage => ({
   id: 'pj_0001',
@@ -150,10 +141,34 @@ const createDefaultPerso = (): Personnage => ({
     objectifs: '',
     relations: '',
     defauts: ''
-  }
+  },
+  ui_template: null
 })
 
-const sanitizePersonnage = (raw: unknown): Personnage => {
+export type Caracs = {
+  force: number
+  dexterite: number
+  constitution: number
+  intelligence: number
+  sagesse: number
+  charisme: number
+}
+
+export type CompetenceDef = { id: string; nom: string; carac: keyof Caracs }
+
+type InventaireSnapshotItem = CreationInventoryTransition['items'][number]
+
+export type PersonnageInventoryEntry = {
+  id: string
+  quantity: number
+  coins?: { gold: number; silver: number; copper: number } | null
+}
+
+
+// Version asynchrone pour garantir le chargement du catalogue avant la normalisation
+
+// Version asynchrone pour garantir le chargement du catalogue avant la normalisation
+const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   const base = createDefaultPerso()
   if (!raw || typeof raw !== 'object') {
     return base
@@ -161,6 +176,12 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
 
   const source = raw as Record<string, any>
   const { equipement: _discardedEquipement, ...restSource } = source
+
+  const dataStore = useDataStore()
+  // On attend le chargement du catalogue si nécessaire (maps.classes doit être non vide)
+  if (!Object.keys(dataStore.maps.classes).length) {
+    await dataStore.load()
+  }
 
   const caracs = {
     ...base.caracs,
@@ -175,8 +196,6 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
   const slugify = (value: string): string =>
     value
       .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/-{2,}/g, '-')
       .replace(/^-|-$/g, '')
@@ -250,7 +269,7 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
 
   const slugUsage = new Map<string, number>()
   const rawInventaire = Array.isArray(source.inventaire) ? source.inventaire : []
-  const inventaire: PersonnageInventoryEntry[] = rawInventaire.map((entry, index) => {
+  const inventaire: PersonnageInventoryEntry[] = rawInventaire.map((entry: any, index: number) => {
     // support nouveau format deja minimal
     if (entry && typeof entry === 'object' && 'id' in entry && 'quantity' in entry && !('name' in entry)) {
       const e = entry as any
@@ -308,6 +327,16 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
     return str.trim().length ? str : null
   }
 
+  // Récupère le template UI depuis le store data (catalogue classes)
+  let uiTemplate: string | null = null
+  try {
+    const classeKey = (source.classe ?? base.classe)?.toLowerCase()
+    const classeObj = Object.values(dataStore.maps.classes).find((c: any) => c?.name?.toLowerCase() === classeKey || c?.id?.toLowerCase() === classeKey)
+    uiTemplate = classeObj?.ui_template ?? null
+  } catch (e) {
+    uiTemplate = null
+  }
+
   return {
     ...base,
     ...restSource,
@@ -339,16 +368,24 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
       keptIds: adaptIdArray(materielSource.keptIds),
       equippedIds: adaptIdArray(materielSource.equippedIds),
       notes: typeof materielSource.notes === 'string' ? materielSource.notes : base.materielPersonnalise.notes
-    }
+    },
+    // Injection du template UI depuis le catalogue
+    ui_template: uiTemplate
   }
 }
 
+
 export const usePersonnage = defineStore('personnage', {
   state: () => ({
-    perso: createDefaultPerso()
+    perso: createDefaultPerso(),
+    loading: false
   }),
   getters: {
-    listeCompetences: () => DEF_COMPETENCES
+    listeCompetences: () => DEF_COMPETENCES,
+    ui_template: (state) => {
+      // On suppose que le champ est stocké dans perso ou à défaut dans la classe
+      return state.perso?.ui_template || null
+    }
   },
   actions: {
     _storageKey(partieId?: string | null) {
@@ -374,18 +411,46 @@ export const usePersonnage = defineStore('personnage', {
       return id ? `JDR_PERSO_${id}` : 'JDR_PERSO'
     },
 
-    chargerDepuisLocal(partieId?: string) {
+    async chargerDepuisLocal(partieId?: string) {
       if (!process.client) return
+      this.loading = true
       const key = this._storageKey(partieId)
-      const brut = localStorage.getItem(key) ?? (!partieId ? localStorage.getItem('JDR_PERSO') : null)
-      if (!brut) return
-      try {
-        const parsed = JSON.parse(brut)
-        this.perso = sanitizePersonnage(parsed)
-      } catch (error) {
-        console.warn('Chargement de personnage invalide', error)
-        this.perso = createDefaultPerso()
+      const brut = localStorage.getItem(key)
+      // Log de debug pour la clé et le contenu
+      console.info('[Perso] Tentative de chargement', { key, brut })
+
+      let loaded = false
+      if (brut) {
+        try {
+          const parsed = JSON.parse(brut)
+          this.perso = await sanitizePersonnage(parsed)
+          loaded = true
+        } catch (error) {
+          console.warn('Chargement de personnage invalide', error)
+        }
       }
+
+      // Fallback : tente de restaurer la dernière sauvegarde générique si rien n'a été chargé
+      if (!loaded && !partieId) {
+        const fallbackRaw = localStorage.getItem('JDR_PERSO')
+        console.info('[Perso] Fallback sur JDR_PERSO', { fallbackRaw })
+        if (fallbackRaw) {
+          try {
+            const parsed = JSON.parse(fallbackRaw)
+            this.perso = await sanitizePersonnage(parsed)
+            loaded = true
+          } catch (error) {
+            console.warn('Chargement fallback invalide', error)
+          }
+        }
+      }
+
+      // Si aucune sauvegarde trouvée, conserve le personnage courant (évite la réinitialisation accidentelle)
+      if (!loaded) {
+        console.warn('[Perso] Aucune sauvegarde trouvée, conservation du perso courant')
+        // Ne pas écraser le perso courant par défaut
+      }
+      this.loading = false
     },
 
     sauvegarderLocal(partieId?: string) {

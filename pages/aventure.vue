@@ -501,39 +501,6 @@ const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
   { id: 'compagnons', label: 'Compagnons', hint: 'Allies et familiers' }
 ]
 
-onMounted(async () => {
-  if (!process.client) return
-  partiesStore.initialiser()
-  const id = partiesStore.currentPartyId
-  if (!id) return
-  partiesStore.chargerPartie(id)
-  // Charger d'abord la fiche personnage avant toute sauvegarde
-  try {
-    storePersonnage.chargerDepuisLocal(id ?? undefined)
-    etatSauvegarde.value = 'chargee'
-  } catch {
-    etatSauvegarde.value = 'aucune'
-  }
-  // Synchroniser l'inventaire UI a partir de la partie si present, sinon laisser les watchers reconstruire via data/personnage
-  const current = partiesStore.getPartie(id)
-  if (current && Array.isArray(current.inventaire) && current.inventaire.length) {
-    const cloned = cloneInventaireItems(current.inventaire)
-    syncInventaireState(cloned)
-  } else {
-    // Tenter de reconstruire via data/personnage
-    await ensureDataForCurrent()
-    const dataItems = inventaireFromData.value
-    if (current && dataItems.length) {
-      partiesStore.updatePartie(id, { inventaire: dataItems, inventaireInitialise: true })
-      syncInventaireState(cloneInventaireItems(dataItems))
-    }
-  }
-  if (showDebugPanel.value) {
-    refreshDebugSnapshots()
-  }
-})
-
-// Auto-complete des donnees manquantes (items/classes/etc.) via /api/creation/complete
 const ensureDataForCurrent = async () => {
   if (!process.client) return
   try {
@@ -561,21 +528,43 @@ const ensureDataForCurrent = async () => {
   } catch {}
 }
 
-watch(
-  () => (storePersonnage as any).perso?.inventaire,
-  async () => { await ensureDataForCurrent() },
-  { deep: true, immediate: true }
-)
-
-watch(
-  () => [
-    (storePersonnage as any).perso?.classeId,
-    JSON.stringify((storePersonnage as any).perso?.featureIds || []),
-    JSON.stringify((storePersonnage as any).perso?.spellIds || [])
-  ],
-  async () => { await ensureDataForCurrent() },
-  { immediate: true }
-)
+onMounted(async () => {
+  if (!process.client) return
+  partiesStore.initialiser()
+  const id = partiesStore.currentPartyId
+  if (!id) return
+  partiesStore.chargerPartie(id)
+  // Charger d'abord la fiche personnage avant toute sauvegarde
+  try {
+    const key = `JDR_PERSO_${id}`
+    const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
+    if (sauvegarde) {
+      storePersonnage.chargerDepuisLocal(id)
+      etatSauvegarde.value = 'chargee'
+    } else {
+      etatSauvegarde.value = 'aucune'
+    }
+  } catch {
+    etatSauvegarde.value = 'aucune'
+  }
+  // Synchroniser l'inventaire UI a partir de la partie si present, sinon laisser les watchers reconstruire via data/personnage
+  const current = partiesStore.getPartie(id)
+  if (current && Array.isArray(current.inventaire) && current.inventaire.length) {
+    const cloned = cloneInventaireItems(current.inventaire)
+    syncInventaireState(cloned)
+  } else {
+    // Tenter de reconstruire via data/personnage
+    await ensureDataForCurrent()
+    const dataItems = inventaireFromData.value
+    if (current && dataItems.length) {
+      partiesStore.updatePartie(id, { inventaire: dataItems, inventaireInitialise: true })
+      syncInventaireState(cloneInventaireItems(dataItems))
+    }
+  }
+  if (showDebugPanel.value) {
+    refreshDebugSnapshots()
+  }
+})
 
 watch(
   () => partiesStore.currentPartyId,
@@ -583,21 +572,20 @@ watch(
     if (!process.client) return
     if (id) {
       partiesStore.chargerPartie(id)
-      // Charge la base de donnees locale liee a la partie
       try { dataStore.load(id) } catch {}
       const current = partiesStore.getPartie(id)
       if (current && !hasPendingInventoryChanges.value) {
         const cloned = cloneInventaireItems(current.inventaire)
         syncInventaireState(cloned)
-        storePersonnage.sauvegarderLocal(id)
-      }
-      const key = `JDR_PERSO_${id}`
-      const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
-      if (sauvegarde) {
-        storePersonnage.chargerDepuisLocal(id)
-        etatSauvegarde.value = 'chargee'
-      } else {
-        etatSauvegarde.value = 'aucune'
+        // Correction : restaurer la fiche personnage depuis le localStorage si présente
+        const key = `JDR_PERSO_${id}`
+        const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
+        if (sauvegarde) {
+          storePersonnage.chargerDepuisLocal(id)
+          etatSauvegarde.value = 'chargee'
+        } else {
+          etatSauvegarde.value = 'aucune'
+        }
       }
     }
     activeSection.value = 'narration'

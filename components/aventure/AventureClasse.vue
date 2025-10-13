@@ -1,3 +1,4 @@
+
 <template>
   <div class="aventure-classe">
     <header class="aventure-classe__header">
@@ -20,11 +21,18 @@
       </article>
     </section>
     <p v-else class="aventure-classe__empty">Vous pouvez configurer cette section selon la classe du personnage.</p>
+
+    <!-- Ajout du template UI dynamique de classe -->
+    <component :is="uiTemplateComponent" v-if="uiTemplateComponent" />
+    <div v-else-if="isLoadingTemplate" class="text-gray-400 mt-4">Chargement du template de classe...</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { toRefs } from 'vue'
+
+import { toRefs, ref, onMounted, defineAsyncComponent } from 'vue'
+import { usePersonnage } from '@/stores/personnage'
+import { useNuxtApp } from '#app'
 
 export type ModuleClasse = {
   id: string
@@ -33,6 +41,7 @@ export type ModuleClasse = {
   usage?: string
   cooldown?: string
 }
+
 
 const props = defineProps<{
   classeLabel: string
@@ -44,6 +53,34 @@ const emit = defineEmits<{
 }>()
 
 const { classeLabel, modules } = toRefs(props)
+
+// Chargement dynamique du template UI de classe
+const uiTemplateComponent = ref<any>(null)
+const isLoadingTemplate = ref(false)
+
+const personnage = usePersonnage()
+const nuxtApp = useNuxtApp()
+
+onMounted(async () => {
+  // Récupère le nom du template UI depuis la fiche du personnage
+  const templateName = personnage.ui_template || null
+  if (!templateName) return
+  isLoadingTemplate.value = true
+  try {
+    // Utilise l'adaptateur pour récupérer le code du template depuis le repo GitHub
+    // Ici, on suppose que l'adaptateur est accessible via nuxtApp.$dataAdapterV2GitHub
+    const adapter = nuxtApp.$dataAdapterV2GitHub
+    const templateCode = await adapter.fetchRawFile(`UiTemplates/classes/${templateName}`)
+    // Compile le template en composant Vue dynamique
+    uiTemplateComponent.value = defineAsyncComponent(() => Promise.resolve({ template: templateCode }))
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('Erreur chargement template UI classe', e)
+    uiTemplateComponent.value = null
+  } finally {
+    isLoadingTemplate.value = false
+  }
+})
 </script>
 
 <style scoped>
