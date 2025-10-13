@@ -57,6 +57,19 @@
             </details>
           </article>
           <article class="aventure-page__debug-card">
+            <h3>Database (localStorage)</h3>
+            <ul class="aventure-page__debug-summary" v-if="summariseDatabase(debugDatabaseStorage).length">
+              <li v-for="row in summariseDatabase(debugDatabaseStorage)" :key="row.label">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.value }}</strong>
+              </li>
+            </ul>
+            <details>
+              <summary>Voir les donnees</summary>
+              <pre>{{ formatDebugValue(debugDatabaseStorage) }}</pre>
+            </details>
+          </article>
+          <article class="aventure-page__debug-card">
             <h3>Fiche personnage</h3>
             <ul class="aventure-page__debug-summary" v-if="summariseDebugSource(debugPersonnageStorage).length">
               <li v-for="row in summariseDebugSource(debugPersonnageStorage)" :key="row.label">
@@ -76,7 +89,7 @@
         Aucune fiche personnage sauvegardee. Terminez la creation pour lier vos donnees a cette partie.
       </p>
 
-      <AventureLayout>
+      <AventureLayout :overlay-transparent="activeSection === 'narration'">
         <template #sidebar>
           <AventureSidebar
             :sections="sections"
@@ -85,9 +98,7 @@
           />
         </template>
 
-        <template #chat>
-          <AventureChat :messages="messages" @send="handleSendMessage" />
-        </template>
+        
 
         <component
           v-if="panelConfig"
@@ -150,9 +161,10 @@ if (process.client) {
 const etatSauvegarde = ref<EtatSauvegarde>('chargement')
 const activeSection = ref<SectionId>('narration')
 const showDebugPanel = ref(false)
-const debugPartieCache = ref<any | null>(null)
-const debugPartieStorage = ref<any | null>(null)
-const debugPersonnageStorage = ref<any | null>(null)
+  const debugPartieCache = ref<any | null>(null)
+  const debugPartieStorage = ref<any | null>(null)
+  const debugPersonnageStorage = ref<any | null>(null)
+  const debugDatabaseStorage = ref<any | null>(null)
 const inventaireOriginal = ref<InventaireItem[]>([])
 const inventaireDraft = ref<InventaireItem[]>([])
 const isSyncingInventaire = ref(false)
@@ -273,39 +285,59 @@ const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
   return partyId ? `JDR_PERSO_${partyId}` : 'JDR_PERSO'
 }
 
-const refreshDebugSnapshots = () => {
-  if (!process.client) {
-    debugPartieCache.value = null
-    debugPartieStorage.value = null
-    debugPersonnageStorage.value = null
-    return
-  }
-  const currentId = partiesStore.currentPartyId
-  const cached = currentId ? partiesStore.getPartie(currentId) : null
-  debugPartieCache.value = cached ?? null
-  const partieKey = currentId ? `JDR_PARTIE_DATA_${currentId}` : null
-  debugPartieStorage.value = partieKey
-    ? (() => {
-        const raw = localStorage.getItem(partieKey)
-        if (!raw) return null
-        try {
-          return JSON.parse(raw)
-        } catch (error) {
-          return { erreur: 'JSON invalide', raw }
-        }
-      })()
-    : null
-  const personnageKey = resolvePersonnageStorageKey(currentId)
-  debugPersonnageStorage.value = (() => {
-    const raw = localStorage.getItem(personnageKey)
-    if (!raw) return null
-    try {
-      return JSON.parse(raw)
-    } catch (error) {
-      return { erreur: 'JSON invalide', raw }
+  const refreshDebugSnapshots = () => {
+    if (!process.client) {
+      debugPartieCache.value = null
+      debugPartieStorage.value = null
+      debugPersonnageStorage.value = null
+      debugDatabaseStorage.value = null
+      return
     }
-  })()
-}
+    const currentId = partiesStore.currentPartyId
+    const cached = currentId ? partiesStore.getPartie(currentId) : null
+    debugPartieCache.value = cached ?? null
+    const partieKey = currentId ? `JDR_PARTIE_DATA_${currentId}` : null
+    debugPartieStorage.value = partieKey
+      ? (() => {
+          const raw = localStorage.getItem(partieKey)
+          if (!raw) return null
+          try {
+            return JSON.parse(raw)
+          } catch (error) {
+            return { erreur: 'JSON invalide', raw }
+          }
+        })()
+      : null
+    const personnageKey = resolvePersonnageStorageKey(currentId)
+    debugPersonnageStorage.value = (() => {
+      const raw = localStorage.getItem(personnageKey)
+      if (!raw) return null
+      try {
+        return JSON.parse(raw)
+      } catch (error) {
+        return { erreur: 'JSON invalide', raw }
+      }
+    })()
+
+    // Snapshot de la base de donnees (DATABASE)
+    const databaseKey = ((): string => {
+      try {
+        // utilise la logique du store pour rester coherent
+        return (dataStore as any)._storageKey(currentId || undefined)
+      } catch {
+        return currentId ? `JDR_DATABASE_${currentId}` : 'JDR_DATABASE'
+      }
+    })()
+    debugDatabaseStorage.value = (() => {
+      const raw = localStorage.getItem(databaseKey)
+      if (!raw) return null
+      try {
+        return JSON.parse(raw)
+      } catch (error) {
+        return { erreur: 'JSON invalide', raw }
+      }
+    })()
+  }
 
 const formatDebugValue = (value: unknown) => {
   if (value === null || value === undefined) return '—'
@@ -317,17 +349,30 @@ const formatDebugValue = (value: unknown) => {
   }
 }
 
-const summariseDebugSource = (value: any) => {
-  if (!value || typeof value !== 'object') return [] as Array<{ label: string; value: string }>
-  const rows: Array<{ label: string; value: string }> = []
-  if ('id' in value && typeof value.id === 'string') rows.push({ label: 'ID', value: value.id })
-  if ('updatedAt' in value && typeof value.updatedAt === 'string') rows.push({ label: 'Mis a jour', value: value.updatedAt })
-  if ('inventaire' in value && Array.isArray(value.inventaire)) rows.push({ label: 'Objets', value: String(value.inventaire.length) })
-  if ('journalEntries' in value && Array.isArray(value.journalEntries)) rows.push({ label: 'Journal', value: String(value.journalEntries.length) })
-  if ('quetes' in value && Array.isArray(value.quetes)) rows.push({ label: 'Quetes', value: String(value.quetes.length) })
-  if ('aides' in value && Array.isArray(value.aides)) rows.push({ label: 'Aides', value: String(value.aides.length) })
-  return rows
-}
+  const summariseDebugSource = (value: any) => {
+    if (!value || typeof value !== 'object') return [] as Array<{ label: string; value: string }>
+    const rows: Array<{ label: string; value: string }> = []
+    if ('id' in value && typeof value.id === 'string') rows.push({ label: 'ID', value: value.id })
+    if ('updatedAt' in value && typeof value.updatedAt === 'string') rows.push({ label: 'Mis a jour', value: value.updatedAt })
+    if ('inventaire' in value && Array.isArray(value.inventaire)) rows.push({ label: 'Objets', value: String(value.inventaire.length) })
+    if ('journalEntries' in value && Array.isArray(value.journalEntries)) rows.push({ label: 'Journal', value: String(value.journalEntries.length) })
+    if ('quetes' in value && Array.isArray(value.quetes)) rows.push({ label: 'Quetes', value: String(value.quetes.length) })
+    if ('aides' in value && Array.isArray(value.aides)) rows.push({ label: 'Aides', value: String(value.aides.length) })
+    return rows
+  }
+
+  const summariseDatabase = (value: any) => {
+    if (!value || typeof value !== 'object') return [] as Array<{ label: string; value: string }>
+    const safeLen = (obj: any) => (obj && typeof obj === 'object' ? Object.keys(obj).length : 0)
+    return [
+      { label: 'Classes', value: String(safeLen((value as any).classes)) },
+      { label: 'Races', value: String(safeLen((value as any).races)) },
+      { label: 'Historiques', value: String(safeLen((value as any).backgrounds)) },
+      { label: 'Capacites', value: String(safeLen((value as any).features)) },
+      { label: 'Sorts', value: String(safeLen((value as any).spells)) },
+      { label: 'Objets', value: String(safeLen((value as any).items)) }
+    ]
+  }
 
 const toggleDebugPanel = () => {
   showDebugPanel.value = !showDebugPanel.value
@@ -537,6 +582,8 @@ watch(
     if (!process.client) return
     if (id) {
       partiesStore.chargerPartie(id)
+      // Charge la base de donnees locale liee a la partie
+      try { dataStore.load(id) } catch {}
       const current = partiesStore.getPartie(id)
       if (current && !hasPendingInventoryChanges.value) {
         const cloned = cloneInventaireItems(current.inventaire)
@@ -564,7 +611,11 @@ const panelConfig = computed(() => {
   if (!partie.value) return null
   const data = partie.value
   if (activeSection.value === 'narration') {
-    return null
+    return {
+      component: AventureChat,
+      props: { messages: messages.value },
+      on: { send: handleSendMessage }
+    }
   }
   switch (activeSection.value) {
     case 'classe':

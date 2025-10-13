@@ -47,10 +47,31 @@
   --warn-soft-border: rgba(246, 199, 96, 0.4);
   --ko-soft: rgba(255, 107, 107, 0.2);
   --ko-soft-border: rgba(255, 107, 107, 0.45);
+  /* Scrollbar theme */
+  --scrollbar-size: 10px;
+  --scrollbar-radius: 10px;
+  --scrollbar-track: rgba(255, 255, 255, 0.04);
+  --scrollbar-thumb: rgba(122, 162, 255, 0.35);
+  --scrollbar-thumb-hover: rgba(122, 162, 255, 0.55);
 }
 *{ box-sizing: border-box; }
 html,body,#__nuxt,.app{ height:100%; }
 body{ margin:0; background: radial-gradient(1200px 800px at 20% 0%, #14173a, var(--fond)); color: var(--texte); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+
+/* Global scrollbar styling */
+/* Firefox */
+*{ scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+/* Chromium/Safari */
+::-webkit-scrollbar{ width: var(--scrollbar-size); height: var(--scrollbar-size); }
+::-webkit-scrollbar-track{ background: transparent; }
+::-webkit-scrollbar-thumb{
+  background-color: var(--scrollbar-thumb);
+  border-radius: var(--scrollbar-radius);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover{ background-color: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-corner{ background: transparent; }
 
 .entete{ position: sticky; top:0; backdrop-filter: blur(6px); background: #0f1226aa; border-bottom:1px solid var(--bord); z-index:10; }
 .nav{ max-width: 1100px; margin: 0 auto; display:flex; align-items:center; justify-content: space-between; padding: 12px 16px; }

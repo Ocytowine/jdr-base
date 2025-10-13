@@ -8,8 +8,15 @@
         <slot name="chat" />
       </section>
       <transition name="aventure-fade">
-        <section v-if="$slots.default" class="aventure-layout__overlay">
-          <div class="aventure-layout__overlay-card">
+        <section
+          v-if="$slots.default"
+          class="aventure-layout__overlay"
+          :class="{ 'aventure-layout__overlay--transparent': overlayTransparent }"
+        >
+          <div
+            class="aventure-layout__overlay-card"
+            :class="{ 'aventure-layout__overlay-card--transparent': overlayTransparent }"
+          >
             <slot />
           </div>
         </section>
@@ -20,6 +27,8 @@
 
 <script setup lang="ts">
 // Pure layout component holding slots for sidebar, chat area and the active panel.
+const props = defineProps<{ overlayTransparent?: boolean }>()
+const overlayTransparent = !!(props.overlayTransparent)
 </script>
 
 <style scoped>
@@ -29,6 +38,8 @@
   gap: 24px;
   height: calc(100vh - 120px);
   padding: 16px 0 32px;
+  /* Allow children to size/scroll properly in grid */
+  min-height: 0;
 }
 
 .aventure-layout__sidebar {
@@ -36,28 +47,31 @@
   border: 1px solid var(--bord);
   border-radius: 18px;
   padding: 20px 16px;
-  overflow: hidden;
+  /* show all tabs: enable vertical scroll if content exceeds height */
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
+  /* for proper scrolling behavior inside grid */
+  min-height: 0;
 }
 
 .aventure-layout__main {
   position: relative;
+  min-height: 0;
 }
 
 .aventure-layout__chat {
-  background: rgba(12, 16, 38, 0.9);
-  border: 1px solid var(--bord);
-  border-radius: 18px;
-  padding: 24px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.aventure-layout__chat {
-  min-height: 540px;
-}
+.aventure-layout__chat { min-height: 540px; }
 
 .aventure-layout__overlay {
   position: absolute;
@@ -75,6 +89,14 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.aventure-layout__overlay--transparent .aventure-layout__overlay-card,
+.aventure-layout__overlay-card--transparent {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
 
 .aventure-fade-enter-active,
@@ -104,7 +126,9 @@
 
   .aventure-layout__sidebar {
     flex-direction: row;
+    /* on mobile: horizontal scroll for tabs row */
     overflow-x: auto;
+    overflow-y: visible;
     gap: 12px;
   }
 
