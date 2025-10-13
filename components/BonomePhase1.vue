@@ -37,12 +37,12 @@
             class="input field__input"
             autocomplete="nickname"
           />
-          <p class="field__hint">Optionnel : sera affichÃÂ© entre guillemets.</p>
+          <p class="field__hint">Optionnel : sera affiché entre guillemets.</p>
         </div>
       </div>
 
       <div class="phase__preview">
-        <p class="phase__preview-title">AperÃÂ§u rapide</p>
+        <p class="phase__preview-title">Aperçu rapide</p>
         <dl class="phase__preview-list">
           <div class="phase__preview-item">
             <dt class="phase__preview-key">Nom complet</dt>
@@ -80,7 +80,7 @@ const emit = defineEmits(['validate', 'cancel', 'refresh']);
 
 const props = defineProps<{
   /**
-   * MÃÂ©tadonnÃÂ©es dÃÂ©crivant l'ÃÂ©tape courante (identifiant, libellÃÂ©s, actions associÃÂ©es).
+   * MÃÂ©tadonnÃÂ©es décrivant l'étape courante (identifiant, libellés, actions associÃÂ©es).
    */
   stepMeta: BonomePhaseMeta;
 }>();

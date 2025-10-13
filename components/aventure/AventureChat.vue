@@ -37,6 +37,10 @@
         rows="3"
       />
       <div class="aventure-chat__composer-actions">
+        <label class="aventure-chat__admin-toggle" title="Activer les commandes de test">
+          <input type="checkbox" v-model="adminMode" />
+          <span>Admin</span>
+        </label>
         <button type="submit" class="aventure-chat__send" :disabled="draft.trim().length === 0">
           Envoyer
         </button>
@@ -59,12 +63,13 @@ export type AventureMessage = {
 
 const props = defineProps<{ messages: AventureMessage[] }>()
 
-const emit = defineEmits<{ (event: 'send', payload: { content: string }): void }>()
+const emit = defineEmits<{ (event: 'send', payload: { content: string; admin?: boolean }): void }>()
 
 const { messages } = toRefs(props)
 
 const draft = ref('')
 const logEl = ref<HTMLDivElement | null>(null)
+const adminMode = ref(false)
 
 const auteurLabel = (auteur: Auteur): string => {
   switch (auteur) {
@@ -94,10 +99,22 @@ watch(
 
 onMounted(scrollToBottom)
 
+onMounted(() => {
+  // Persiste le mode admin localement pour faciliter les tests
+  try {
+    const saved = localStorage.getItem('JDR_COMMANDS_ADMIN')
+    adminMode.value = saved === '1'
+  } catch {}
+})
+
+watch(adminMode, (value) => {
+  try { localStorage.setItem('JDR_COMMANDS_ADMIN', value ? '1' : '0') } catch {}
+})
+
 const handleSubmit = () => {
   const content = draft.value.trim()
   if (!content) return
-  emit('send', { content })
+  emit('send', { content, admin: adminMode.value })
   draft.value = ''
 }
 </script>
@@ -224,7 +241,8 @@ const handleSubmit = () => {
 
 .aventure-chat__composer-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .aventure-chat__send {
@@ -238,6 +256,14 @@ const handleSubmit = () => {
   cursor: pointer;
   box-shadow: 0 12px 24px rgba(122, 162, 255, 0.25);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.aventure-chat__admin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--texte-2);
 }
 
 .aventure-chat__send:disabled {

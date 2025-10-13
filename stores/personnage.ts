@@ -32,6 +32,8 @@ export type Personnage = {
   classe: string
   sousClasse: string
   niveau: number
+  // Experience totale accumulée par le personnage (base test locale)
+  xp?: number
   dv: number
   pvActuels: number
   caracs: Caracs
@@ -106,6 +108,7 @@ const createDefaultPerso = (): Personnage => ({
   classe: 'Guerrier',
   sousClasse: '',
   niveau: 1,
+  xp: 0,
   dv: 10,
   pvActuels: 10,
   caracs: {
@@ -308,6 +311,8 @@ const sanitizePersonnage = (raw: unknown): Personnage => {
   return {
     ...base,
     ...restSource,
+    // Conserve la valeur d'XP si présente, sinon 0 (champ facultatif dans d'anciennes sauvegardes)
+    xp: Number.isFinite((source as any).xp) ? Number((source as any).xp) : 0,
     caracs,
     competences,
     inventaire,
@@ -412,6 +417,18 @@ export const usePersonnage = defineStore('personnage', {
       }
       this.perso = createDefaultPerso()
       location.reload()
+    }
+    ,
+    /**
+     * Ajoute un montant d'expérience au personnage courant.
+     * - N'accepte que des montants positifs.
+     * - Sauvegarde locale à la charge de l'appelant (connaît la partie courante).
+     */
+    ajouterXp(montant: number) {
+      const val = Number(montant) || 0
+      if (val <= 0) return
+      const current = Number((this.perso as any).xp) || 0
+      ;(this.perso as any).xp = current + val
     }
   }
 })

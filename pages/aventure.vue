@@ -131,6 +131,7 @@ import AventureCompagnons, { type Compagnon } from '@/components/aventure/Aventu
 import { useBonomeCreationStore } from '@/stores/bonomeCreation'
 import { useDataStore } from '@/stores/data'
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition'
+import { processInput as processCommand, isCommandInput } from '@/utils/commands'
 
 type EtatSauvegarde = 'chargement' | 'chargee' | 'aucune'
 
@@ -701,9 +702,23 @@ const panelConfig = computed(() => {
   }
 })
 
-const handleSendMessage = ({ content }: { content: string }) => {
+const handleSendMessage = ({ content, admin }: { content: string; admin?: boolean }) => {
   if (!partie.value) return
   const partieId = partie.value.id
+  // Si le mode admin est actif et qu'il s'agit d'une commande reconnue,
+  // on intercepte et exécute sans créer de message "player".
+  if (admin && isCommandInput(content)) {
+    const result = processCommand(content, {
+      partieId,
+      stores: {
+        personnage: storePersonnage
+      }
+    })
+    if (result) {
+      pushSystemMessage(result.message)
+      return
+    }
+  }
   const playerMessage: AventureMessage = {
     id: createId(),
     author: 'player',

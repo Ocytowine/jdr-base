@@ -356,11 +356,29 @@ export class CreationAdapterServer {
         classLevels
       });
 
+      // Filter pending choices by conditions (if any). If no conditions, keep the choice.
+      const choicesFiltered = (pendingChoices || []).filter((cd) => {
+        try {
+          const raw = cd?.raw ?? null;
+          const conditions = raw?.conditions ?? raw?.payload?.conditions ?? raw?.raw?.payload?.conditions ?? null;
+          if (!conditions) return true; // no condition written => considered OK
+          return this.engine.evaluateConditions(conditions, {
+            selection,
+            baseCharacter: baseCharacterIn,
+            classLevels,
+            character: previewChar
+          });
+        } catch {
+          // On error evaluating conditions, default to showing the choice
+          return true;
+        }
+      });
+
       return {
         ok: true,
         previewCharacter: previewChar,
         appliedFeatures,
-        pendingChoices,
+        pendingChoices: choicesFiltered,
         errors: []
       };
     } catch (err: any) {

@@ -90,3 +90,17 @@ Exemple d'un fichier contenu dnas le repo github d'ou nous extrayons des informa
     }
   ]
 }
+
+Demande à faire : 
+
+UI de classe : (présente les sorts, technique de combat...)
+
+  j'aimerai créer une UI particulière à appliqué pour les classes de personnage, qui apparaitra dans l'onglet 'classe et pouvoirs' (déja existant) le template de l'UI de classes devra être télécharger et appliqué lors du passage à l'aventure depuis la création (plus tard suite à l'aquisition d'un avantage à préciser), peut tu m'aider à concrétiser l'idée, (ne modifie rien pour l'instant) peut on ce servir de mon repo github pour cela ?
+
+Runtime IA : (gère le comportement de l'IA)
+
+  Je voudrai piloter le comportement de l'IA. Lui donner son contexte pour bien faire sont travail (L'histoire général, les connaissances du monde, géographie...) Les rêgles de narrations (comment elle intéragit, comment peuvent agir les PNJ, le tons de l'aventure, la difficulté), et surtout en fonctions du contexte (ex: le joueur veux acheté un objet), lui donner les commandes appropriées. c'est grace à ca que le temps défile, que le personnage commence à avoir faim, que les PNJ veulent ce battre...
+
+Modules : (Gèrent les sous-aventures)
+
+  En déclenchement, par commande ou résolution (dépassement d'un cap (XP, temps...)) Un module apparait, je pense au repos court et long, au combat, au besoin (fatique, faim, soif, autre). cela requiert une UI propore à chaque cas. un appel à des mécanique, et des données stockée soit en local soit sur Repo
