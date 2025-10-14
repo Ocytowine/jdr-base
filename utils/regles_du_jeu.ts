@@ -22,8 +22,8 @@ export function classeArmureDeBase(dex: number, type: 'aucune'|'legere'|'interme
 
 export function pvMaxAuNiveau(dv: number, niveau: number, modCon: number){
   if(niveau <= 0) return 0
-  const premier = dv + modCon
-  const moyen = Math.floor(dv/2) + 1 + modCon
+  const premier = Number(dv) + Number(modCon)
+  const moyen = Math.floor(Number(dv)/2) + 1 + Number(modCon)
   if(niveau===1) return Math.max(1, premier)
   return Math.max(1, premier + (niveau-1) * Math.max(1, moyen))
 }

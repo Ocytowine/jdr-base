@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRequestFetch } from '#app';
 import { useDataStore } from '@/stores/data';
+import { useParties } from '@/stores/parties'; // <-- Ajout import pour obtenir currentPartyId
 
 import type { Personnage } from './personnage';
 
@@ -1327,6 +1328,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         materialAssignments.shieldKey = keptKey;
         break;
       case 'accessories':
+        // Correction : structure if/else complète, évite la ligne "if" seule qui cassait la transformation
         if (!keptKey) {
           if (key === null) {
             materialAssignments.accessoriesKeys = [];
@@ -1430,6 +1432,49 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       keptItemKeys,
       forceReset: adapterResetPending.value
     };
+
+    // --- NOUVEAU : s'assurer que la database locale contient les entités brutes nécessaires ---
+    try {
+      const dataStore = useDataStore();
+      const parties = useParties();
+      try {
+        // Tenter de charger la database locale pour la partie courante (si applicable)
+        await (dataStore.load?.(parties.currentPartyId ?? undefined) ?? Promise.resolve());
+      } catch {}
+      // Si certaines entités manquent, tenter d'enrichir via l'API serveur
+      try {
+        await restoreDatabaseFromIds();
+      } catch {}
+      // helper pour retrouver une entité soit par id clé, soit par nom
+      const findEntity = (map: Record<string, any> = {}, wanted: unknown) => {
+        if (!wanted) return null;
+        const key = String(wanted).trim();
+        if (!key.length) return null;
+        if (map[key]) return map[key];
+        const wantLower = key.toLowerCase();
+        return Object.values(map).find((e: any) => {
+          if (!e || typeof e !== 'object') return false;
+          const id = String(e.id ?? '').toLowerCase();
+          const name = String(e.name ?? e.nom ?? e.label ?? e.slug ?? '').toLowerCase();
+          return id === wantLower || name === wantLower;
+        }) ?? null;
+      };
+
+      const rawClass = findEntity(dataStore.maps.classes || {}, selectedClass.value);
+      const rawRace = findEntity(dataStore.maps.races || {}, selectedRace.value);
+      const rawBackground = findEntity(dataStore.maps.backgrounds || {}, selectedBackground.value);
+
+      // Injecter les entités brutes dans le corps de la requête pour le serveur
+      (body as any).raw_entities = {
+        race: rawRace,
+        class: rawClass,
+        background: rawBackground
+      };
+    } catch (e) {
+      // ne bloque pas la preview si l'enrichissement échoue
+      try { console.warn('[sendPreview] raw_entities enrichment failed', e); } catch {}
+    }
+    // --- FIN injection raw_entities ---
 
     const hasSelection = hasPrimarySelection();
     if (!hasSelection) {
@@ -1787,6 +1832,54 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       return out;
     })();
 
+    // Deriver DV et PV depuis la classe + CON
+    const pickNumberFromKeys = (obj: any, keys: string[], fallback = 0): number => {
+      if (!obj || typeof obj !== 'object') return fallback;
+      for (const key of keys) {
+        const parts = String(key).split('.');
+        let cur: any = obj;
+        for (const part of parts) {
+          if (cur && typeof cur === 'object' && part in cur) cur = cur[part]; else { cur = undefined; break; }
+        }
+        const n = Number(cur);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+      return fallback;
+    };
+
+    let dvDerived = 0;
+    try {
+      const dataStore = useDataStore();
+      const cid = selectedClass.value || null;
+      if (cid) {
+        const wanted = String(cid).trim().toLowerCase();
+        const found = Object.values(dataStore.maps.classes || {}).find((c: any) => {
+          if (!c || typeof c !== 'object') return false;
+          const id = String(c.id ?? '').toLowerCase();
+          const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase();
+          return id === wanted || name === wanted;
+        });
+        dvDerived = pickNumberFromKeys(found, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die'], 0) || 0;
+      }
+    } catch {}
+
+    const conScore = getStat('constitution');
+    const conMod = Math.floor((Number(conScore) - 10) / 2);
+    const niveauValue = ensureNumber(previewCharacter.niveau ?? niveau.value, 1);
+    const dvFinal = ensureNumber(previewCharacter.dv ?? previewCharacter.hit_dice, 0) || dvDerived || 0;
+    const pvMaxFinal = dvFinal > 0 ? pvMaxAuNiveau(dvFinal, niveauValue, conMod) : 0;
+    const pvActuelsFinal = (() => {
+      const candidates = [
+        previewCharacter.pvActuels,
+        previewCharacter.hp?.current,
+        previewCharacter.final_stats?.hp,
+        previewCharacter.hp
+      ];
+      const first = candidates.find((x) => Number.isFinite(Number(x)) && Number(x) > 0);
+      const value = Number(first ?? 0);
+      return pvMaxFinal > 0 ? (value > 0 ? Math.min(value, pvMaxFinal) : pvMaxFinal) : 0;
+    })();
+
     const personnage: Personnage = {
       id: toDisplayString(previewCharacter.id, `pj_${Date.now()}`),
       nom: displayCharacterName.value,
@@ -1796,15 +1889,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       historique: toDisplayString(identityLabels.background, ''),
       classe: toDisplayString(identityLabels.class, ''),
       sousClasse: toDisplayString(previewCharacter.subclass ?? previewCharacter.sousClasse, ''),
-      niveau: ensureNumber(previewCharacter.niveau ?? niveau.value, 1),
-      dv: ensureNumber(previewCharacter.dv ?? previewCharacter.hit_dice, 0),
-      pvActuels: ensureNumber(
-        previewCharacter.pvActuels ??
-          previewCharacter.hp?.current ??
-          previewCharacter.final_stats?.hp ??
-          previewCharacter.hp,
-        0
-      ),
+      niveau: niveauValue,
+      dv: dvFinal,
+      pvActuels: pvActuelsFinal,
       caracs,
       competences: proficiencies,
       langues: languages.length ? languages.join(', ') : 'Commun',
@@ -1849,30 +1936,56 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       },
       // Ajout du template UI de la classe (si présent dans le catalogue)
       ui_template: null
-    };
-
-    // Récupération du template UI de classe
+    }
+    
+    // Récupération du template UI de classe (robuste)
     let uiTemplate: string | null = null
     try {
       const classeId = selectedClass.value || null
-      if (classeId) {
-        // 1. Cherche dans le catalogue (index)
-        const classeEntry = classes.value.find(
-          c => c.id === classeId || c.name?.toLowerCase() === classeId.toLowerCase()
-        )
-        if (classeEntry && typeof classeEntry.ui_template === 'string') {
-          uiTemplate = classeEntry.ui_template
-        }
-        // 2. Si non trouvé, cherche dans le store data (JSON complet)
-        if (!uiTemplate) {
-          const dataStore = useDataStore()
-          const rawClasse = dataStore.maps.classes[classeId]
-          if (rawClasse && typeof rawClasse.ui_template === 'string') {
-            uiTemplate = rawClasse.ui_template
-          }
+      const dataStore = useDataStore()
+      // S'assurer que la database locale est chargée (peut dépendre de la partie courante)
+      try {
+        // useParties peut être importé au besoin, mais load() accepte undefined
+        await (dataStore.load?.() ?? Promise.resolve())
+      } catch {}
+
+      const normalizeKey = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase())
+      const wanted = normalizeKey(classeId)
+
+      // 1) Cherche dans les objets bruts importés depuis GitHub (dataStore.maps.classes)
+      if (wanted) {
+        const all = Object.values(dataStore.maps.classes || {})
+        const found = all.find((c: any) => {
+          if (!c || typeof c !== 'object') return false
+          const id = normalizeKey(c.id)
+          const name = normalizeKey(c.name ?? c.nom ?? c.label ?? c.slug)
+          return id === wanted || name === wanted
+        })
+        if (found && typeof found.ui_template === 'string' && found.ui_template.trim().length) {
+          uiTemplate = found.ui_template.trim()
         }
       }
-    } catch {}
+
+      // 2) Si non trouvé, tentative sur le catalogue normalisé (classes.value)
+      if (!uiTemplate && classeId) {
+        const entry = classes.value.find((c) => {
+          if (!c) return false
+          const cid = normalizeKey(c.id)
+          const cname = normalizeKey(c.name)
+          return cid === wanted || cname === wanted
+        })
+        if (entry && typeof (entry as any).ui_template === 'string' && (entry as any).ui_template.trim().length) {
+          uiTemplate = (entry as any).ui_template.trim()
+        }
+      }
+
+      // 3) Dernier recours : champ présent directement dans la prévisualisation serveur
+      if (!uiTemplate && previewCharacter && typeof previewCharacter.ui_template === 'string') {
+        uiTemplate = previewCharacter.ui_template.trim() || null
+      }
+    } catch (e) {
+      // ignore
+    }
 
     personnage.ui_template = uiTemplate
 
@@ -2151,7 +2264,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     characterFirstName,
     characterLastName,
     characterNickname,
-    preview,
+       preview,
     creationLocked,
     rawText,
     showRaw,

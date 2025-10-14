@@ -1,57 +1,44 @@
 <template>
-  <div class="p-4 bg-gray-900 text-white rounded-lg">
-    <h2 class="text-xl font-bold mb-2">Interface Mage</h2>
-    <div v-if="uiTemplate">
-      <div v-html="uiTemplate"></div>
-    </div>
-    <div>
-      <h3 class="mt-4 font-semibold">Pouvoirs et sorts disponibles</h3>
+  <section class="mage-ui">
+    <header>
+      <h3>{{ classeLabel || 'Mage' }}</h3>
+      <p v-if="subtitle">{{ subtitle }}</p>
+    </header>
+
+    <section v-if="modules && modules.length">
+      <h4>Traits & fonctionnalités</h4>
       <ul>
-        <li v-for="id in nonAppliedIds" :key="id" class="mb-2">
-          <div v-if="spellDetails(id)">
-            <strong>{{ spellDetails(id).name || id }}</strong>
-            <span class="ml-2 text-sm text-gray-400">{{ spellDetails(id).description || '—' }}</span>
-            <button class="ml-4 px-2 py-1 bg-blue-600 rounded" @click="applyPower(id, 'spell')">Appliquer</button>
+        <li v-for="m in modules" :key="m.id">
+          <strong>{{ m.title }}</strong>
+          <div style="margin-top:6px; font-size:13px; color:var(--texte-2)">
+            <pre>{{ m.description }}</pre>
           </div>
-          <div v-else-if="featureDetails(id)">
-            <strong>{{ featureDetails(id).name || id }}</strong>
-            <span class="ml-2 text-sm text-gray-400">{{ featureDetails(id).description || '—' }}</span>
-            <button class="ml-4 px-2 py-1 bg-green-600 rounded" @click="applyPower(id, 'feature')">Appliquer</button>
+          <div v-if="m.usage || m.cooldown" style="font-size:12px; color:var(--accent-2)">
+            <span v-if="m.usage">Usage: {{ m.usage }}</span>
+            <span v-if="m.cooldown">Cooldown: {{ m.cooldown }}</span>
           </div>
-          <div v-else class="text-red-400">Introuvable : {{ id }}</div>
         </li>
-        <li v-if="!nonAppliedIds.length" class="text-gray-400">Aucun sort ou pouvoir à appliquer</li>
       </ul>
-    </div>
-  </div>
+    </section>
+
+    <section v-if="!modules || !modules.length">
+      <p style="color:var(--texte-2)">Aucune donnée de classe disponible pour ce personnage.</p>
+    </section>
+  </section>
+  
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useBonomeCreationStore } from '@/stores/bonomeCreation'
-const store = useBonomeCreationStore()
 
-const uiTemplate = computed(() => store.preview?.value?.previewCharacter?.ui_template ?? null)
-const spellIds = computed(() => Array.isArray(store.preview?.value?.spellIds) ? store.preview.value.spellIds : [])
-const featureIds = computed(() => Array.isArray(store.preview?.value?.featureIds) ? store.preview.value.featureIds : [])
-const appliedFeatures = computed(() => Array.isArray(store.preview?.value?.appliedFeatures) ? store.preview.value.appliedFeatures : [])
+const props = defineProps<{ classeLabel?: string; modules?: any[] }>()
 
-const nonAppliedIds = computed(() => {
-  const applied = new Set(appliedFeatures.value ?? [])
-  return [
-    ...spellIds.value.filter((id: string) => !applied.has(id)),
-    ...featureIds.value.filter((id: string) => !applied.has(id))
-  ]
-})
-
-const spellDetails = (id: string) => store.getSpellOrFeatureDetails?.(id, 'spell') ?? null
-const featureDetails = (id: string) => store.getSpellOrFeatureDetails?.(id, 'feature') ?? null
-
-const applyPower = async (id: string, type: 'spell' | 'feature') => {
-  alert(`Pouvoir/sort ${id} appliqué !`)
-}
+const subtitle = computed(() => (props.modules && props.modules.length ? 'Pouvoirs et sorts disponibles' : ''))
 </script>
 
 <style scoped>
-/* Personnalisation possible */
+.mage-ui { padding: 12px; background: rgba(8,12,30,0.6); border-radius: 12px; border:1px solid var(--bord); color:var(--texte); }
+.mage-ui header h3 { margin:0; font-size:18px; }
+.mage-ui pre { margin:6px 0; background: rgba(0,0,0,0.25); padding:8px; border-radius:6px; color:var(--texte-2); font-size:12px; }
 </style>
+

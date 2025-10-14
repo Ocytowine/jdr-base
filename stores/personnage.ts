@@ -1,4 +1,4 @@
-// Mapping classe → template UI
+﻿// Mapping classe â†’ template UI
 function getUiTemplateForClasse(classe: string): string | null {
   switch (classe?.toLowerCase()) {
     case 'mage':
@@ -14,6 +14,9 @@ import { defineStore } from 'pinia'
 import { useSession } from '@/composables/useSession'
 import { useParties } from '@/stores/parties'
 import { useDataStore } from '@/stores/data'
+import { bonusDeMaitrise } from '@/utils/regles_du_jeu'
+import { evalFormuleAdditive } from '@/utils/evalFormule'
+import { mod, pvMaxAuNiveau } from '@/utils/regles_du_jeu'
 
 const DEF_COMPETENCES: CompetenceDef[] = [
   { id: 'athletisme', nom: 'Athletisme', carac: 'force' },
@@ -166,8 +169,6 @@ export type PersonnageInventoryEntry = {
 
 
 // Version asynchrone pour garantir le chargement du catalogue avant la normalisation
-
-// Version asynchrone pour garantir le chargement du catalogue avant la normalisation
 const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   const base = createDefaultPerso()
   if (!raw || typeof raw !== 'object') {
@@ -178,7 +179,7 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   const { equipement: _discardedEquipement, ...restSource } = source
 
   const dataStore = useDataStore()
-  // On attend le chargement du catalogue si nécessaire (maps.classes doit être non vide)
+  // On attend le chargement du catalogue si nÃ©cessaire (maps.classes doit Ãªtre non vide)
   if (!Object.keys(dataStore.maps.classes).length) {
     await dataStore.load()
   }
@@ -327,29 +328,88 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     return str.trim().length ? str : null
   }
 
-  // Récupère le template UI depuis le store data (catalogue classes)
-  let uiTemplate: string | null = null
-  try {
-    const classeKey = (source.classe ?? base.classe)?.toLowerCase()
-    const classeObj = Object.values(dataStore.maps.classes).find((c: any) =>
-      c?.name?.toLowerCase() === classeKey || c?.id?.toLowerCase() === classeKey
-    )
-    uiTemplate = classeObj?.ui_template ?? null
-  } catch (e) {
-    uiTemplate = null
+  // RÃ©solution robuste d'identifiants Ã  partir d'ID ou de labels
+  const findByIdOrName = (map: Record<string, any>, key?: string | null): { id: string | null; entity: any | null } => {
+    const k = (key ?? '').toString().trim()
+    if (!k) return { id: null, entity: null }
+    const low = k.toLowerCase()
+    if (map[low]) return { id: low, entity: map[low] }
+    const byId = Object.keys(map).find((id) => id.toLowerCase() === low)
+    if (byId) return { id: byId, entity: map[byId] }
+    const byName = Object.entries(map).find(([_, v]) => {
+      const name = String((v as any)?.name ?? (v as any)?.nom ?? (v as any)?.label ?? '').toLowerCase()
+      const slug = String((v as any)?.slug ?? '').toLowerCase()
+      return name === low || slug === low
+    })
+    if (byName) return { id: byName[0] as string, entity: byName[1] }
+    return { id: null, entity: null }
   }
+
+  const displayLabel = (entity: any, fallback: string): string => {
+    if (!entity || typeof entity !== 'object') return fallback
+    return String(entity.name ?? entity.nom ?? entity.label ?? fallback)
+  }
+
+  const numberFromKeys = (obj: any, keys: string[], fallback = 0): number => {
+    for (const k of keys) {
+      let cur: any = obj
+      for (const part of k.split('.')) {
+        if (cur && typeof cur === 'object' && part in cur) cur = cur[part]
+        else { cur = undefined; break }
+      }
+      const n = Number(cur)
+      if (Number.isFinite(n) && n > 0) return n
+    }
+    return fallback
+  }
+
+  // RÃ©soudre classe/race/background IDs depuis la source
+  const srcClasseId = typeof (source as any).classeId === 'string' ? (source as any).classeId : null
+  const srcRaceId = typeof (source as any).raceId === 'string' ? (source as any).raceId : null
+  const srcBackgroundId = typeof (source as any).backgroundId === 'string' ? (source as any).backgroundId : null
+
+  const resolvedClasse = findByIdOrName(dataStore.maps.classes, srcClasseId ?? ((source as any).classe as any))
+  const resolvedRace = findByIdOrName(dataStore.maps.races, srcRaceId ?? ((source as any).lignee as any))
+  const resolvedBackground = findByIdOrName(dataStore.maps.backgrounds, srcBackgroundId ?? ((source as any).historique as any))
+
+  // UI template depuis la classe
+  const uiTemplate: string | null = (resolvedClasse.entity?.ui_template ?? null) || null
+
+  // DÃ©terminer le DV depuis la classe
+  const derivedDv = numberFromKeys(resolvedClasse.entity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die']) || (base as any).dv
+
+  // Calcul PV max et pvActuels bornÃ©s
+  const niveau = Number.isFinite((source as any).niveau) ? Number((source as any).niveau) : (base as any).niveau
+  const modCon = mod(Number((caracs as any).constitution || (base as any).caracs.constitution))
+  const pvMax = pvMaxAuNiveau(derivedDv, niveau, modCon)
+  const pvActuels = (() => {
+    const rawPv = Number((source as any).pvActuels)
+    if (!Number.isFinite(rawPv) || rawPv <= 0) return pvMax
+    return Math.min(rawPv, pvMax)
+  })()
 
   return {
     ...base,
-    ...restSource,
-    // Conserve la valeur d'XP si présente, sinon 0 (champ facultatif dans d'anciennes sauvegardes)
+    // ne pas propager tel-quel la source pour Ã©viter doublons non normalisÃ©s
+    id: String((source as any).id ?? (base as any).id),
+    nom: String((source as any).nom ?? (base as any).nom),
+    niveau,
+    // XP
     xp: Number.isFinite((source as any).xp) ? Number((source as any).xp) : 0,
+    // RÃ¨gles
+    dv: derivedDv,
+    pvActuels,
     caracs,
     competences,
     inventaire,
-    classeId: typeof source.classeId === 'string' ? source.classeId : base.classeId,
-    raceId: typeof source.raceId === 'string' ? source.raceId : base.raceId,
-    backgroundId: typeof source.backgroundId === 'string' ? source.backgroundId : base.backgroundId,
+    // IDs normalisÃ©s (source de vÃ©ritÃ©)
+    classeId: resolvedClasse.id ?? (base as any).classeId ?? null,
+    raceId: resolvedRace.id ?? (base as any).raceId ?? null,
+    backgroundId: resolvedBackground.id ?? (base as any).backgroundId ?? null,
+    // Labels d'affichage (dÃ©rivÃ©s des IDs)
+    classe: displayLabel(resolvedClasse.entity, (base as any).classe),
+    lignee: displayLabel(resolvedRace.entity, (base as any).lignee),
+    historique: displayLabel(resolvedBackground.entity, (base as any).historique),
     featureIds: Array.isArray(source.featureIds) ? source.featureIds.map((x: any) => String(x)) : (base.featureIds ?? []),
     spellIds: Array.isArray(source.spellIds) ? source.spellIds.map((x: any) => String(x)) : (base.spellIds ?? []),
     materielPersonnalise: {
@@ -372,7 +432,7 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
       notes: typeof materielSource.notes === 'string' ? materielSource.notes : base.materielPersonnalise.notes
     },
     // Injection du template UI depuis le catalogue
-    ui_template: uiTemplate // <-- Ajout explicite ici
+    ui_template: uiTemplate
   }
 }
 
@@ -385,7 +445,7 @@ export const usePersonnage = defineStore('personnage', {
   getters: {
     listeCompetences: () => DEF_COMPETENCES,
     ui_template: (state) => {
-      // On suppose que le champ est stocké dans perso ou à défaut dans la classe
+      // On suppose que le champ est stockÃ© dans perso ou Ã  dÃ©faut dans la classe
       return state.perso?.ui_template || null
     }
   },
@@ -418,7 +478,7 @@ export const usePersonnage = defineStore('personnage', {
       this.loading = true
       const key = this._storageKey(partieId)
       const brut = localStorage.getItem(key)
-      // Log de debug pour la clé et le contenu
+      // Log de debug pour la clÃ© et le contenu
       console.info('[Perso] Tentative de chargement', { key, brut })
 
       let loaded = false
@@ -432,7 +492,7 @@ export const usePersonnage = defineStore('personnage', {
         }
       }
 
-      // Fallback : tente de restaurer la dernière sauvegarde générique si rien n'a été chargé
+      // Fallback : tente de restaurer la derniÃ¨re sauvegarde gÃ©nÃ©rique si rien n'a Ã©tÃ© chargÃ©
       if (!loaded && !partieId) {
         const fallbackRaw = localStorage.getItem('JDR_PERSO')
         console.info('[Perso] Fallback sur JDR_PERSO', { fallbackRaw })
@@ -447,10 +507,10 @@ export const usePersonnage = defineStore('personnage', {
         }
       }
 
-      // Si aucune sauvegarde trouvée, conserve le personnage courant (évite la réinitialisation accidentelle)
+      // Si aucune sauvegarde trouvÃ©e, conserve le personnage courant (Ã©vite la rÃ©initialisation accidentelle)
       if (!loaded) {
-        console.warn('[Perso] Aucune sauvegarde trouvée, conservation du perso courant')
-        // Ne pas écraser le perso courant par défaut
+        console.warn('[Perso] Aucune sauvegarde trouvÃ©e, conservation du perso courant')
+        // Ne pas Ã©craser le perso courant par dÃ©faut
       }
       this.loading = false
     },
@@ -466,13 +526,42 @@ export const usePersonnage = defineStore('personnage', {
             const prevInv = Array.isArray(existing?.inventaire) ? existing.inventaire : []
             const curInv = Array.isArray((this as any).perso?.inventaire) ? (this as any).perso.inventaire : []
             if (prevInv.length > 0 && curInv.length === 0) {
-              // Evite d�'�craser une sauvegarde utile par un inventaire vide accidentel
               ;(this as any).perso.inventaire = prevInv
             }
           } catch {}
         }
       } catch {}
-      localStorage.setItem(key, JSON.stringify(this.perso))
+      // Sauvegarde minimale: évite les doublons (labels) et blobs lourds
+      const toPersist = (() => {
+        const p: any = (this as any).perso || {}
+        const minimalInventory = Array.isArray(p.inventaire)
+          ? p.inventaire.map((it: any) => ({ id: String(it.id), quantity: Number(it.quantity)||1, coins: it.coins ?? null }))
+          : []
+        return {
+          id: String(p.id ?? ''),
+          nom: String(p.nom ?? ''),
+          niveau: Number(p.niveau) || 1,
+          xp: Number(p.xp) || 0,
+          dv: Number(p.dv) || 0,
+          pvActuels: Number(p.pvActuels) || 0,
+          caracs: p.caracs || {},
+          competences: p.competences || {},
+          armure: p.armure || { type: 'aucune' },
+          bouclier: Boolean(p.bouclier || false),
+          monture: p.monture || { nom:'', vitesse:'', notes:'' },
+          inspiration: Boolean(p.inspiration || false),
+          inventaire: minimalInventory,
+          classeId: p.classeId ?? null,
+          raceId: p.raceId ?? null,
+          backgroundId: p.backgroundId ?? null,
+          featureIds: Array.isArray(p.featureIds) ? p.featureIds.map(String) : [],
+          spellIds: Array.isArray(p.spellIds) ? p.spellIds.map(String) : [],
+          materielPersonnalise: p.materielPersonnalise || {},
+          descriptionDetaillee: p.descriptionDetaillee || {},
+          ui_template: p.ui_template ?? null
+        }
+      })()
+      localStorage.setItem(key, JSON.stringify(toPersist))
     },
 
     reinitialiser(partieId?: string) {
@@ -487,9 +576,9 @@ export const usePersonnage = defineStore('personnage', {
     }
     ,
     /**
-     * Ajoute un montant d'expérience au personnage courant.
+     * Ajoute un montant d'expÃ©rience au personnage courant.
      * - N'accepte que des montants positifs.
-     * - Sauvegarde locale à la charge de l'appelant (connaît la partie courante).
+     * - Sauvegarde locale Ã  la charge de l'appelant (connaÃ®t la partie courante).
      */
     ajouterXp(montant: number) {
       const val = Number(montant) || 0
@@ -499,3 +588,5 @@ export const usePersonnage = defineStore('personnage', {
     }
   }
 })
+
+

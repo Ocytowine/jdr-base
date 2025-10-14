@@ -1,7 +1,5 @@
-## components/FichePersonnage.vue
-```vue
 <template>
-  <div class="fiche" :class="{compact}">
+  <div class="fiche" :class="{ compact }">
     <h3 class="h2">Fiche personnage</h3>
     <div class="champs" style="margin-top:8px;">
       <div style="grid-column: span 6;">
@@ -47,7 +45,7 @@
       </div>
     </div>
 
-    <div class="champs" style="margin-top:8px;" v-if="p.monture.nom">
+    <div class="champs" style="margin-top:8px;" v-if="p.monture?.nom">
       <div style="grid-column: span 12;">
         <div class="carte-mini">
           <strong>Monture / Créature</strong>
@@ -60,22 +58,36 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { usePersonnage } from '@/stores/personnage'
 import { mod, bonusDeMaitrise, classeArmureDeBase, pvMaxAuNiveau } from '@/utils/regles_du_jeu'
 
 const props = defineProps<{ compact?: boolean }>()
 const store = usePersonnage()
-const p = store.perso
+const p: any = store.perso || {
+  nom: '',
+  lignee: '',
+  classe: '',
+  niveau: 1,
+  dv: 0,
+  pvActuels: 0,
+  caracs: { force: 10, dexterite: 10, constitution: 10, intelligence: 10, sagesse: 10, charisme: 10 },
+  armure: { type: 'aucune' },
+  bouclier: false,
+  monture: { nom: '', vitesse: '', notes: '' },
+  competences: {}
+}
 
-const mait = computed(() => bonusDeMaitrise(p.niveau))
-const init = computed(() => mod(p.caracs.dexterite))
-const ca = computed(() => classeArmureDeBase(p.caracs.dexterite, p.armure?.type || 'aucune', !!p.bouclier))
-const pvMax = computed(() => pvMaxAuNiveau(p.dv, p.niveau, mod(p.caracs.constitution)))
+const mait = computed(() => bonusDeMaitrise(Number(p.niveau) || 1))
+const init = computed(() => mod(Number(p.caracs?.dexterite || 10)))
+const ca = computed(() => classeArmureDeBase(Number(p.caracs?.dexterite || 10), p.armure?.type || 'aucune', !!p.bouclier))
+const pvMax = computed(() => pvMaxAuNiveau(Number(p.dv || 0), Number(p.niveau || 1), mod(Number(p.caracs?.constitution || 10))))
 
-const competencesMaitrisees = computed(() => store.listeCompetences.filter(c => p.competences[c.id]))
-function scoreCompetence(c: {id:string, nom:string, carac:'force'|'dexterite'|'constitution'|'intelligence'|'sagesse'|'charisme'}){
-  const base = mod(p.caracs[c.carac])
-  const maitB = p.competences[c.id] ? mait.value : 0
+const competencesMaitrisees = computed(() => (store.listeCompetences as any[]).filter((c: any) => Boolean(p.competences?.[c.id])))
+
+function scoreCompetence(c: { id: string; nom: string; carac: keyof typeof p.caracs }) {
+  const base = mod(Number(p.caracs?.[c.carac] ?? 10))
+  const maitB = p.competences?.[c.id] ? mait.value : 0
   return base + maitB
 }
 </script>
@@ -83,4 +95,5 @@ function scoreCompetence(c: {id:string, nom:string, carac:'force'|'dexterite'|'c
 <style scoped>
 .fiche.compact .carte-mini{ padding:10px; }
 .carte-mini{ background:#0f1330; border:1px solid var(--bord); border-radius:12px; padding:14px; }
+.table th, .table td{ border-bottom:1px solid var(--bord); padding:8px 6px; text-align:left; }
 </style>

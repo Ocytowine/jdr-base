@@ -1,4 +1,5 @@
 // engine/effectEngine.ts
+import { bonusDeMaitrise } from '~/utils/regles_du_jeu'
 export type Effect = Record<string, any>;
 export type Character = Record<string, any>;
 export type EvalContext = {
@@ -121,6 +122,68 @@ function firstString(obj: any, keys: string[], fallback: string | null = null): 
     }
   }
   return fallback;
+}
+
+// --- Helpers for formula evaluation & stats ---
+function abilityKeyFromToken(tok: string): string | null {
+  const t = tok.trim().toLowerCase()
+  if (['int','intelligence'].includes(t)) return 'intelligence'
+  if (['dex','dexterite','dexterity'].includes(t)) return 'dexterity'
+  if (['con','constitution'].includes(t)) return 'constitution'
+  if (['wis','sag','sagesse','wisdom'].includes(t)) return 'wisdom'
+  if (['cha','charisme','charisma'].includes(t)) return 'charisma'
+  if (['for','force','str','strength'].includes(t)) return 'strength'
+  return null
+}
+
+function getStatScore(character: any, ability: string, fallback = 10): number {
+  const fs = character?.final_stats ?? {}
+  const base = character?.base_stats_before_race ?? {}
+  const v = fs[ability] ?? base[ability] ?? fallback
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function getMod(score: number): number { return Math.floor((Number(score) - 10) / 2) }
+
+function getProficiency(ctx: EvalContext): number {
+  try {
+    const fromCharacter = (ctx.character as any)?.proficiency_bonus
+    if (Number.isFinite(Number(fromCharacter))) return Number(fromCharacter)
+  } catch {}
+  try {
+    const lvl = (() => {
+      if (ctx.selection && Number.isFinite(Number(ctx.selection.niveau))) return Number(ctx.selection.niveau)
+      const cls = ctx.classLevels || {}
+      const sum = Object.values(cls).reduce((a: number, b: any) => a + (Number(b)||0), 0)
+      return sum || 1
+    })()
+    return bonusDeMaitrise(lvl)
+  } catch { return 2 }
+}
+
+function evalFormula(expr: any, ctx: EvalContext): number | null {
+  if (expr === null || expr === undefined) return null
+  if (typeof expr === 'number') return Number(expr)
+  if (typeof expr !== 'string') return null
+  const raw = expr.trim()
+  if (!raw.length) return null
+  try {
+    const tokens = raw.split('+').map((t) => t.trim()).filter(Boolean)
+    let total = 0
+    const prof = getProficiency(ctx)
+    for (const tok of tokens) {
+      const low = tok.toLowerCase()
+      if (/^\d+$/.test(low)) { total += Number(low); continue }
+      if (low === 'mait' || low === 'prof' || low === 'proficiency') { total += prof; continue }
+      const m = low.match(/^mod\.(.+)$/)
+      if (m) {
+        const ab = abilityKeyFromToken(m[1])
+        if (ab) { total += getMod(getStatScore((ctx.character ?? {}), ab)); continue }
+      }
+    }
+    return total
+  } catch { return null }
 }
 
 export class EffectEngine {
@@ -489,13 +552,38 @@ export class EffectEngine {
         for (const s of payload.known) if (!sc.known.includes(s)) sc.known.push(s);
       }
       sc.meta = sc.meta ?? {};
-      const ability = sc.ability ?? payload.ability ?? 'intelligence';
-      const abilityScore = character.final_stats?.[ability] ?? character.base_stats_before_race?.[ability] ?? 10;
-      const abilityMod = Math.floor((Number(abilityScore) - 10) / 2);
-      sc.meta.spell_save_dc = sc.meta.spell_save_dc ?? (10 + abilityMod + (payload.spell_save_dc_mod ?? 0));
-      sc.meta.spell_attack_mod = sc.meta.spell_attack_mod ?? (abilityMod + (character.proficiency_bonus ?? 0) + (payload.spell_attack_mod ?? 0));
+      const ability = String(sc.ability ?? payload.ability ?? 'intelligence').toLowerCase();
+      const abilityScore = getStatScore(character, ability, 10);
+      const abilityMod = getMod(abilityScore);
+      const ctx2: EvalContext = { ...ctx, character };
+      const dcFromExpr = evalFormula(payload.spell_save_dc_mod, ctx2);
+      const atkFromExpr = evalFormula(payload.spell_attack_mod, ctx2);
+      const prof = getProficiency(ctx2);
+      sc.meta.spell_save_dc = sc.meta.spell_save_dc ?? (dcFromExpr !== null ? dcFromExpr : (8 + prof + abilityMod));
+      sc.meta.spell_attack_mod = sc.meta.spell_attack_mod ?? (atkFromExpr !== null ? atkFromExpr : (prof + abilityMod));
       sc.features = sc.features ?? [];
       sc.features.push({ id: effect.id, payload });
+      return;
+    }
+
+    // ---- traits / class core payload (DV) ----
+    if (type === 'traits' || payload.hit_points || payload.dv) {
+      const parseDv = (v: any): number | null => {
+        if (v === null || v === undefined) return null
+        if (typeof v === 'number' && Number.isFinite(v)) return v
+        if (typeof v === 'string') {
+          const m = v.toLowerCase().match(/(\d*)d(\d+)/)
+          if (m) return Number(m[2]) || null
+          const n = Number(v)
+          if (Number.isFinite(n)) return n
+        }
+        return null
+      }
+      const dv = parseDv(payload.dv ?? payload.hit_die ?? payload.dice)
+      if (dv) (character as any).hit_die = dv
+      if ((character as any).proficiency_bonus === undefined) {
+        (character as any).proficiency_bonus = getProficiency(ctx)
+      }
       return;
     }
 

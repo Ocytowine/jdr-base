@@ -65,19 +65,51 @@ const personnage = usePersonnage()
 const classeTemplates = import.meta.glob('@/components/uiTemplates/classes/*.vue')
 
 onMounted(async () => {
+  // Tentative d'assurer que la fiche personnage contient bien le nom du template UI de la classe.
   const templateName = personnage.ui_template || null
-  if (!templateName) return
+  if (!templateName) {
+    try {
+      // Charger la DB locale (si besoin) pour chercher ui_template via classeId / classe
+      const currentId = (() => {
+        try { return (partiesStore as any).currentPartyId } catch { return null }
+      })()
+      try { await (dataStore.load?.(currentId) ?? Promise.resolve()) } catch {}
+
+      const wanted = String(personnage.perso?.classeId ?? personnage.perso?.classe ?? '').trim().toLowerCase()
+      if (wanted) {
+        const all = Object.values(dataStore.maps.classes || {})
+        const found = all.find((c: any) => {
+          if (!c || typeof c !== 'object') return false
+          const id = String(c.id ?? '').toLowerCase()
+          const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
+          return id === wanted || name === wanted
+        })
+        if (found && typeof found.ui_template === 'string' && found.ui_template.trim().length) {
+          // Met à jour la fiche locale et la persiste
+          try {
+            personnage.perso.ui_template = found.ui_template.trim()
+            // sauvegarde locale de la fiche (inclura désormais ui_template)
+            try { personnage.sauvegarderLocal((partiesStore as any).currentPartyId ?? undefined) } catch {}
+          } catch {}
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  // Reprendre le nom de template (après tentative de remplissage)
+  const finalTemplateName = personnage.perso?.ui_template || null
+  if (!finalTemplateName) return
   isLoadingTemplate.value = true
   templateError.value = null
   try {
-    // Cherche le template dans le glob import
-    const key = Object.keys(classeTemplates).find(k => k.endsWith(`/${templateName}`))
+    // Cherche le template dans le glob import (nom exact tel que enregistré dans ui_template)
+    const key = Object.keys(classeTemplates).find(k => k.endsWith(`/${finalTemplateName}`))
     if (!key) {
-      templateError.value = `Template UI de classe "${templateName}" introuvable dans components/uiTemplates/classes/`
+      templateError.value = `Template UI de classe "${finalTemplateName}" introuvable dans components/uiTemplates/classes/`
       uiTemplateComponent.value = null
       return
     }
-    // Correction : utiliser markRaw pour éviter la réactivité du composant
     uiTemplateComponent.value = markRaw(defineAsyncComponent(classeTemplates[key]))
   } catch (e: any) {
     // eslint-disable-next-line no-console

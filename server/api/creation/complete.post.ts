@@ -77,6 +77,9 @@ export default defineEventHandler(async (event) => {
               ? (body as any).applied
               : [];
 
+    // Include feature ids coming from the saved personnage (JDR_PERSO_...), if present
+    const personnageFeatureIds: string[] = Array.isArray(personnage?.featureIds) ? personnage.featureIds.map((x: any) => String(x)) : [];
+
     // Also include selection.chosenOptions values as possible feature ids
     const chosenOptionIds: string[] = (() => {
       const out: string[] = [];
@@ -88,7 +91,11 @@ export default defineEventHandler(async (event) => {
       return out;
     })();
 
-    const featureIds = Array.from(new Set<string>([...appliedFeatures.map(String), ...chosenOptionIds]));
+    const featureIds = Array.from(new Set<string>([
+      ...appliedFeatures.map(String),
+      ...chosenOptionIds,
+      ...personnageFeatureIds
+    ]));
     for (const fid of featureIds) {
       const raw = await loadById(fid);
       if (raw) out.features[fid] = raw;
@@ -101,6 +108,12 @@ export default defineEventHandler(async (event) => {
       if (Array.isArray(spellcasting.known)) spellIds.push(...spellcasting.known.map((s: any) => String(s)));
       if (Array.isArray(spellcasting.prepared)) spellIds.push(...spellcasting.prepared.map((s: any) => String(s)));
     }
+
+    // Include spellIds present in the saved personnage (JDR_PERSO_...), if any
+    if (Array.isArray(personnage?.spellIds)) {
+      spellIds.push(...personnage.spellIds.map((s: any) => String(s)));
+    }
+
     for (const sid of Array.from(new Set(spellIds))) {
       const raw = await loadById(sid);
       if (raw) out.spells[sid] = raw;

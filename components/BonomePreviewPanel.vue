@@ -322,41 +322,37 @@ async function handleSave() {
       throw new Error("La génération du personnage n'a retourné aucune donnée.");
     }
 
-    // Enrichissement des données locales (spells/features) pour la classe
+    // --- NOUVEAU : garantir la présence de ui_template dans la fiche finale ---
     try {
-      const selection = {
-        class: creation.selectedClass.value,
-        race: creation.selectedRace.value,
-        background: creation.selectedBackground.value,
-        niveau: creation.niveau.value,
-        chosenOptions: creation.chosenOptions
-      };
-      const previewCharacter = creation.preview.value?.previewCharacter ?? null;
-      // Appel l'API pour compléter la base locale avec les sorts/features manquants
-      const completion = await requestFetch('/api/creation/complete', {
-        method: 'POST',
-        body: { selection, previewCharacter, personnage: payload }
-      }).catch(() => null);
-      if (completion?.ok && completion.enriched) {
-        dataStore.merge(completion.enriched);
-      } else {
-        // Fallback : enrichit la base locale avec les sorts/features du preview si non présents
-        const spellIds = Array.isArray(payload.spellIds) ? payload.spellIds : [];
-        const featureIds = Array.isArray(payload.featureIds) ? payload.featureIds : [];
-        for (const sid of spellIds) {
-          if (!dataStore.maps.spells[sid] && previewCharacter?.spells?.[sid]) {
-            dataStore.maps.spells[sid] = previewCharacter.spells[sid];
-          }
-        }
-        for (const fid of featureIds) {
-          if (!dataStore.maps.features[fid] && previewCharacter?.features?.[fid]) {
-            dataStore.maps.features[fid] = previewCharacter.features[fid];
+      if (!payload.ui_template) {
+        const previewCharacter = creation.preview?.value?.previewCharacter ?? null;
+        if (previewCharacter && typeof previewCharacter.ui_template === 'string' && previewCharacter.ui_template.trim()) {
+          payload.ui_template = previewCharacter.ui_template.trim();
+        } else {
+          // recherche robuste dans la DB locale (classes)
+          const wanted = String(payload.classeId ?? payload.classe ?? '').trim().toLowerCase();
+          if (wanted) {
+            try {
+              // s'assurer que dataStore est chargé pour la partie courante
+              try { await dataStore.load?.((useParties() as any).currentPartyId ?? undefined) } catch {}
+            } catch {}
+            const all = Object.values(dataStore.maps.classes || {});
+            const found = all.find((c: any) => {
+              if (!c || typeof c !== 'object') return false;
+              const id = String(c.id ?? '').toLowerCase();
+              const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase();
+              return id === wanted || name === wanted;
+            });
+            if (found && typeof found.ui_template === 'string' && found.ui_template.trim()) {
+              payload.ui_template = found.ui_template.trim();
+            }
           }
         }
       }
     } catch (e) {
-      try { console.warn('[BonomePreviewPanel] completion fetch failed', e); } catch {}
+      // ignore, on ne bloque pas la sauvegarde pour ce step
     }
+    // --- FIN injection ui_template ---
 
     personnageStore.perso = payload;
     const partiesStore = useParties();

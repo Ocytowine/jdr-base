@@ -287,7 +287,7 @@ const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
   return partyId ? `JDR_PERSO_${partyId}` : 'JDR_PERSO'
 }
 
-  const refreshDebugSnapshots = () => {
+  const refreshDebugSnapshots = async () => {
     if (!process.client) {
       debugPartieCache.value = null
       debugPartieStorage.value = null
@@ -295,9 +295,11 @@ const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
       debugDatabaseStorage.value = null
       return
     }
+
     const currentId = partiesStore.currentPartyId
     const cached = currentId ? partiesStore.getPartie(currentId) : null
     debugPartieCache.value = cached ?? null
+
     const partieKey = currentId ? `JDR_PARTIE_DATA_${currentId}` : null
     debugPartieStorage.value = partieKey
       ? (() => {
@@ -310,6 +312,7 @@ const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
           }
         })()
       : null
+
     const personnageKey = resolvePersonnageStorageKey(currentId)
     debugPersonnageStorage.value = (() => {
       const raw = localStorage.getItem(personnageKey)
@@ -321,24 +324,57 @@ const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
       }
     })()
 
-    // Snapshot de la base de donnees (DATABASE)
-    const databaseKey = ((): string => {
-      try {
-        // utilise la logique du store pour rester coherent
-        return (dataStore as any)._storageKey(currentId || undefined)
-      } catch {
-        return currentId ? `JDR_DATABASE_${currentId}` : 'JDR_DATABASE'
+    // Tenter d'enrichir la DATABASE à partir de la fiche personnage (appelle /api/creation/complete)
+    try {
+      const rawPerso = localStorage.getItem(personnageKey)
+      const perso = rawPerso ? JSON.parse(rawPerso) : null
+      if (perso) {
+        const selection = {
+          class: perso.classeId ?? perso.classe ?? null,
+          race: perso.raceId ?? perso.lignee ?? null,
+          background: perso.backgroundId ?? null,
+          niveau: perso.niveau ?? 1,
+          chosenOptions: {}
+        }
+        const completion = await requestFetch('/api/creation/complete', {
+          method: 'POST',
+          body: { selection, previewCharacter: null, personnage: perso }
+        }).catch(() => null)
+        if (completion?.ok && completion.enriched) {
+          try {
+            dataStore.merge(completion.enriched)
+            if (currentId) dataStore.save(currentId)
+          } catch (e) {
+            // ignore merge/save failures but continue to update snapshot view
+          }
+        }
       }
-    })()
-    debugDatabaseStorage.value = (() => {
-      const raw = localStorage.getItem(databaseKey)
-      if (!raw) return null
-      try {
-        return JSON.parse(raw)
-      } catch (error) {
-        return { erreur: 'JSON invalide', raw }
-      }
-    })()
+    } catch (err) {
+      // ignore fetch errors but continue to refresh displayed snapshot
+    }
+
+    // Snapshot de la base de donnees (DATABASE) — on montre d'abord le dataStore s'il est présent,
+    // sinon on lit le localStorage via la cle calculée
+    try {
+      debugDatabaseStorage.value = dataStore.maps ?? null
+    } catch {
+      const databaseKey = ((): string => {
+        try {
+          return (dataStore as any)._storageKey(currentId || undefined)
+        } catch {
+          return currentId ? `JDR_DATABASE_${currentId}` : 'JDR_DATABASE'
+        }
+      })()
+      debugDatabaseStorage.value = (() => {
+        const raw = localStorage.getItem(databaseKey)
+        if (!raw) return null
+        try {
+          return JSON.parse(raw)
+        } catch (error) {
+          return { erreur: 'JSON invalide', raw }
+        }
+      })()
+    }
   }
 
 const formatDebugValue = (value: unknown) => {
@@ -541,6 +577,31 @@ onMounted(async () => {
     const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
     if (sauvegarde) {
       storePersonnage.chargerDepuisLocal(id)
+      // Assure la présence de ui_template pour la classe
+      try {
+        const dataStore = useDataStore()
+        if (!storePersonnage.perso.ui_template) {
+          const wanted = String(storePersonnage.perso.classeId ?? storePersonnage.perso.classe ?? '').trim().toLowerCase()
+          if (wanted) {
+            const all = Object.values(dataStore.maps.classes || {})
+            const found = all.find((c: any) => {
+              if (!c || typeof c !== 'object') return false
+              const cid = String(c.id ?? '').toLowerCase()
+              const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
+              return cid === wanted || name === wanted
+            })
+            if (found && typeof found.ui_template === 'string' && found.ui_template.trim().length) {
+              storePersonnage.perso.ui_template = found.ui_template.trim()
+            }
+          }
+        }
+        // Précharge le composant si déjà connu
+        const tpl = storePersonnage.perso.ui_template
+        if (tpl) {
+          const keyMatch = Object.keys(classeTemplates).find(k => k.endsWith(`/${tpl}`))
+          if (keyMatch) { (classeTemplates as any)[keyMatch]() }
+        }
+      } catch {}
       etatSauvegarde.value = 'chargee'
     } else {
       etatSauvegarde.value = 'aucune'
@@ -583,6 +644,29 @@ watch(
         const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
         if (sauvegarde) {
           storePersonnage.chargerDepuisLocal(id)
+          try {
+            const dataStore = useDataStore()
+            if (!storePersonnage.perso.ui_template) {
+              const wanted = String(storePersonnage.perso.classeId ?? storePersonnage.perso.classe ?? '').trim().toLowerCase()
+              if (wanted) {
+                const all = Object.values(dataStore.maps.classes || {})
+                const found = all.find((c: any) => {
+                  if (!c || typeof c !== 'object') return false
+                  const cid = String(c.id ?? '').toLowerCase()
+                  const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
+                  return cid === wanted || name === wanted
+                })
+                if (found && typeof found.ui_template === 'string' && found.ui_template.trim().length) {
+                  storePersonnage.perso.ui_template = found.ui_template.trim()
+                }
+              }
+            }
+            const tpl = storePersonnage.perso.ui_template
+            if (tpl) {
+              const keyMatch = Object.keys(classeTemplates).find(k => k.endsWith(`/${tpl}`))
+              if (keyMatch) { (classeTemplates as any)[keyMatch]() }
+            }
+          } catch {}
           etatSauvegarde.value = 'chargee'
         } else {
           etatSauvegarde.value = 'aucune'
@@ -597,9 +681,8 @@ watch(
   { immediate: true }
 )
 
-const classeTemplates = import.meta.glob('@/UITemplates/classes/*.vue')
+const classeTemplates = import.meta.glob('@/components/uiTemplates/classes/*.vue')
 
-// Helper pour charger dynamiquement le composant selon le nom
 const classeUiComponent = computed(() => {
   const template = storePersonnage.perso.ui_template
   if (!template) return null
@@ -608,6 +691,23 @@ const classeUiComponent = computed(() => {
   if (!key) return null
   return defineAsyncComponent(classeTemplates[key])
 })
+
+// Pré-chargement du template de classe dès que la fiche est chargée
+watch(
+  () => storePersonnage.perso?.ui_template,
+  (tpl) => {
+    try {
+      if (!tpl) return
+      const key = Object.keys(classeTemplates).find(k => k.endsWith(`/${tpl}`))
+      if (key) {
+        // lance l'import pour précharger le chunk
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        ;(classeTemplates as any)[key]()
+      }
+    } catch {}
+  },
+  { immediate: true }
+)
 
 const panelConfig = computed(() => {
   if (!partie.value) return null
@@ -619,18 +719,19 @@ const panelConfig = computed(() => {
       on: { send: handleSendMessage }
     }
   }
-  switch (activeSection.value) {
-    case 'classe':
-      return {
-        component: classeUiComponent.value || AventureClasse,
-        props: {
-          classeLabel: classeDisplayLabel.value || 'Classe à définir',
-          modules: (classeModulesFromData.value.length ? classeModulesFromData.value : data.modulesClasse)
-        },
-        on: {
-          add: handleAddModule
-        }
+  if (activeSection.value === 'classe') {
+    return {
+      component: classeUiComponent.value || AventureClasse,
+      props: {
+        classeLabel: classeDisplayLabel.value || 'Classe à définir',
+        modules: (classeModulesFromData.value.length ? classeModulesFromData.value : data.modulesClasse)
+      },
+      on: {
+        add: handleAddModule
       }
+    }
+  }
+  switch (activeSection.value) {
     case 'inventaire':
       return {
         component: AventureInventaire,

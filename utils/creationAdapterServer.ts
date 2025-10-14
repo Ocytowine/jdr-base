@@ -5,6 +5,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import EffectEngine from '~/engine/effectEngine';
+import { pvMaxAuNiveau } from '~/utils/regles_du_jeu';
 import { normalizeEffect, extractChoiceDescriptor } from '~/utils/normalizeEffect';
 
 const TEXT_FIELDS = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
@@ -355,6 +356,43 @@ export class CreationAdapterServer {
         baseCharacter: baseCharacterIn,
         classLevels
       });
+
+      // --- Derive DV and PV using class rules to align with store ---
+      const pickNumberFromKeys = (obj: any, keys: string[], fallback = 0): number => {
+        if (!obj || typeof obj !== 'object') return fallback;
+        for (const key of keys) {
+          const parts = String(key).split('.');
+          let cur: any = obj;
+          for (const part of parts) {
+            if (cur && typeof cur === 'object' && part in cur) cur = cur[part]; else { cur = undefined; break; }
+          }
+          const n = Number(cur);
+          if (Number.isFinite(n) && n > 0) return n;
+        }
+        return fallback;
+      };
+
+      const findResolvedEntityById = (id?: string | null) => {
+        if (!id) return null;
+        const key = String(id);
+        const node = (resolved || []).find((n: any) => String(n?.originId ?? n?.payload?.id ?? n?.id ?? '') === key);
+        return node ? (node.payload ?? node) : null;
+      };
+
+      const classeEntity = findResolvedEntityById(selection.class) ?? await this.resolveItemById(String(selection.class || ''));
+      const niveau = Number(selection.niveau ?? 1) || 1;
+      const dv = pickNumberFromKeys(classeEntity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die'], 0) || 0;
+      const conScore = Number(previewChar?.final_stats?.constitution ?? baseCharacterIn?.base_stats_before_race?.constitution ?? 10) || 10;
+      const conMod = Math.floor((conScore - 10) / 2);
+      if (dv > 0) {
+        const pvMax = pvMaxAuNiveau(dv, niveau, conMod);
+        previewChar.dv = dv;
+        // Set pvActuels to max at creation, unless a value already present
+        const currentPv = Number(previewChar?.pvActuels ?? previewChar?.pv ?? 0);
+        previewChar.pvActuels = Number.isFinite(currentPv) && currentPv > 0 ? Math.min(currentPv, pvMax) : pvMax;
+        // also expose pv_max for UI if needed
+        previewChar.pv_max = pvMax;
+      }
 
       // Filter pending choices by conditions (if any). If no conditions, keep the choice.
       const choicesFiltered = (pendingChoices || []).filter((cd) => {

@@ -165,6 +165,23 @@ export function normalizeEffect(rawEffect: AnyObject | null | undefined): AnyObj
     }
   }
 
+  // Normalize DV/hit die forms like "1d6" -> hit_die: 6
+  if (e.payload?.dv || e.payload?.hit_die || e.payload?.dice) {
+    const parseDv = (v: any): number | null => {
+      if (v === null || v === undefined) return null
+      if (typeof v === 'number' && Number.isFinite(v)) return v
+      if (typeof v === 'string') {
+        const m = v.toLowerCase().match(/(\d*)d(\d+)/)
+        if (m) return Number(m[2]) || null
+        const n = Number(v)
+        if (Number.isFinite(n)) return n
+      }
+      return null
+    }
+    const dv = parseDv(e.payload.dv ?? e.payload.hit_die ?? e.payload.dice)
+    if (dv) e.payload.hit_die = dv
+  }
+
   // preserve conditions if nested under payload
   if (!e.conditions && e.payload?.conditions) {
     e.conditions = e.payload.conditions;
