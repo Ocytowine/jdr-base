@@ -60,7 +60,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { usePersonnage } from '@/stores/personnage'
-import { mod, bonusDeMaitrise, classeArmureDeBase, pvMaxAuNiveau } from '@/utils/regles_du_jeu'
+import { mod, classeArmureDeBase } from '@/utils/regles_du_jeu'
 
 const props = defineProps<{ compact?: boolean }>()
 const store = usePersonnage()
@@ -78,10 +78,11 @@ const p: any = store.perso || {
   competences: {}
 }
 
-const mait = computed(() => bonusDeMaitrise(Number(p.niveau) || 1))
+const derived = computed(() => (store as any).derived)
+const mait = computed(() => Number(derived.value?.proficiencyBonus || 0))
 const init = computed(() => mod(Number(p.caracs?.dexterite || 10)))
 const ca = computed(() => classeArmureDeBase(Number(p.caracs?.dexterite || 10), p.armure?.type || 'aucune', !!p.bouclier))
-const pvMax = computed(() => pvMaxAuNiveau(Number(p.dv || 0), Number(p.niveau || 1), mod(Number(p.caracs?.constitution || 10))))
+const pvMax = computed(() => Number(derived.value?.pvMax || 0))
 
 const competencesMaitrisees = computed(() => (store.listeCompetences as any[]).filter((c: any) => Boolean(p.competences?.[c.id])))
 

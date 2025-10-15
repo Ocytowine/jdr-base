@@ -447,6 +447,77 @@ export const usePersonnage = defineStore('personnage', {
     ui_template: (state) => {
       // On suppose que le champ est stockÃ© dans perso ou Ã  dÃ©faut dans la classe
       return state.perso?.ui_template || null
+    },
+    // Dérivés calculés (non persistés)
+    derived: (state) => {
+      const p = (state as any).perso || {}
+      const niveau = Number(p.niveau || 1)
+      const prof = bonusDeMaitrise(niveau)
+      let pvMax = 0
+      try {
+        const dataStore = useDataStore()
+        const classeKey = String(p.classeId || '').trim().toLowerCase()
+        const classe = classeKey ? Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
+          if (!c || typeof c !== 'object') return false
+          const id = String(c.id ?? '').toLowerCase()
+          const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
+          return id === classeKey || name === classeKey
+        }) : null
+        const hp: any = classe && typeof classe === 'object' ? (classe as any).hit_points : null
+        if (hp && typeof hp === 'object') {
+          const l1 = evalFormuleAdditive(String(hp.level_1 || ''), niveau, p.caracs)
+          const per = evalFormuleAdditive(String(hp.per_level_after_1 || ''), niveau, p.caracs)
+          const add = (x: number) => Math.max(1, Number(x) || 0)
+          pvMax = add(l1)
+          for (let i = 2; i <= niveau; i++) pvMax += add(per)
+        }
+      } catch {}
+      // Spellcasting dérivé (facultatif si la classe le définit)
+      let spellSaveDc: number | null = null
+      let spellAttackMod: number | null = null
+      try {
+        const dataStore = useDataStore()
+        const classeKey = String(p.classeId || '').trim().toLowerCase()
+        const classe = classeKey ? Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
+          if (!c || typeof c !== 'object') return false
+          const id = String(c.id ?? '').toLowerCase()
+          const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
+          return id === classeKey || name === classeKey
+        }) : null
+        const sc: any = (classe as any)?.spellcasting_feature || (classe as any)?.spellcasting || null
+        if (sc && typeof sc === 'object') {
+          const ability = String(sc.ability || 'intelligence').toLowerCase()
+          const caracMap: any = {
+            force: p.caracs?.force || 10,
+            dexterite: p.caracs?.dexterite || 10,
+            constitution: p.caracs?.constitution || 10,
+            intelligence: p.caracs?.intelligence || 10,
+            sagesse: p.caracs?.sagesse || 10,
+            charisme: p.caracs?.charisme || 10
+          }
+          // DC
+          if (typeof sc.spell_save_dc_mod === 'string' && sc.spell_save_dc_mod.trim().length) {
+            spellSaveDc = evalFormuleAdditive(sc.spell_save_dc_mod, niveau, caracMap)
+          } else {
+            const m: any = { intelligence:'INT', sagesse:'SAG', dexterite:'DEX', constitution:'CON', force:'FOR', charisme:'CHA' }
+            const ab = m[ability] || 'INT'
+            spellSaveDc = evalFormuleAdditive(`8 + mait + mod.${ab}` , niveau, caracMap)
+          }
+          // ATK
+          if (typeof sc.spell_attack_mod === 'string' && sc.spell_attack_mod.trim().length) {
+            spellAttackMod = evalFormuleAdditive(sc.spell_attack_mod, niveau, caracMap)
+          } else {
+            const m: any = { intelligence:'INT', sagesse:'SAG', dexterite:'DEX', constitution:'CON', force:'FOR', charisme:'CHA' }
+            const ab = m[ability] || 'INT'
+            spellAttackMod = evalFormuleAdditive(`mait + mod.${ab}`, niveau, caracMap)
+          }
+        }
+      } catch {}
+      return {
+        pvMax: Math.max(1, pvMax || 0),
+        proficiencyBonus: prof,
+        spellcasting: { dc: spellSaveDc, attack: spellAttackMod }
+      }
     }
   },
   actions: {
@@ -588,5 +659,6 @@ export const usePersonnage = defineStore('personnage', {
     }
   }
 })
+
 
 
