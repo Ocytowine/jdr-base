@@ -9,6 +9,7 @@ import type { Quete } from '@/components/aventure/AventureQuetes.vue'
 import type { AideMemoire } from '@/components/aventure/AventureAides.vue'
 import type { ModuleClasse } from '@/components/aventure/AventureClasse.vue'
 import type { Compagnon } from '@/components/aventure/AventureCompagnons.vue'
+import { purgePartieLocalSaves } from '@/utils/localSaves'
 
 const PARTIES_INDEX_KEY = 'JDR_PARTIES_INDEX'
 const CURRENT_PARTY_KEY = 'JDR_PARTIE_CURRENT'
@@ -366,7 +367,7 @@ export const useParties = defineStore('parties', {
       if (!process.client) return
       this.parties = this.parties.filter((meta) => meta.id !== id)
       delete this.cache[id]
-      localStorage.removeItem(PARTY_DATA_PREFIX + id)
+      purgePartieLocalSaves(id)
       this.persistMeta()
       if (this.currentPartyId === id) {
         this.currentPartyId = null

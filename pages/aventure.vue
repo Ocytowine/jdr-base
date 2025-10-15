@@ -128,6 +128,7 @@ import AventureQuetes, { type Quete } from '@/components/aventure/AventureQuetes
 import AventureJournal, { type JournalEntry } from '@/components/aventure/AventureJournal.vue'
 import AventureAides, { type AideMemoire } from '@/components/aventure/AventureAides.vue'
 import AventureCompagnons, { type Compagnon } from '@/components/aventure/AventureCompagnons.vue'
+import AventureLevelUp from '@/components/aventure/AventureLevelUp.vue'
 import { useBonomeCreationStore } from '@/stores/bonomeCreation'
 import { useDataStore } from '@/stores/data'
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition'
@@ -136,15 +137,14 @@ import { defineAsyncComponent } from 'vue'
 
 type EtatSauvegarde = 'chargement' | 'chargee' | 'aucune'
 
-type SectionId =
+/* type SectionId =
   | 'narration'
   | 'fiche'
-  | 'classe'
-  | 'inventaire'
+  | 'classe'\n  | 'levelup'\n  | 'inventaire'
   | 'quetes'
   | 'journal'
   | 'aides'
-  | 'compagnons'
+  | 'compagnons' */
 
 const isoNow = () => new Date().toISOString()
 const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -161,7 +161,7 @@ if (process.client) {
 }
 
 const etatSauvegarde = ref<EtatSauvegarde>('chargement')
-const activeSection = ref<SectionId>('narration')
+const activeSection = ref<'narration' | 'fiche' | 'classe' | 'levelup' | 'inventaire' | 'quetes' | 'journal' | 'aides' | 'compagnons'>('narration')
 const showDebugPanel = ref(false)
   const debugPartieCache = ref<any | null>(null)
   const debugPartieStorage = ref<any | null>(null)
@@ -215,7 +215,7 @@ const classeModulesFromData = computed<ModuleClasse[]>(() => {
       const pieces: string[] = []
       if (raw?.school) pieces.push(String(raw.school))
       if (raw?.level !== undefined) pieces.push(`Niv. ${raw.level}`)
-      const head = pieces.length ? `Sort • ${pieces.join(' • ')}` : 'Sort'
+      const head = pieces.length ? `Sort ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ${pieces.join(' ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ')}` : 'Sort'
       const description = String(raw?.description || raw?.desc || '')
       out.push({ id: sid, title: `${head}: ${title}`, description })
     }
@@ -259,7 +259,7 @@ const inventaireFromData = computed<InventaireItem[]>(() => {
   }
 })
 
-// Inventaire issu de la création (Option A, affichage non destructif)
+// Inventaire issu de la crÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ation (Option A, affichage non destructif)
 const creationInventoryTransition = computed(() => {
   const kept = (creation.materialKeptItems?.value ?? []) as Array<{
     item: unknown
@@ -324,7 +324,7 @@ const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
       }
     })()
 
-    // Tenter d'enrichir la DATABASE à partir de la fiche personnage (appelle /api/creation/complete)
+    // Tenter d'enrichir la DATABASE ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  partir de la fiche personnage (appelle /api/creation/complete)
     try {
       const rawPerso = localStorage.getItem(personnageKey)
       const perso = rawPerso ? JSON.parse(rawPerso) : null
@@ -353,8 +353,8 @@ const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
       // ignore fetch errors but continue to refresh displayed snapshot
     }
 
-    // Snapshot de la base de donnees (DATABASE) — on montre d'abord le dataStore s'il est présent,
-    // sinon on lit le localStorage via la cle calculée
+    // Snapshot de la base de donnees (DATABASE) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â on montre d'abord le dataStore s'il est prÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©sent,
+    // sinon on lit le localStorage via la cle calculÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e
     try {
       debugDatabaseStorage.value = dataStore.maps ?? null
     } catch {
@@ -378,7 +378,7 @@ const resolvePersonnageStorageKey = (partyId: string | null | undefined) => {
   }
 
 const formatDebugValue = (value: unknown) => {
-  if (value === null || value === undefined) return '—'
+  if (value === null || value === undefined) return 'ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â'
   if (typeof value === 'string') return value
   try {
     return JSON.stringify(value, null, 2)
@@ -531,6 +531,7 @@ const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
   { id: 'narration', label: 'Narration', hint: 'Fil de discussion' },
   { id: 'fiche', label: 'Fiche personnage', hint: 'Profil complet' },
   { id: 'classe', label: 'Classe & pouvoirs', hint: 'Configuration dynamique a venir' },
+  { id: 'levelup', label: 'Passer un niveau', hint: 'AperÃƒÂ§u + choix' },
   { id: 'inventaire', label: 'Inventaire', hint: 'Equipement et tresors' },
   { id: 'quetes', label: 'Quetes', hint: 'Objectifs actifs' },
   { id: 'journal', label: 'Journal', hint: 'Notes de session' },
@@ -577,7 +578,7 @@ onMounted(async () => {
     const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
     if (sauvegarde) {
       storePersonnage.chargerDepuisLocal(id)
-      // Assure la présence de ui_template pour la classe
+      // Assure la prÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©sence de ui_template pour la classe
       try {
         const dataStore = useDataStore()
         if (!storePersonnage.perso.ui_template) {
@@ -595,7 +596,7 @@ onMounted(async () => {
             }
           }
         }
-        // Précharge le composant si déjà connu
+        // PrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©charge le composant si dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©jÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  connu
         const tpl = storePersonnage.perso.ui_template
         if (tpl) {
           const keyMatch = Object.keys(classeTemplates).find(k => k.endsWith(`/${tpl}`))
@@ -639,7 +640,7 @@ watch(
       if (current && !hasPendingInventoryChanges.value) {
         const cloned = cloneInventaireItems(current.inventaire)
         syncInventaireState(cloned)
-        // Correction : restaurer la fiche personnage depuis le localStorage si présente
+        // Correction : restaurer la fiche personnage depuis le localStorage si prÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©sente
         const key = `JDR_PERSO_${id}`
         const sauvegarde = localStorage.getItem(key) ?? localStorage.getItem('JDR_PERSO')
         if (sauvegarde) {
@@ -692,7 +693,7 @@ const classeUiComponent = computed(() => {
   return defineAsyncComponent(classeTemplates[key])
 })
 
-// Pré-chargement du template de classe dès que la fiche est chargée
+// PrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©-chargement du template de classe dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s que la fiche est chargÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e
 watch(
   () => storePersonnage.perso?.ui_template,
   (tpl) => {
@@ -700,7 +701,7 @@ watch(
       if (!tpl) return
       const key = Object.keys(classeTemplates).find(k => k.endsWith(`/${tpl}`))
       if (key) {
-        // lance l'import pour précharger le chunk
+        // lance l'import pour prÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©charger le chunk
         // eslint-disable-next-line @typescript-eslint/no-floating-promises
         ;(classeTemplates as any)[key]()
       }
@@ -723,7 +724,7 @@ const panelConfig = computed(() => {
     return {
       component: classeUiComponent.value || AventureClasse,
       props: {
-        classeLabel: classeDisplayLabel.value || 'Classe à définir',
+        classeLabel: classeDisplayLabel.value || 'Classe ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©finir',
         modules: (classeModulesFromData.value.length ? classeModulesFromData.value : data.modulesClasse)
       },
       on: {
@@ -808,7 +809,7 @@ const handleSendMessage = ({ content, admin }: { content: string; admin?: boolea
   if (!partie.value) return
   const partieId = partie.value.id
   // Si le mode admin est actif et qu'il s'agit d'une commande reconnue,
-  // on intercepte et exécute sans créer de message "player".
+  // on intercepte et exÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©cute sans crÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©er de message "player".
   if (admin && isCommandInput(content)) {
     const result = processCommand(content, {
       partieId,
@@ -1158,12 +1159,3 @@ const pushSystemMessage = (content: string) => {
   border-color: rgba(255, 208, 122, 0.24);
 }
 </style>
-// Synchronise le store de donnees enrichies avec la partie courante
-watch(
-  () => partiesStore.currentPartyId,
-  (id) => {
-    if (!process.client) return
-    try { dataStore.load(id || undefined) } catch {}
-  },
-  { immediate: false }
-)

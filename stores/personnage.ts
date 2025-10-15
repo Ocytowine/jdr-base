@@ -1,4 +1,3 @@
-﻿// Mapping classe â†’ template UI
 function getUiTemplateForClasse(classe: string): string | null {
   switch (classe?.toLowerCase()) {
     case 'mage':
@@ -14,9 +13,12 @@ import { defineStore } from 'pinia'
 import { useSession } from '@/composables/useSession'
 import { useParties } from '@/stores/parties'
 import { useDataStore } from '@/stores/data'
+import { useBonomeCreationStore } from '@/stores/bonomeCreation'
 import { bonusDeMaitrise } from '@/utils/regles_du_jeu'
-import { evalFormuleAdditive } from '@/utils/evalFormule'
+import { evalFormuleAdditive, resolveStatBasePayload } from '@/utils/evalFormule'
 import { mod, pvMaxAuNiveau } from '@/utils/regles_du_jeu'
+import EffectEngine from '@/engine/effectEngine'
+import { normalizeEffects } from '@/utils/normalizeEffect'
 
 const DEF_COMPETENCES: CompetenceDef[] = [
   { id: 'athletisme', nom: 'Athletisme', carac: 'force' },
@@ -51,6 +53,7 @@ type Personnage = {
   xp?: number
   dv: number
   pvActuels: number
+  pvMax?: number
   caracs: Caracs
   competences: Record<string, boolean>
   langues: string
@@ -59,11 +62,14 @@ type Personnage = {
   monture: { nom: string; vitesse: string; notes: string }
   inspiration: boolean
   inventaire: PersonnageInventoryEntry[]
+  traits?: string[]
   classeId?: string | null
   raceId?: string | null
   backgroundId?: string | null
   featureIds?: string[]
   spellIds?: string[]
+  spellcastingSpec?: SpellcastingSpec | null
+  statBases?: StatBase | null
   materielPersonnalise: {
     armePrincipale: string | null
     armePrincipaleId: string | null
@@ -92,6 +98,23 @@ type Personnage = {
   ui_template?: string | null
 }
 
+type SpellcastingSpec = {
+  ability: string | null
+  spellSaveDc: number | null
+  spellAttackMod: number | null
+  slots: Record<string, number | string>
+  description?: string | null
+}
+
+type StatBase = {
+  vitesse?: number
+  nivFatigueMax?: number
+  initiative?: string
+  CA?: string
+  besoin?: Array<Record<string, any>>
+  [key: string]: any
+}
+
 const createDefaultPerso = (): Personnage => ({
   id: 'pj_0001',
   nom: '',
@@ -105,6 +128,7 @@ const createDefaultPerso = (): Personnage => ({
   xp: 0,
   dv: 10,
   pvActuels: 10,
+  pvMax: 10,
   caracs: {
     force: 15,
     dexterite: 14,
@@ -120,6 +144,9 @@ const createDefaultPerso = (): Personnage => ({
   monture: { nom: '', vitesse: '', notes: '' },
   inspiration: false,
   inventaire: [],
+  traits: [],
+  statBases: null,
+  spellcastingSpec: null,
   materielPersonnalise: {
     armePrincipale: null,
     armePrincipaleId: null,
@@ -179,7 +206,7 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   const { equipement: _discardedEquipement, ...restSource } = source
 
   const dataStore = useDataStore()
-  // On attend le chargement du catalogue si nÃ©cessaire (maps.classes doit Ãªtre non vide)
+  // On attend le chargement du catalogue si nécessaire (maps.classes doit être non vide)
   if (!Object.keys(dataStore.maps.classes).length) {
     await dataStore.load()
   }
@@ -328,7 +355,7 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     return str.trim().length ? str : null
   }
 
-  // RÃ©solution robuste d'identifiants Ã  partir d'ID ou de labels
+  // Résolution robuste d'identifiants à partir d'ID ou de labels
   const findByIdOrName = (map: Record<string, any>, key?: string | null): { id: string | null; entity: any | null } => {
     const k = (key ?? '').toString().trim()
     if (!k) return { id: null, entity: null }
@@ -363,7 +390,7 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     return fallback
   }
 
-  // RÃ©soudre classe/race/background IDs depuis la source
+  // Résoudre classe/race/background IDs depuis la source
   const srcClasseId = typeof (source as any).classeId === 'string' ? (source as any).classeId : null
   const srcRaceId = typeof (source as any).raceId === 'string' ? (source as any).raceId : null
   const srcBackgroundId = typeof (source as any).backgroundId === 'string' ? (source as any).backgroundId : null
@@ -375,10 +402,10 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   // UI template depuis la classe
   const uiTemplate: string | null = (resolvedClasse.entity?.ui_template ?? null) || null
 
-  // DÃ©terminer le DV depuis la classe
+  // Déterminer le DV depuis la classe
   const derivedDv = numberFromKeys(resolvedClasse.entity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die']) || (base as any).dv
 
-  // Calcul PV max et pvActuels bornÃ©s
+  // Calcul PV max et pvActuels bornés
   const niveau = Number.isFinite((source as any).niveau) ? Number((source as any).niveau) : (base as any).niveau
   const modCon = mod(Number((caracs as any).constitution || (base as any).caracs.constitution))
   const pvMax = pvMaxAuNiveau(derivedDv, niveau, modCon)
@@ -390,28 +417,31 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
 
   return {
     ...base,
-    // ne pas propager tel-quel la source pour Ã©viter doublons non normalisÃ©s
+    // ne pas propager tel-quel la source pour éviter doublons non normalisés
     id: String((source as any).id ?? (base as any).id),
     nom: String((source as any).nom ?? (base as any).nom),
     niveau,
     // XP
     xp: Number.isFinite((source as any).xp) ? Number((source as any).xp) : 0,
-    // RÃ¨gles
+    // Règles
     dv: derivedDv,
     pvActuels,
     caracs,
     competences,
     inventaire,
-    // IDs normalisÃ©s (source de vÃ©ritÃ©)
+    // IDs normalisés (source de vérité)
     classeId: resolvedClasse.id ?? (base as any).classeId ?? null,
     raceId: resolvedRace.id ?? (base as any).raceId ?? null,
     backgroundId: resolvedBackground.id ?? (base as any).backgroundId ?? null,
-    // Labels d'affichage (dÃ©rivÃ©s des IDs)
+    // Labels d'affichage (dérivés des IDs)
     classe: displayLabel(resolvedClasse.entity, (base as any).classe),
     lignee: displayLabel(resolvedRace.entity, (base as any).lignee),
     historique: displayLabel(resolvedBackground.entity, (base as any).historique),
     featureIds: Array.isArray(source.featureIds) ? source.featureIds.map((x: any) => String(x)) : (base.featureIds ?? []),
     spellIds: Array.isArray(source.spellIds) ? source.spellIds.map((x: any) => String(x)) : (base.spellIds ?? []),
+    traits: Array.isArray((source as any).traits) ? (source as any).traits.map((t: any) => String(t)) : (base.traits ?? []),
+    spellcastingSpec: (source as any).spellcastingSpec ?? (base as any).spellcastingSpec ?? null,
+    statBases: (source as any).statBases ?? (base as any).statBases ?? null,
     materielPersonnalise: {
       ...base.materielPersonnalise,
       ...materielSource,
@@ -440,22 +470,38 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
 export const usePersonnage = defineStore('personnage', {
   state: () => ({
     perso: createDefaultPerso(),
-    loading: false
+    loading: false,
+    derivedCache: null as null | {
+      pvMax: number
+      proficiencyBonus: number
+      spellcasting?: { dc: number | null; attack: number | null; ability: string | null } | null
+      proficiencies?: string[]
+      senses?: any[]
+    },
+    _lastPvMax: 0,
+    _lastNiveau: 0,
+    _lastConScore: 10
   }),
   getters: {
     listeCompetences: () => DEF_COMPETENCES,
     ui_template: (state) => {
-      // On suppose que le champ est stockÃ© dans perso ou Ã  dÃ©faut dans la classe
+      // On suppose que le champ est stocké dans perso ou à défaut dans la classe
       return state.perso?.ui_template || null
     },
-    // Dérivés calculés (non persistés)
+    spellcastingSpec: (state) => state.perso?.spellcastingSpec ?? null,
+    statBases: (state) => state.perso?.statBases ?? null,
+    // D�riv�s calcul�s (non persist�s)
     derived: (state) => {
+      if ((state as any).derivedCache) return (state as any).derivedCache
       const p = (state as any).perso || {}
       const niveau = Number(p.niveau || 1)
       const prof = bonusDeMaitrise(niveau)
       let pvMax = 0
       try {
         const dataStore = useDataStore()
+        try {
+          const creationStore = useBonomeCreationStore()
+        } catch {}
         const classeKey = String(p.classeId || '').trim().toLowerCase()
         const classe = classeKey ? Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
           if (!c || typeof c !== 'object') return false
@@ -472,11 +518,14 @@ export const usePersonnage = defineStore('personnage', {
           for (let i = 2; i <= niveau; i++) pvMax += add(per)
         }
       } catch {}
-      // Spellcasting dérivé (facultatif si la classe le définit)
+      // Spellcasting d�riv� (facultatif si la classe le d�finit)
       let spellSaveDc: number | null = null
       let spellAttackMod: number | null = null
       try {
         const dataStore = useDataStore()
+        try {
+          const creationStore = useBonomeCreationStore()
+        } catch {}
         const classeKey = String(p.classeId || '').trim().toLowerCase()
         const classe = classeKey ? Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
           if (!c || typeof c !== 'object') return false
@@ -521,6 +570,274 @@ export const usePersonnage = defineStore('personnage', {
     }
   },
   actions: {
+    async levelUp(delta: number = 1) {
+      const inc = Math.max(1, Math.floor(Number(delta) || 1))
+      ;(this as any).perso.niveau = Math.max(1, Number((this as any).perso.niveau || 1) + inc)
+      try { await (this as any).recomputeDerived() } catch {}
+    },
+
+    async equip(itemRepoId: string, slot?: 'armePrincipale'|'armeSecondaire'|'protection'|'bouclier'|'accessoire') {
+      const id = String(itemRepoId || '').trim()
+      if (!id) return
+      const mp: any = (this as any).perso.materielPersonnalise || ((this as any).perso.materielPersonnalise = { accessoiresIds: [], keptIds: [], equippedIds: [] })
+      mp.keptIds = Array.isArray(mp.keptIds) ? mp.keptIds : []
+      mp.equippedIds = Array.isArray(mp.equippedIds) ? mp.equippedIds : []
+      if (!mp.keptIds.includes(id)) mp.keptIds.push(id)
+      if (!mp.equippedIds.includes(id)) mp.equippedIds.push(id)
+      if (slot) {
+        if (slot === 'armePrincipale') mp.armePrincipaleId = id
+        else if (slot === 'armeSecondaire') mp.armeSecondaireId = id
+        else if (slot === 'protection') mp.protectionId = id
+        else if (slot === 'bouclier') mp.bouclierId = id
+        else if (slot === 'accessoire') {
+          mp.accessoiresIds = Array.isArray(mp.accessoiresIds) ? mp.accessoiresIds : []
+          if (!mp.accessoiresIds.includes(id)) mp.accessoiresIds.push(id)
+        }
+      }
+      try { await (this as any).recomputeDerived() } catch {}
+    },
+
+    async unequip(itemRepoId: string) {
+      const id = String(itemRepoId || '').trim()
+      if (!id) return
+      const mp: any = (this as any).perso.materielPersonnalise || ((this as any).perso.materielPersonnalise = { accessoiresIds: [], keptIds: [], equippedIds: [] })
+      mp.equippedIds = (Array.isArray(mp.equippedIds) ? mp.equippedIds : []).filter((x: any) => String(x) !== id)
+      if (String(mp.armePrincipaleId || '') === id) mp.armePrincipaleId = null
+      if (String(mp.armeSecondaireId || '') === id) mp.armeSecondaireId = null
+      if (String(mp.protectionId || '') === id) mp.protectionId = null
+      if (String(mp.bouclierId || '') === id) mp.bouclierId = null
+      if (Array.isArray(mp.accessoiresIds)) mp.accessoiresIds = mp.accessoiresIds.filter((x: any) => String(x) !== id)
+      try { await (this as any).recomputeDerived() } catch {}
+    },
+    async recomputeDerived() {
+      try {
+        const p: any = (this as any).perso || {}
+        const dataStore = useDataStore()
+        try {
+          const creationStore = useBonomeCreationStore()
+          await creationStore.restoreDatabaseFromIds?.((this as any).perso)
+        } catch {}
+        if (!Object.keys(dataStore.maps.classes || {}).length) {
+          try { await (dataStore.load?.() ?? Promise.resolve()) } catch {}
+        }
+
+        const toBaseStats = (caracs: any) => ({
+          strength: Number((caracs)?.force ?? 10),
+          dexterity: Number((caracs)?.dexterite ?? 10),
+          constitution: Number((caracs)?.constitution ?? 10),
+          intelligence: Number((caracs)?.intelligence ?? 10),
+          wisdom: Number((caracs)?.sagesse ?? 10),
+          charisma: Number((caracs)?.charisme ?? 10)
+        })
+        const niveau = Number(p.niveau || 1) || 1
+        const baseCharacter: any = {
+          base_stats_before_race: toBaseStats(p.caracs || {}),
+          final_stats: {},
+          niveau,
+          features: Array.isArray(p.featureIds) ? [...p.featureIds] : [],
+          equipment: [],
+          spellcasting: {},
+          proficiencies: [],
+          senses: [],
+          item_proposals: [],
+          currency: { gold: 0, silver: 0, copper: 0 },
+          unhandled_effects: []
+        }
+
+        const selection = {
+          class: p.classeId ?? null,
+          race: p.raceId ?? null,
+          background: p.backgroundId ?? null,
+          niveau
+        }
+
+        const mergeStatBase = (target: StatBase | null, payload: any): StatBase => {
+          if (!payload || typeof payload !== 'object') return target ?? {}
+          const next: StatBase = { ...(target ?? {}) }
+          for (const [key, value] of Object.entries(payload)) {
+            if (Array.isArray(value)) {
+              const existing = Array.isArray(next[key]) ? (next[key] as any[]) : []
+              next[key] = [...existing, ...value]
+            } else {
+              next[key] = value
+            }
+          }
+          return next
+        }
+
+
+        const pickEffects = (entity: any): any[] => {
+          if (!entity || typeof entity !== 'object') return []
+          const raw: any = entity
+          const arr = raw.effects ?? raw.features ?? raw.payload?.effects ?? []
+          return normalizeEffects(arr)
+        }
+        const effectEntries: Array<{ source?: string | null; effect: any }> = []
+        let classSpellPayload: any = null
+        let statBasePayload: StatBase | null = null
+        const pushEffects = (src: string, list: any[]) => {
+          for (const ef of list) {
+            effectEntries.push({ source: src, effect: ef })
+            if (ef?.type === 'add_stat_base') {
+              statBasePayload = mergeStatBase(statBasePayload, ef.payload ?? {})
+            }
+            if (ef?.type === 'spellcasting_feature' && src === 'class') {
+              classSpellPayload = ef.payload ?? classSpellPayload
+            }
+          }
+        }
+
+        const findById = (map: Record<string, any> = {}, id: any) => {
+          if (!id) return null
+          const key = String(id).toLowerCase()
+          return map[key] || Object.values(map).find((e: any) => String(e?.id ?? '').toLowerCase() === key) || null
+        }
+
+        const cls = findById(dataStore.maps.classes, p.classeId)
+        if (cls) {
+          pushEffects('class', pickEffects(cls))
+          const sc = (cls as any).spellcasting_feature || (cls as any).spellcasting || null
+          if (sc && typeof sc === 'object') {
+            classSpellPayload = sc
+            effectEntries.push({ source: 'class', effect: { type: 'spellcasting_feature', payload: sc } })
+          }
+          const hp = (cls as any).hit_points || null
+          const dvCandidate = (() => {
+            const keys = ['dv','hit_die','hitdie','hitDie','hit_dice','dice?.hit_die']
+            for (const k of keys) { if ((cls as any)[k] !== undefined) return (cls as any)[k] }
+            return null
+          })()
+          if (hp || dvCandidate) effectEntries.push({ source: 'class', effect: { type: 'traits', payload: { hit_points: hp ?? undefined, dv: dvCandidate ?? undefined } } })
+        }
+
+        const rc = findById(dataStore.maps.races, p.raceId)
+        if (rc) pushEffects('race', pickEffects(rc))
+
+        const bg = findById(dataStore.maps.backgrounds, p.backgroundId)
+        if (bg) pushEffects('background', pickEffects(bg))
+
+        const featureIds = Array.isArray(p.featureIds) ? p.featureIds.map((x: any) => String(x)) : []
+        for (const fid of featureIds) {
+          const ft = findById(dataStore.maps.features, fid)
+          if (ft) pushEffects(`feature:${fid}`, pickEffects(ft))
+        }
+
+        // Effets d'items port�s (IDs d'origine du repo attendus)
+        try {
+          const equipSet = new Set<string>()
+          const mp = (p.materielPersonnalise || {}) as any
+          const maybePush = (v: any) => { const s = String(v ?? '').trim(); if (s) equipSet.add(s) }
+          maybePush(mp.armePrincipaleId)
+          maybePush(mp.armeSecondaireId)
+          maybePush(mp.protectionId)
+          maybePush(mp.bouclierId)
+          if (Array.isArray(mp.accessoiresIds)) for (const id of mp.accessoiresIds) maybePush(id)
+          if (Array.isArray(mp.equippedIds)) for (const id of mp.equippedIds) maybePush(id)
+
+          const resolveItemEntity = (id: string) => {
+            const direct = (dataStore.maps.items || {})[id]
+            if (direct) return direct
+            const low = id.toLowerCase()
+            return Object.values(dataStore.maps.items || {}).find((it: any) => String(it?.id ?? '').toLowerCase() === low) || null
+          }
+
+          for (const id of equipSet) {
+            const item = resolveItemEntity(id)
+            if (!item) continue
+            pushEffects(`item:${id}`, pickEffects(item))
+          }
+        } catch {}
+
+        const engine = new EffectEngine({ resolveItemById: async (id: string) => dataStore.maps.items?.[id] ?? null })
+        await engine.applyEffects(baseCharacter, effectEntries, { selection, baseCharacter })
+
+        let dv = Number(p.dv || 0)
+        try {
+          const pickNumberFromKeys = (obj: any, keys: string[], fallback = 0): number => {
+            if (!obj || typeof obj !== 'object') return fallback
+            for (const key of keys) {
+              const parts = String(key).split('.')
+              let cur: any = obj
+              for (const part of parts) { if (cur && typeof cur === 'object' && part in cur) cur = cur[part]; else { cur = undefined; break } }
+              const n = Number(cur)
+              if (Number.isFinite(n) && n > 0) return n
+            }
+            return fallback
+          }
+          const dvFromData = pickNumberFromKeys(cls, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die'], 0)
+          if (dvFromData > 0) dv = dvFromData
+        } catch {}
+        const conScore = Number(p?.caracs?.constitution ?? baseCharacter?.final_stats?.constitution ?? 10) || 10
+        const conMod = Math.floor((conScore - 10) / 2)
+        const pvMax = dv > 0 ? pvMaxAuNiveau(dv, niveau, conMod) : 0
+        const proficiencyBonus = bonusDeMaitrise(niveau)
+        const spellDc = baseCharacter?.spellcasting?.meta?.spell_save_dc ?? null
+        const spellAtk = baseCharacter?.spellcasting?.meta?.spell_attack_mod ?? null
+        const spellcastingSummary = (() => {
+          const scBase: any = baseCharacter?.spellcasting || {}
+          const abilityRaw = classSpellPayload?.ability ?? scBase?.ability ?? null
+          const ability = abilityRaw ? String(abilityRaw) : null
+          const meta: any = scBase?.meta || {}
+          const slotsSource = scBase?.slots ?? classSpellPayload?.slots_table ?? {}
+          const slots: Record<string, number | string> = {}
+          if (slotsSource && typeof slotsSource === 'object') {
+            for (const [k, v] of Object.entries(slotsSource)) {
+              slots[k] = typeof v === 'number' ? v : String(v)
+            }
+          }
+          const description = classSpellPayload?.description ?? null
+          if (!ability && meta?.spell_save_dc == null && meta?.spell_attack_mod == null && !Object.keys(slots).length && !description) {
+            return null
+          }
+          return {
+            ability,
+            spellSaveDc: meta?.spell_save_dc ?? null,
+            spellAttackMod: meta?.spell_attack_mod ?? null,
+            slots,
+            description: description ? String(description) : null
+          } as SpellcastingSpec
+        })()
+        const evaluatedStatBases = resolveStatBasePayload(statBasePayload, niveau, (p.caracs || {}) as any)
+
+        const prevPvMax = Number((this as any)._lastPvMax || 0)
+        const prevNiv = Number((this as any)._lastNiveau || 0)
+        const prevCon = Number((this as any)._lastConScore || 10)
+        const isCreation = !prevPvMax && (!Number(p.pvActuels) || Number(p.pvActuels) <= 0)
+        const niveauChangedUp = niveau > prevNiv && prevPvMax > 0 && pvMax > prevPvMax
+        const conChanged = conScore !== prevCon && prevPvMax > 0
+        let nextPvActuels = Number(p.pvActuels || 0)
+        if (isCreation) nextPvActuels = pvMax
+        else if (niveauChangedUp) nextPvActuels = Math.min(nextPvActuels + (pvMax - prevPvMax), pvMax)
+        else if (conChanged) nextPvActuels = Math.min(nextPvActuels, pvMax)
+        else nextPvActuels = Math.min(nextPvActuels, pvMax)
+        ;(this as any).perso.pvActuels = nextPvActuels
+        if (dv > 0) { (this as any).perso.dv = dv }
+        if (pvMax > 0) { (this as any).perso.pvMax = pvMax }
+        if (spellcastingSummary) {
+          (this as any).perso.spellcastingSpec = spellcastingSummary
+        } else {
+          delete (this as any).perso.spellcastingSpec
+        }
+        if (evaluatedStatBases && Object.keys(evaluatedStatBases).length) {
+          (this as any).perso.statBases = evaluatedStatBases
+        } else {
+          delete (this as any).perso.statBases
+        }
+
+        ;(this as any).derivedCache = {
+          pvMax: Math.max(0, pvMax || 0),
+          proficiencyBonus,
+          spellcasting: { dc: spellDc, attack: spellAtk, ability: spellcastingSummary?.ability ?? null },
+          proficiencies: Array.isArray(baseCharacter?.proficiencies) ? baseCharacter.proficiencies : [],
+          senses: Array.isArray(baseCharacter?.senses) ? baseCharacter.senses : []
+        }
+        ;(this as any)._lastPvMax = pvMax
+        ;(this as any)._lastNiveau = niveau
+        ;(this as any)._lastConScore = conScore
+      } catch {
+        try { (this as any).derivedCache = null } catch {}
+      }
+    },
     _storageKey(partieId?: string | null) {
       const id =
         partieId ??
@@ -549,7 +866,7 @@ export const usePersonnage = defineStore('personnage', {
       this.loading = true
       const key = this._storageKey(partieId)
       const brut = localStorage.getItem(key)
-      // Log de debug pour la clÃ© et le contenu
+      // Log de debug pour la clé et le contenu
       console.info('[Perso] Tentative de chargement', { key, brut })
 
       let loaded = false
@@ -563,7 +880,7 @@ export const usePersonnage = defineStore('personnage', {
         }
       }
 
-      // Fallback : tente de restaurer la derniÃ¨re sauvegarde gÃ©nÃ©rique si rien n'a Ã©tÃ© chargÃ©
+      // Fallback : tente de restaurer la dernière sauvegarde générique si rien n'a été chargé
       if (!loaded && !partieId) {
         const fallbackRaw = localStorage.getItem('JDR_PERSO')
         console.info('[Perso] Fallback sur JDR_PERSO', { fallbackRaw })
@@ -578,12 +895,13 @@ export const usePersonnage = defineStore('personnage', {
         }
       }
 
-      // Si aucune sauvegarde trouvÃ©e, conserve le personnage courant (Ã©vite la rÃ©initialisation accidentelle)
+      // Si aucune sauvegarde trouvée, conserve le personnage courant (évite la réinitialisation accidentelle)
       if (!loaded) {
-        console.warn('[Perso] Aucune sauvegarde trouvÃ©e, conservation du perso courant')
-        // Ne pas Ã©craser le perso courant par dÃ©faut
+        console.warn('[Perso] Aucune sauvegarde trouvée, conservation du perso courant')
+        // Ne pas écraser le perso courant par défaut
       }
       this.loading = false
+      try { await (this as any).recomputeDerived() } catch {}
     },
 
     sauvegarderLocal(partieId?: string) {
@@ -602,7 +920,7 @@ export const usePersonnage = defineStore('personnage', {
           } catch {}
         }
       } catch {}
-      // Sauvegarde minimale: évite les doublons (labels) et blobs lourds
+      // Sauvegarde minimale: �vite les doublons (labels) et blobs lourds
       const toPersist = (() => {
         const p: any = (this as any).perso || {}
         const minimalInventory = Array.isArray(p.inventaire)
@@ -615,6 +933,7 @@ export const usePersonnage = defineStore('personnage', {
           xp: Number(p.xp) || 0,
           dv: Number(p.dv) || 0,
           pvActuels: Number(p.pvActuels) || 0,
+          pvMax: Number(p.pvMax) || Number(((this as any).derivedCache ?? {}).pvMax || 0),
           caracs: p.caracs || {},
           competences: p.competences || {},
           armure: p.armure || { type: 'aucune' },
@@ -627,8 +946,11 @@ export const usePersonnage = defineStore('personnage', {
           backgroundId: p.backgroundId ?? null,
           featureIds: Array.isArray(p.featureIds) ? p.featureIds.map(String) : [],
           spellIds: Array.isArray(p.spellIds) ? p.spellIds.map(String) : [],
+          traits: Array.isArray(p.traits) ? p.traits.map(String) : [],
           materielPersonnalise: p.materielPersonnalise || {},
           descriptionDetaillee: p.descriptionDetaillee || {},
+          statBases: p.statBases ?? null,
+          spellcastingSpec: p.spellcastingSpec ?? null,
           ui_template: p.ui_template ?? null
         }
       })()
@@ -647,9 +969,9 @@ export const usePersonnage = defineStore('personnage', {
     }
     ,
     /**
-     * Ajoute un montant d'expÃ©rience au personnage courant.
+     * Ajoute un montant d'expérience au personnage courant.
      * - N'accepte que des montants positifs.
-     * - Sauvegarde locale Ã  la charge de l'appelant (connaÃ®t la partie courante).
+     * - Sauvegarde locale à la charge de l'appelant (connaît la partie courante).
      */
     ajouterXp(montant: number) {
       const val = Number(montant) || 0

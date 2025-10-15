@@ -65,19 +65,27 @@ Points de vie (hit_points)
   - `pvActuels` au moment de la création = `pvMax` (peut ensuite baisser/monter en jeu, mais reste borné à `pvMax`).
 
 Sortilèges (facultatif mais recommandé pour l’uniformité)
+
 - Sauvegarde (DC): écrire la clé `spell_save_dc_mod` avec une formule additive.
   - Exemple: `"8 + mait + mod.INT"`
 - Attaque de sort (bonus): écrire la clé `spell_attack_mod` avec une formule additive.
   - Exemple: `"mait + mod.INT"`
 - La caractéristique de lancement (`ability`) doit aussi être fournie (ex: `"intelligence"`), mais n’intervient pas dans l’écriture de la formule.
 
+
+Effets de base (`add_stat_base`)
+- Utilises par les races et certaines classes pour definir des valeurs comme la vitesse, la limite de fatigue, l'initiative ou la CA.
+- Les champs numeriques sont calcules directement a partir du niveau et des caracteristiques du personnage.
+- Les formules additives utilisent la meme syntaxe que ci-dessus (`mait`, `mod.<ABR�%VIATION>`, `XdY`).
+  - Sans tirage de des, la valeur est evaluee immediatement (ex. `10 + mod.DEX` -> `12`).
+  - Avec un tirage (`1d20`, `2d6`, ...), le resultat reste une expression ou les modificateurs sont substitues (ex. `1d20 + mod.DEX` -> `1d20 + 2`).
+- Les structures imbriquees (ex. `besoin`) sont conservees telles quelles : seules les chaines correspondant a des formules additives sont evaluees.
 Dés (tirage aléatoire)
 - `XdY` signifie lancer X dés à Y faces et sommer les résultats (ex: `2d10`).
 - Si vous souhaitez un comportement non aléatoire, utilisez des constantes numériques explicites (ex: `6`, `8`) dans vos formules.
 
 Bonnes pratiques
 - Rester cohérent: toujours `mait`, toujours `mod.<ABRÉVIATION>`.
-- Utiliser des entiers strictement positifs pour les constantes.
 - Ne pas mélanger d’autres mots-clés (pas de `prof`, pas de `mod.INTELLIGENCE`, etc.).
 
 Exemple complet (classe)

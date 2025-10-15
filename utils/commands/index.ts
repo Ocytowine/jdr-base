@@ -10,9 +10,15 @@ import type { CommandContext, CommandResult } from './types'
 import { registerCommand, getCommand } from './registry'
 import { isCommandInput, parseInput } from './parser'
 import { giveXpCommand } from './commands/giveXp'
+import { levelUpCommand } from './commands/levelUp'
+import { equipCommand } from './commands/equip'
+import { unequipCommand } from './commands/unequip'
 
 // Enregistre les commandes de base à l'import
 registerCommand(giveXpCommand)
+registerCommand(levelUpCommand)
+registerCommand(equipCommand)
+registerCommand(unequipCommand)
 
 export { isCommandInput } from './parser'
 

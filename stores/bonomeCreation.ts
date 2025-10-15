@@ -3,6 +3,8 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useRequestFetch } from '#app';
 import { useDataStore } from '@/stores/data';
 import { useParties } from '@/stores/parties'; // <-- Ajout import pour obtenir currentPartyId
+import { normalizeEffects } from '@/utils/normalizeEffect';
+import { resolveStatBasePayload } from '@/utils/evalFormule';
 
 import type { Personnage } from './personnage';
 
@@ -1657,6 +1659,15 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     }
 
     const previewCharacter = (preview.value?.previewCharacter ?? {}) as Record<string, any>;
+    const dataStore = useDataStore()
+    try {
+      const parties = useParties()
+      await (dataStore.load?.(parties.currentPartyId ?? undefined) ?? Promise.resolve())
+    } catch {}
+    try {
+      await restoreDatabaseFromIds(previewCharacter)
+    } catch {}
+
 
     const statsSource = {
       ...(previewCharacter.base_stats_before_race ?? {}),
@@ -1768,15 +1779,21 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     });
 
     const originToSlug = new Map<string, string>();
+    const slugToOrigin = new Map<string, string>();
     for (const item of inventoryTransition.items) {
       if (item.originId) {
         originToSlug.set(item.originId, item.id);
+        slugToOrigin.set(item.id, item.originId);
       }
     }
 
     const slugForOrigin = (key: string | null): string | null => {
       if (!key) return null;
       return originToSlug.get(key) ?? key;
+    };
+    const originForSlug = (slug: string | null): string | null => {
+      if (!slug) return null;
+      return slugToOrigin.get(slug) ?? slug;
     };
 
     const labelForKey = (key: string | null): string | null => {
@@ -1793,14 +1810,14 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     const shieldOriginKey = normalizeKey(materialAssignments.shieldKey);
     const accessoiresIds = Array.isArray(materialAssignments.accessoriesKeys)
       ? materialAssignments.accessoriesKeys
-          .map((id: unknown) => slugForOrigin(normalizeKey(id)))
+          .map((id: unknown) => normalizeKey(id))
           .filter((id): id is string => Boolean(id))
       : [];
 
-    const primaryKey = slugForOrigin(primaryOriginKey);
-    const secondaryKey = slugForOrigin(secondaryOriginKey);
-    const protectionKey = slugForOrigin(protectionOriginKey);
-    const shieldKey = slugForOrigin(shieldOriginKey);
+    const primaryKey = primaryOriginKey;
+    const secondaryKey = secondaryOriginKey;
+    const protectionKey = protectionOriginKey;
+    const shieldKey = shieldOriginKey;
 
     const appliedFeaturesIds: string[] = Array.isArray((preview.value as any)?.appliedFeatures)
       ? (preview.value as any).appliedFeatures.map((x: any) => String(x))
@@ -1832,6 +1849,20 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       return out;
     })();
 
+    const mergeStatBase = (target: Record<string, any> | null, payload: any): Record<string, any> => {
+      if (!payload || typeof payload !== 'object') return target ?? {};
+      const next: Record<string, any> = { ...(target ?? {}) };
+      for (const [key, value] of Object.entries(payload)) {
+        if (Array.isArray(value)) {
+          const existing = Array.isArray(next[key]) ? (next[key] as any[]) : [];
+          next[key] = [...existing, ...value];
+        } else {
+          next[key] = value;
+        }
+      }
+      return next;
+    };
+
     // Deriver DV et PV depuis la classe + CON
     const pickNumberFromKeys = (obj: any, keys: string[], fallback = 0): number => {
       if (!obj || typeof obj !== 'object') return fallback;
@@ -1848,6 +1879,8 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     };
 
     let dvDerived = 0;
+    let statBasePayload: Record<string, any> | null = null;
+    let spellcastingPayload: any = null;
     try {
       const dataStore = useDataStore();
       const cid = selectedClass.value || null;
@@ -1859,15 +1892,59 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
           const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase();
           return id === wanted || name === wanted;
         });
-        dvDerived = pickNumberFromKeys(found, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die'], 0) || 0;
+        const catalogClasse = classes.value.find((entry) => {
+          if (!entry) return false;
+          const id = String(entry.id ?? '').toLowerCase();
+          const slug = String((entry as any)?.slug ?? '').toLowerCase();
+          return id === wanted || slug === wanted;
+        });
+        spellcastingPayload = (found as any)?.spellcasting_feature || (found as any)?.spellcasting || null;
+        dvDerived =
+          pickNumberFromKeys(found, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die'], 0) ||
+          pickNumberFromKeys(catalogClasse, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice'], 0) ||
+          0;
+        const classEffects = normalizeEffects((found as any)?.effects ?? []);
+        for (const ef of classEffects) {
+          if (ef?.type === 'add_stat_base') {
+            statBasePayload = mergeStatBase(statBasePayload, ef.payload ?? {});
+          }
+        }
+        const catalogEffects = normalizeEffects((catalogClasse as any)?.effects ?? []);
+        for (const ef of catalogEffects) {
+          if (ef?.type === 'add_stat_base') {
+            statBasePayload = mergeStatBase(statBasePayload, ef.payload ?? {});
+          }
+        }
+      }
+    } catch {}
+
+    try {
+      const dataStore = useDataStore();
+      const rid = selectedRace.value || null;
+      if (rid) {
+        const wantedRace = String(rid).trim().toLowerCase();
+        const foundRace = Object.values(dataStore.maps.races || {}).find((r: any) => {
+          if (!r || typeof r !== 'object') return false;
+          const id = String(r.id ?? '').toLowerCase();
+          const name = String(r.name ?? r.nom ?? r.label ?? r.slug ?? '').toLowerCase();
+          return id === wantedRace || name === wantedRace;
+        });
+        const raceEffects = normalizeEffects(foundRace?.effects ?? []);
+        for (const ef of raceEffects) {
+          if (ef?.type === 'add_stat_base') {
+            statBasePayload = mergeStatBase(statBasePayload, ef.payload ?? {});
+          }
+        }
       }
     } catch {}
 
     const conScore = getStat('constitution');
     const conMod = Math.floor((Number(conScore) - 10) / 2);
     const niveauValue = ensureNumber(previewCharacter.niveau ?? niveau.value, 1);
-    const dvFinal = ensureNumber(previewCharacter.dv ?? previewCharacter.hit_dice, 0) || dvDerived || 0;
-    const pvMaxFinal = dvFinal > 0 ? pvMaxAuNiveau(dvFinal, niveauValue, conMod) : 0;
+    const previewDv = ensureNumber(previewCharacter.dv ?? previewCharacter.hit_dice ?? previewCharacter.hit_die, 0);
+    const dvFinal = previewDv || dvDerived || 0;
+    const previewPvMax = ensureNumber(previewCharacter.pv_max ?? previewCharacter.hp?.max, 0);
+    const pvMaxFinal = previewPvMax > 0 ? previewPvMax : (dvFinal > 0 ? pvMaxAuNiveau(dvFinal, niveauValue, conMod) : 0);
     const pvActuelsFinal = (() => {
       const candidates = [
         previewCharacter.pvActuels,
@@ -1877,8 +1954,14 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       ];
       const first = candidates.find((x) => Number.isFinite(Number(x)) && Number(x) > 0);
       const value = Number(first ?? 0);
-      return pvMaxFinal > 0 ? (value > 0 ? Math.min(value, pvMaxFinal) : pvMaxFinal) : 0;
+      if (pvMaxFinal > 0) {
+        if (value > 0) return Math.min(value, pvMaxFinal);
+        return pvMaxFinal;
+      }
+      return value > 0 ? value : 0;
     })();
+
+    const statBasesResult = resolveStatBasePayload(statBasePayload, niveauValue, caracs);
 
     const personnage: Personnage = {
       id: toDisplayString(previewCharacter.id, `pj_${Date.now()}`),
@@ -1904,11 +1987,36 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       },
       inspiration: Boolean(previewCharacter.inspiration ?? false),
       inventaire: minimalInventory,
+      statBases: statBasesResult,
       classeId: selectedClass.value || null,
       raceId: selectedRace.value || null,
       backgroundId: selectedBackground.value || null,
       featureIds: appliedFeaturesIds,
       spellIds: knownSpells,
+      traits: Array.isArray(previewCharacter?.traits) ? previewCharacter.traits.map((t: any) => String(t?.id ?? t)) : [],
+      spellcastingSpec: (() => {
+        const spell = (previewCharacter?.spellcasting ?? {}) as any;
+        const ability = spell?.ability ?? spellcastingPayload?.ability ?? null;
+        const meta = spell?.meta ?? {};
+        const slotsSource = spell?.slots ?? spellcastingPayload?.slots_table ?? {};
+        const slots: Record<string, number | string> = {};
+        if (slotsSource && typeof slotsSource === 'object') {
+          for (const [k, v] of Object.entries(slotsSource)) {
+            slots[k] = typeof v === 'number' ? v : String(v);
+          }
+        }
+        const description = spellcastingPayload?.description ?? spell?.description ?? null;
+        if (!ability && meta?.spell_save_dc == null && meta?.spell_attack_mod == null && !Object.keys(slots).length && !description) {
+          return null;
+        }
+        return {
+          ability: ability ? String(ability) : null,
+          spellSaveDc: meta?.spell_save_dc ?? null,
+          spellAttackMod: meta?.spell_attack_mod ?? null,
+          slots,
+          description: description ? String(description) : null
+        };
+      })(),
       materielPersonnalise: {
         armePrincipale: toNullableString(materialPlan.primaryWeapon) ?? labelForKey(primaryOriginKey),
         armePrincipaleId: primaryKey,
@@ -1922,8 +2030,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         paquetageId: null,
         accessoires: toNullableString(materialPlan.accessories),
         accessoiresIds,
-        keptIds: inventoryTransition.keptIds,
-        equippedIds: inventoryTransition.equippedIds,
+        // On stocke désormais les IDs repo conservés/portés
+        keptIds: inventoryTransition.items.map(it => String(it.originId)).filter(Boolean),
+        equippedIds: inventoryTransition.items.filter(it => it.equipped).map(it => String(it.originId)).filter(Boolean),
         notes: trimValue(materialPlan.notes)
       },
       descriptionDetaillee: {

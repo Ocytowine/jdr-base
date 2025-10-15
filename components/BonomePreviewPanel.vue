@@ -355,6 +355,7 @@ async function handleSave() {
     // --- FIN injection ui_template ---
 
     personnageStore.perso = payload;
+    try { await (personnageStore as any).recomputeDerived?.() } catch {}
     const partiesStore = useParties();
     if (process.client) {
       partiesStore.initialiser();

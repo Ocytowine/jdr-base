@@ -17,6 +17,9 @@ export type CommandContext = {
   stores: {
     personnage: {
       ajouterXp: (montant: number) => void
+      levelUp?: (delta?: number) => void | Promise<void>
+      equip?: (itemRepoId: string, slot?: 'armePrincipale'|'armeSecondaire'|'protection'|'bouclier'|'accessoire') => void | Promise<void>
+      unequip?: (itemRepoId: string) => void | Promise<void>
       sauvegarderLocal: (partieId?: string) => void
       perso: any
     }

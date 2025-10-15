@@ -36,7 +36,7 @@
           :class="{ 'liste-parties__item--active': partie.id === idCourant }"
         >
           <div class="liste-parties__meta">
-            <strong>{{ partie.label }}</strong>
+            <strong>{{ partie.saveState.display }}</strong>
             <small>ID: {{ partie.id }}</small>
             <small>Mis a jour: {{ formatHorodatage(partie.updatedAt) }}</small>
           </div>
@@ -58,6 +58,7 @@ import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSession } from '@/composables/useSession'
 import { useParties } from '@/stores/parties'
+import { getPartieSaveState } from '@/utils/localSaves'
 
 const { idCourant } = useSession()
 const partiesStore = useParties()
@@ -70,7 +71,12 @@ onMounted(() => {
   partiesStore.initialiser()
 })
 
-const listeParties = computed(() => partiesSorted.value)
+const listeParties = computed(() =>
+  partiesSorted.value.map((partie) => ({
+    ...partie,
+    saveState: getPartieSaveState(partie.id)
+  }))
+)
 
 const nouvellePartie = () => {
   const id = partiesStore.creerPartie()
