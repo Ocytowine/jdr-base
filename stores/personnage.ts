@@ -16,9 +16,41 @@ import { useDataStore } from '@/stores/data'
 import { useBonomeCreationStore } from '@/stores/bonomeCreation'
 import { bonusDeMaitrise } from '@/utils/regles_du_jeu'
 import { evalFormuleAdditive, resolveStatBasePayload } from '@/utils/evalFormule'
-import { mod, pvMaxAuNiveau } from '@/utils/regles_du_jeu'
+import { mod } from '@/utils/regles_du_jeu'
 import EffectEngine from '@/engine/effectEngine'
 import { normalizeEffects } from '@/utils/normalizeEffect'
+
+const extractHitPoints = (entity: any): { level_1?: string; per_level_after_1?: string } | null => {
+  if (!entity || typeof entity !== 'object') return null
+  const direct = entity.hit_points
+  if (direct && typeof direct === 'object') return { ...direct }
+
+  const candidates: any[] = []
+  const effects = Array.isArray(entity.effects) ? entity.effects : []
+  const features = Array.isArray(entity.features) ? entity.features : []
+  const payloadEffects = Array.isArray(entity.payload?.effects) ? entity.payload.effects : []
+  candidates.push(...effects, ...features, ...payloadEffects)
+
+  if (candidates.length) {
+    try {
+      for (const entry of candidates) {
+        const payload = entry && typeof entry === 'object' ? (entry.payload && typeof entry.payload === 'object' ? entry.payload : entry) : null
+        const hp = payload?.hit_points
+        if (hp && typeof hp === 'object') return { ...hp }
+      }
+    } catch {}
+
+    try {
+      const normalized = normalizeEffects(candidates)
+      for (const entry of normalized) {
+        const hp = entry?.payload?.hit_points
+        if (hp && typeof hp === 'object') return { ...hp }
+      }
+    } catch {}
+  }
+
+  return null
+}
 
 const DEF_COMPETENCES: CompetenceDef[] = [
   { id: 'athletisme', nom: 'Athletisme', carac: 'force' },
@@ -54,6 +86,7 @@ type Personnage = {
   dv: number
   pvActuels: number
   pvMax?: number
+  hit_points?: { level_1?: string; per_level_after_1?: string } | null
   caracs: Caracs
   competences: Record<string, boolean>
   langues: string
@@ -129,6 +162,7 @@ const createDefaultPerso = (): Personnage => ({
   dv: 10,
   pvActuels: 10,
   pvMax: 10,
+  hit_points: null,
   caracs: {
     force: 15,
     dexterite: 14,
@@ -147,6 +181,7 @@ const createDefaultPerso = (): Personnage => ({
   traits: [],
   statBases: null,
   spellcastingSpec: null,
+  hit_points: null,
   materielPersonnalise: {
     armePrincipale: null,
     armePrincipaleId: null,
@@ -402,13 +437,27 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   // UI template depuis la classe
   const uiTemplate: string | null = (resolvedClasse.entity?.ui_template ?? null) || null
 
-  // Déterminer le DV depuis la classe
+  // Déterminer le DV depuis la classe (ne sert plus au calcul PV)
   const derivedDv = numberFromKeys(resolvedClasse.entity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die']) || (base as any).dv
+
+  const classHitPoints = extractHitPoints(resolvedClasse.entity)
+  const sourceHitPoints = extractHitPoints(source)
 
   // Calcul PV max et pvActuels bornés
   const niveau = Number.isFinite((source as any).niveau) ? Number((source as any).niveau) : (base as any).niveau
   const modCon = mod(Number((caracs as any).constitution || (base as any).caracs.constitution))
-  const pvMax = pvMaxAuNiveau(derivedDv, niveau, modCon)
+  const pvMax = (() => {
+    const hpSource = classHitPoints ?? sourceHitPoints
+    if (hpSource && typeof hpSource === 'object') {
+      const l1 = evalFormuleAdditive(String(hpSource.level_1 || ''), niveau, caracs as any)
+      const per = evalFormuleAdditive(String(hpSource.per_level_after_1 || ''), niveau, caracs as any)
+      const add = (x: number) => Math.max(1, Number(x) || 0)
+      let sum = add(l1)
+      for (let i = 2; i <= niveau; i++) sum += add(per)
+      return sum
+    }
+    return 0
+  })()
   const pvActuels = (() => {
     const rawPv = Number((source as any).pvActuels)
     if (!Number.isFinite(rawPv) || rawPv <= 0) return pvMax
@@ -426,6 +475,7 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     // Règles
     dv: derivedDv,
     pvActuels,
+    hit_points: classHitPoints ?? sourceHitPoints ?? ((base as any).hit_points ?? null),
     caracs,
     competences,
     inventaire,
@@ -503,16 +553,25 @@ export const usePersonnage = defineStore('personnage', {
           const creationStore = useBonomeCreationStore()
         } catch {}
         const classeKey = String(p.classeId || '').trim().toLowerCase()
-        const classe = classeKey ? Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
+        let classe = classeKey ? Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
           if (!c || typeof c !== 'object') return false
           const id = String(c.id ?? '').toLowerCase()
           const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
           return id === classeKey || name === classeKey
         }) : null
-        const hp: any = classe && typeof classe === 'object' ? (classe as any).hit_points : null
-        if (hp && typeof hp === 'object') {
-          const l1 = evalFormuleAdditive(String(hp.level_1 || ''), niveau, p.caracs)
-          const per = evalFormuleAdditive(String(hp.per_level_after_1 || ''), niveau, p.caracs)
+        if (!classe && p.classe) {
+          const wanted = String(p.classe).trim().toLowerCase()
+          classe = Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
+            if (!c || typeof c !== 'object') return false
+            const id = String(c.id ?? '').toLowerCase()
+            const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
+            return id === wanted || name === wanted
+          }) || null
+        }
+        const hpSource: any = extractHitPoints(classe) ?? (p?.hit_points && typeof p.hit_points === 'object' ? p.hit_points : null)
+        if (hpSource && typeof hpSource === 'object') {
+          const l1 = evalFormuleAdditive(String(hpSource.level_1 || ''), niveau, p.caracs)
+          const per = evalFormuleAdditive(String(hpSource.per_level_after_1 || ''), niveau, p.caracs)
           const add = (x: number) => Math.max(1, Number(x) || 0)
           pvMax = add(l1)
           for (let i = 2; i <= niveau; i++) pvMax += add(per)
@@ -613,6 +672,15 @@ export const usePersonnage = defineStore('personnage', {
       try {
         const p: any = (this as any).perso || {}
         const dataStore = useDataStore()
+        // Assurer que la base (classes/races/backgrounds) est chargée avant la résolution
+        try {
+          if (!Object.keys((dataStore as any).maps?.classes || {}).length) {
+            try { const parties = useParties(); await (dataStore as any).load?.(parties.currentPartyId ?? undefined) } catch {}
+            if (!Object.keys((dataStore as any).maps?.classes || {}).length) {
+              try { await (dataStore as any).load?.() } catch {}
+            }
+          }
+        } catch {}
         try {
           const creationStore = useBonomeCreationStore()
           await creationStore.restoreDatabaseFromIds?.((this as any).perso)
@@ -693,7 +761,16 @@ export const usePersonnage = defineStore('personnage', {
           return map[key] || Object.values(map).find((e: any) => String(e?.id ?? '').toLowerCase() === key) || null
         }
 
-        const cls = findById(dataStore.maps.classes, p.classeId)
+        let cls = findById(dataStore.maps.classes, p.classeId)
+        if (!cls && p.classe) {
+          const wanted = String(p.classe).trim().toLowerCase()
+          cls = Object.values(dataStore.maps.classes || {}).find((entry: any) => {
+            if (!entry || typeof entry !== 'object') return false
+            const id = String(entry.id ?? '').toLowerCase()
+            const name = String(entry.name ?? entry.nom ?? entry.label ?? entry.slug ?? '').toLowerCase()
+            return id === wanted || name === wanted
+          }) || null
+        }
         if (cls) {
           pushEffects('class', pickEffects(cls))
           const sc = (cls as any).spellcasting_feature || (cls as any).spellcasting || null
@@ -768,8 +845,26 @@ export const usePersonnage = defineStore('personnage', {
           if (dvFromData > 0) dv = dvFromData
         } catch {}
         const conScore = Number(p?.caracs?.constitution ?? baseCharacter?.final_stats?.constitution ?? 10) || 10
-        const conMod = Math.floor((conScore - 10) / 2)
-        const pvMax = dv > 0 ? pvMaxAuNiveau(dv, niveau, conMod) : 0
+        // Calcul PV: uniquement via les formules de classe (hit_points)
+        let pvMax = 0
+        try {
+          const hpFromClass = extractHitPoints(cls)
+          const hpSource: any = hpFromClass ?? (p?.hit_points && typeof p.hit_points === 'object' ? p.hit_points : null)
+          if (hpFromClass) {
+            (this as any).perso.hit_points = { ...hpFromClass }
+          }
+          if (hpSource) {
+            const l1 = evalFormuleAdditive(String(hpSource.level_1 || ''), niveau, (p.caracs || {}) as any)
+            const per = evalFormuleAdditive(String(hpSource.per_level_after_1 || ''), niveau, (p.caracs || {}) as any)
+            const add = (x: number) => Math.max(1, Number(x) || 0)
+            pvMax = add(l1)
+            for (let i = 2; i <= niveau; i++) pvMax += add(per)
+          } else {
+            pvMax = 0
+          }
+        } catch {
+          pvMax = 0
+        }
         const proficiencyBonus = bonusDeMaitrise(niveau)
         const spellDc = baseCharacter?.spellcasting?.meta?.spell_save_dc ?? null
         const spellAtk = baseCharacter?.spellcasting?.meta?.spell_attack_mod ?? null
@@ -932,8 +1027,9 @@ export const usePersonnage = defineStore('personnage', {
           niveau: Number(p.niveau) || 1,
           xp: Number(p.xp) || 0,
           dv: Number(p.dv) || 0,
-          pvActuels: Number(p.pvActuels) || 0,
-          pvMax: Number(p.pvMax) || Number(((this as any).derivedCache ?? {}).pvMax || 0),
+          pvActuels: (() => { const _pvMax = Number(p.pvMax) || Number(((this as any).derived ?? {}).pvMax || 0); const act = Number(p.pvActuels)||0; return _pvMax>0? Math.min(act,_pvMax) : act })(),
+          pvMax: Number(p.pvMax) || Number(((this as any).derived ?? {}).pvMax || 0),
+          hit_points: p.hit_points && typeof p.hit_points === 'object' ? { ...p.hit_points } : null,
           caracs: p.caracs || {},
           competences: p.competences || {},
           armure: p.armure || { type: 'aucune' },

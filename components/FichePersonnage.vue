@@ -8,9 +8,10 @@
           <div style="color:var(--texte-2);">{{ p.lignee }} — {{ p.classe }} {{ p.niveau }}</div>
           <div class="ligne" style="gap:8px; margin-top:6px;">
             <span class="badge">CA {{ ca }}</span>
-            <span class="badge">PV {{ p.pvActuels }}/{{ pvMax }}</span>
+            <span class="badge" v-if="pvMax > 0">PV {{ p.pvActuels }}/{{ pvMax }}</span>
+            <span class="badge" v-else>PV ...</span>
             <span class="badge">Init {{ init >= 0 ? '+' : '' }}{{ init }}</span>
-            <span class="badge">Maîtrise +{{ mait }}</span>
+            <span class="badge">Maitrise +{{ mait }}</span>
           </div>
         </div>
       </div>
@@ -34,7 +35,7 @@
     <div class="champs" style="margin-top:8px;">
       <div style="grid-column: span 12;">
         <div class="carte-mini">
-          <strong>Compétences maîtrisées</strong>
+          <strong>Competences maitrisees</strong>
           <div style="margin-top:6px; display:flex; flex-wrap: wrap; gap:6px;">
             <span v-for="c in competencesMaitrisees" :key="c.id" class="badge">
               {{ c.nom }} ({{ scoreCompetence(c) >=0?'+':'' }}{{ scoreCompetence(c) }})
@@ -48,7 +49,7 @@
     <div class="champs" style="margin-top:8px;" v-if="p.monture?.nom">
       <div style="grid-column: span 12;">
         <div class="carte-mini">
-          <strong>Monture / Créature</strong>
+          <strong>Monture / Creature</strong>
           <div style="margin-top:6px;">{{ p.monture.nom }} — {{ p.monture.vitesse || 'vitesse ?' }}</div>
           <div style="color:var(--texte-2);">{{ p.monture.notes }}</div>
         </div>

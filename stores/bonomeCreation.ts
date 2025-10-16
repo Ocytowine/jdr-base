@@ -4,7 +4,7 @@ import { useRequestFetch } from '#app';
 import { useDataStore } from '@/stores/data';
 import { useParties } from '@/stores/parties'; // <-- Ajout import pour obtenir currentPartyId
 import { normalizeEffects } from '@/utils/normalizeEffect';
-import { resolveStatBasePayload } from '@/utils/evalFormule';
+import { resolveStatBasePayload, evalFormuleAdditive } from '@/utils/evalFormule';
 
 import type { Personnage } from './personnage';
 
@@ -1879,6 +1879,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     };
 
     let dvDerived = 0;
+    let classHitPoints: any = null;
     let statBasePayload: Record<string, any> | null = null;
     let spellcastingPayload: any = null;
     try {
@@ -1903,6 +1904,9 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
           pickNumberFromKeys(found, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die'], 0) ||
           pickNumberFromKeys(catalogClasse, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice'], 0) ||
           0;
+        const hpFromFound = extractHitPoints(found);
+        const hpFromCatalog = extractHitPoints(catalogClasse);
+        classHitPoints = hpFromFound ?? hpFromCatalog ?? null;
         const classEffects = normalizeEffects((found as any)?.effects ?? []);
         for (const ef of classEffects) {
           if (ef?.type === 'add_stat_base') {
@@ -1944,7 +1948,20 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     const previewDv = ensureNumber(previewCharacter.dv ?? previewCharacter.hit_dice ?? previewCharacter.hit_die, 0);
     const dvFinal = previewDv || dvDerived || 0;
     const previewPvMax = ensureNumber(previewCharacter.pv_max ?? previewCharacter.hp?.max, 0);
-    const pvMaxFinal = previewPvMax > 0 ? previewPvMax : (dvFinal > 0 ? pvMaxAuNiveau(dvFinal, niveauValue, conMod) : 0);
+    const pvMaxFinal = (() => {
+      if (previewPvMax > 0) return previewPvMax;
+      if (classHitPoints && typeof classHitPoints === 'object') {
+        try {
+          const l1 = evalFormuleAdditive(String(classHitPoints.level_1 || ''), niveauValue, caracs as any);
+          const per = evalFormuleAdditive(String(classHitPoints.per_level_after_1 || ''), niveauValue, caracs as any);
+          const add = (x: number) => Math.max(1, Number(x) || 0);
+          let sum = add(l1);
+          for (let i = 2; i <= niveauValue; i++) sum += add(per);
+          return sum;
+        } catch {}
+      }
+      return 0;
+    })();
     const pvActuelsFinal = (() => {
       const candidates = [
         previewCharacter.pvActuels,
@@ -1975,6 +1992,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       niveau: niveauValue,
       dv: dvFinal,
       pvActuels: pvActuelsFinal,
+      hit_points: classHitPoints && typeof classHitPoints === 'object' ? { ...classHitPoints } : null,
       caracs,
       competences: proficiencies,
       langues: languages.length ? languages.join(', ') : 'Commun',
@@ -2460,3 +2478,18 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     restoreDatabaseFromIds
   };
 });
+const extractHitPoints = (entity: any): { level_1?: string; per_level_after_1?: string } | null => {
+  if (!entity || typeof entity !== 'object') return null
+  const direct = entity.hit_points
+  if (direct && typeof direct === 'object') return { ...direct }
+  const lists = [entity.effects, entity.features, entity.payload?.effects]
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue
+    for (const entry of list) {
+      const payload = entry && typeof entry === 'object' ? (entry.payload && typeof entry.payload === 'object' ? entry.payload : entry) : null
+      const hp = payload?.hit_points
+      if (hp && typeof hp === 'object') return { ...hp }
+    }
+  }
+  return null
+}
