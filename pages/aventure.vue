@@ -235,7 +235,7 @@ const classeModulesFromData = computed<ModuleClasse[]>(() => {
       const pieces: string[] = []
       if (raw?.school) pieces.push(String(raw.school))
       if (raw?.level !== undefined) pieces.push(`Niv. ${raw.level}`)
-      const head = pieces.length ? `Sort ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ${pieces.join(' ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ')}` : 'Sort'
+      const head = pieces.length ? `Sort (${pieces.join(' - ')})` : 'Sort'
       const description = String(raw?.description || raw?.desc || '')
       out.push({ id: sid, title: `${head}: ${title}`, description })
     }
