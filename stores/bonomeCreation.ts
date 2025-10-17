@@ -1982,6 +1982,16 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     })();
 
     const statBasesResult = resolveStatBasePayload(statBasePayload, niveauValue, caracs);
+    const subclassIdSlot1 = (() => {
+      const candidate =
+        (previewCharacter as any)?.subclass_id ??
+        (previewCharacter as any)?.subclassId ??
+        (previewCharacter as any)?.subclasseId ??
+        null
+      if (candidate === null || candidate === undefined) return null
+      const str = String(candidate).trim()
+      return str.length ? str : null
+    })();
 
     const personnage: Personnage = {
       id: toDisplayString(previewCharacter.id, `pj_${Date.now()}`),
@@ -2010,6 +2020,16 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       inventaire: minimalInventory,
       statBases: statBasesResult,
       classeId: selectedClass.value || null,
+      classeId1: selectedClass.value || null,
+      subclasseId1: subclassIdSlot1,
+      levelClasse1: niveauValue,
+      classeId2: null,
+      subclasseId2: null,
+      levelClasse2: 0,
+      classes: {
+        1: { classeId: selectedClass.value || null, subclasseId: subclassIdSlot1, niveau: niveauValue },
+        2: { classeId: null, subclasseId: null, niveau: 0 }
+      },
       raceId: selectedRace.value || null,
       backgroundId: selectedBackground.value || null,
       featureIds: appliedFeaturesIds,

@@ -16,7 +16,6 @@ import { useDataStore } from '@/stores/data'
 import { useBonomeCreationStore } from '@/stores/bonomeCreation'
 import { bonusDeMaitrise } from '@/utils/regles_du_jeu'
 import { evalFormuleAdditive, resolveStatBasePayload } from '@/utils/evalFormule'
-import { mod } from '@/utils/regles_du_jeu'
 import EffectEngine from '@/engine/effectEngine'
 import { normalizeEffects } from '@/utils/normalizeEffect'
 import { COMPETENCE_DEFS, COMPETENCE_INDEX, type CompetenceDef } from '@/utils/competences'
@@ -104,10 +103,20 @@ export type Personnage = {
   inventaire: PersonnageInventoryEntry[]
   traits?: string[]
   classeId?: string | null
+  classeId1?: string | null
+  subclasseId1?: string | null
+  levelClasse1?: number
+  classeId2?: string | null
+  subclasseId2?: string | null
+  levelClasse2?: number
   raceId?: string | null
   backgroundId?: string | null
   featureIds?: string[]
   spellIds?: string[]
+  classes?: {
+    1: { classeId: string | null; subclasseId: string | null; niveau: number }
+    2: { classeId: string | null; subclasseId: string | null; niveau: number }
+  }
   spellcastingSpec?: SpellcastingSpec | null
   statBases?: StatBase | null
   materielPersonnalise: {
@@ -170,6 +179,21 @@ const createDefaultPerso = (): Personnage => ({
   pvActuels: 10,
   pvMax: 10,
   hit_points: null,
+  classeId: null,
+  classeId1: null,
+  subclasseId1: null,
+  levelClasse1: 1,
+  classeId2: null,
+  subclasseId2: null,
+  levelClasse2: 0,
+  classes: {
+    1: { classeId: null, subclasseId: null, niveau: 1 },
+    2: { classeId: null, subclasseId: null, niveau: 0 }
+  },
+  raceId: null,
+  backgroundId: null,
+  featureIds: [],
+  spellIds: [],
   caracs: {
     force: 15,
     dexterite: 14,
@@ -190,7 +214,6 @@ const createDefaultPerso = (): Personnage => ({
   traits: [],
   statBases: null,
   spellcastingSpec: null,
-  hit_points: null,
   materielPersonnalise: {
     armePrincipale: null,
     armePrincipaleId: null,
@@ -248,6 +271,23 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   const { equipement: _discardedEquipement, ...restSource } = source
 
   const dataStore = useDataStore()
+
+  const normalizeClassSlot = (slot: any, fallbackLevel: number): { classeId: string | null; subclasseId: string | null; niveau: number } => {
+    const normalizeId = (value: unknown): string | null => {
+      if (value === null || value === undefined) return null
+      const str = String(value).trim()
+      return str.length ? str : null
+    }
+    const classeId = normalizeId(slot?.classeId ?? slot?.classId ?? slot?.id ?? slot?.classe)
+    const subclasseId = normalizeId(slot?.subclasseId ?? slot?.subclassId ?? slot?.specialisationId ?? slot?.subclasse)
+    const niveauRaw = Number(slot?.niveau ?? slot?.level ?? slot?.levels ?? slot?.classeNiveau)
+    const niveau = Number.isFinite(niveauRaw) && niveauRaw > 0 ? Math.floor(niveauRaw) : fallbackLevel
+    return { classeId, subclasseId, niveau }
+  }
+
+  const rawClasses = (source as any).classes && typeof (source as any).classes === 'object' ? (source as any).classes : null
+  const classSlot1FromSource = rawClasses ? normalizeClassSlot(rawClasses['1'] ?? rawClasses[1] ?? rawClasses.primary ?? rawClasses.main, 1) : null
+  const classSlot2FromSource = rawClasses ? normalizeClassSlot(rawClasses['2'] ?? rawClasses[2] ?? rawClasses.secondary ?? rawClasses.alt, 0) : null
   // On attend le chargement du catalogue si nécessaire (maps.classes doit être non vide)
   if (!Object.keys(dataStore.maps.classes).length) {
     await dataStore.load()
@@ -445,26 +485,89 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   }
 
   // Résoudre classe/race/background IDs depuis la source
-  const srcClasseId = typeof (source as any).classeId === 'string' ? (source as any).classeId : null
   const srcRaceId = typeof (source as any).raceId === 'string' ? (source as any).raceId : null
   const srcBackgroundId = typeof (source as any).backgroundId === 'string' ? (source as any).backgroundId : null
 
-  const resolvedClasse = findByIdOrName(dataStore.maps.classes, srcClasseId ?? ((source as any).classe as any))
+  const baseLevelClasse1 = Number.isFinite((base as any).levelClasse1) ? Number((base as any).levelClasse1) : Math.max(1, Number((base as any).niveau) || 1)
+  const srcLevelClasse1 = classSlot1FromSource?.niveau ?? Number((source as any).levelClasse1)
+  let levelClasse1 = Number.isFinite(srcLevelClasse1) && srcLevelClasse1 > 0
+    ? Math.floor(srcLevelClasse1)
+    : (() => {
+        const srcNiveau = Number((source as any).niveau)
+        if (Number.isFinite(srcNiveau) && srcNiveau > 0) return Math.floor(srcNiveau)
+        return Math.max(1, baseLevelClasse1 || 1)
+      })()
+  if (!Number.isFinite(levelClasse1) || levelClasse1 <= 0) levelClasse1 = 1
+
+  const baseLevelClasse2 = Number.isFinite((base as any).levelClasse2) ? Number((base as any).levelClasse2) : 0
+  const srcLevelClasse2 = classSlot2FromSource?.niveau ?? Number((source as any).levelClasse2)
+  let levelClasse2 = Number.isFinite(srcLevelClasse2) && srcLevelClasse2 >= 0 ? Math.floor(srcLevelClasse2) : Math.max(0, baseLevelClasse2)
+  if (!Number.isFinite(levelClasse2) || levelClasse2 < 0) levelClasse2 = 0
+
+  const resolveClasseCandidate = (candidate: unknown): { id: string | null; entity: any | null } =>
+    findByIdOrName(dataStore.maps.classes, candidate as any)
+
+  const classeCandidates1: Array<unknown> = [
+    classSlot1FromSource?.classeId,
+    (source as any).classeId1,
+    (source as any).classeId,
+    (source as any).classe,
+    (base as any).classeId1,
+    (base as any).classeId,
+    (base as any).classe
+  ]
+  let resolvedClasse1 = { id: null, entity: null } as { id: string | null; entity: any | null }
+  for (const candidate of classeCandidates1) {
+    if (candidate === undefined || candidate === null) continue
+    const attempt = resolveClasseCandidate(candidate)
+    if (attempt.id) {
+      resolvedClasse1 = attempt
+      break
+    }
+  }
+  if (!resolvedClasse1.id) {
+    resolvedClasse1 = resolveClasseCandidate(null)
+  }
+
+  const classeCandidates2: Array<unknown> = [
+    classSlot2FromSource?.classeId,
+    (source as any).classeId2,
+    (base as any).classeId2
+  ]
+  let resolvedClasse2 = { id: null, entity: null } as { id: string | null; entity: any | null }
+  for (const candidate of classeCandidates2) {
+    if (candidate === undefined || candidate === null) continue
+    const attempt = resolveClasseCandidate(candidate)
+    if (attempt.id) {
+      resolvedClasse2 = attempt
+      break
+    }
+  }
+
   const resolvedRace = findByIdOrName(dataStore.maps.races, srcRaceId ?? ((source as any).lignee as any))
   const resolvedBackground = findByIdOrName(dataStore.maps.backgrounds, srcBackgroundId ?? ((source as any).historique as any))
 
   // UI template depuis la classe
-  const uiTemplate: string | null = (resolvedClasse.entity?.ui_template ?? null) || null
+  const uiTemplate: string | null = (resolvedClasse1.entity?.ui_template ?? null) || null
 
   // Déterminer le DV depuis la classe (ne sert plus au calcul PV)
-  const derivedDv = numberFromKeys(resolvedClasse.entity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die']) || (base as any).dv
+  const derivedDv = numberFromKeys(resolvedClasse1.entity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die']) || (base as any).dv
 
-  const classHitPoints = extractHitPoints(resolvedClasse.entity)
+  const classHitPoints = extractHitPoints(resolvedClasse1.entity)
   const sourceHitPoints = extractHitPoints(source)
 
+  const subclasseId1 =
+    adaptId((source as any).subclasseId1 ?? (source as any).subclassId1 ?? (source as any).subclasseId ?? (base as any).subclasseId1) ??
+    classSlot1FromSource?.subclasseId ??
+    null
+  const subclasseId2 =
+    adaptId((source as any).subclasseId2 ?? (source as any).subclassId2 ?? (base as any).subclasseId2) ??
+    classSlot2FromSource?.subclasseId ??
+    null
+
+  const niveau = Math.max(1, levelClasse1 + levelClasse2)
+
   // Calcul PV max et pvActuels bornés
-  const niveau = Number.isFinite((source as any).niveau) ? Number((source as any).niveau) : (base as any).niveau
-  const modCon = mod(Number((caracs as any).constitution || (base as any).caracs.constitution))
   const pvMax = (() => {
     const hpSource = classHitPoints ?? sourceHitPoints
     if (hpSource && typeof hpSource === 'object') {
@@ -510,6 +613,9 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
       null
   )
 
+  const primaryClasseId = resolvedClasse1.id ?? (base as any).classeId ?? null
+  const classeLabel = displayLabel(resolvedClasse1.entity, (base as any).classe)
+
   return {
     ...base,
     // ne pas propager tel-quel la source pour éviter doublons non normalisés
@@ -528,11 +634,21 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     savingThrows,
     inventaire,
     // IDs normalisés (source de vérité)
-    classeId: resolvedClasse.id ?? (base as any).classeId ?? null,
+    classeId: primaryClasseId,
+    classeId1: primaryClasseId,
+    subclasseId1,
+    levelClasse1,
+    classeId2: resolvedClasse2.id ?? classSlot2FromSource?.classeId ?? (base as any).classeId2 ?? null,
+    subclasseId2,
+    levelClasse2,
+    classes: {
+      1: { classeId: primaryClasseId, subclasseId: subclasseId1, niveau: levelClasse1 },
+      2: { classeId: resolvedClasse2.id ?? (base as any).classeId2 ?? null, subclasseId: subclasseId2, niveau: levelClasse2 }
+    },
     raceId: resolvedRace.id ?? (base as any).raceId ?? null,
     backgroundId: resolvedBackground.id ?? (base as any).backgroundId ?? null,
     // Labels d'affichage (dérivés des IDs)
-    classe: displayLabel(resolvedClasse.entity, (base as any).classe),
+    classe: classeLabel,
     lignee: displayLabel(resolvedRace.entity, (base as any).lignee),
     historique: displayLabel(resolvedBackground.entity, (base as any).historique),
     featureIds: Array.isArray(source.featureIds) ? source.featureIds.map((x: any) => String(x)) : (base.featureIds ?? []),
@@ -749,29 +865,84 @@ export const usePersonnage = defineStore('personnage', {
           wisdom: Number((caracs)?.sagesse ?? 10),
           charisma: Number((caracs)?.charisme ?? 10)
         })
-        const niveau = Number(p.niveau || 1) || 1
+        const normalizeClassId = (value: any): string | null => {
+          if (value === null || value === undefined) return null
+          const str = String(value).trim()
+          return str.length ? str : null
+        }
+        const primaryClassId = normalizeClassId((p as any).classeId1 ?? p.classeId ?? null)
+        const secondaryClassId = normalizeClassId((p as any).classeId2 ?? null)
+        const classLevelEntries: Array<{ id: string | null; level: number }> = []
+        if (p && typeof (p as any).classes === 'object') {
+          const slots = (p as any).classes as Record<string, { classeId?: string | null; niveau?: number | string | null }>
+          for (const entry of Object.values(slots)) {
+            if (!entry || typeof entry !== 'object') continue
+            const id = normalizeClassId(entry.classeId ?? null)
+            if (!id) continue
+            const lvl = Math.max(0, Math.floor(Number(entry.niveau ?? 0) || 0))
+            classLevelEntries.push({ id, level: lvl })
+          }
+        }
+        if (!classLevelEntries.length) {
+          classLevelEntries.push(
+            { id: primaryClassId, level: Number((p as any).levelClasse1 ?? p.niveau ?? 0) || 0 },
+            { id: secondaryClassId, level: Number((p as any).levelClasse2 ?? 0) || 0 }
+          )
+        }
+        const classLevels: Record<string, number> = {}
+        for (const entry of classLevelEntries) {
+          if (!entry.id) continue
+          const lvl = Math.max(0, Math.floor(Number(entry.level)))
+          if (lvl <= 0) continue
+          classLevels[entry.id] = (classLevels[entry.id] ?? 0) + lvl
+        }
+        const classLevelSum = Object.values(classLevels).reduce((sum, lvl) => sum + lvl, 0)
+        const fallbackLevel = Math.max(1, Number(p.niveau || 1) || 1)
+        const niveau = Math.max(1, classLevelSum || fallbackLevel)
+        const effectivePrimaryClassId = primaryClassId ?? Object.keys(classLevels)[0] ?? null
         const baseCharacter: any = {
           base_stats_before_race: toBaseStats(p.caracs || {}),
-        final_stats: {},
-        niveau,
-        features: Array.isArray(p.featureIds) ? [...p.featureIds] : [],
-        equipment: [],
-        spellcasting: {},
-        proficiencies: [],
-        proficiency_summary: {},
-        senses: [],
-        saving_throws: [],
-        item_proposals: [],
-        currency: { gold: 0, silver: 0, copper: 0 },
-        unhandled_effects: []
-      }
+          final_stats: {},
+          niveau,
+          features: Array.isArray(p.featureIds) ? [...p.featureIds] : [],
+          equipment: [],
+          spellcasting: {},
+          proficiencies: [],
+          proficiency_summary: {},
+          senses: [],
+          saving_throws: [],
+          item_proposals: [],
+          currency: { gold: 0, silver: 0, copper: 0 },
+          unhandled_effects: []
+        }
 
         const selection = {
-          class: p.classeId ?? null,
+          class: effectivePrimaryClassId,
           race: p.raceId ?? null,
           background: p.backgroundId ?? null,
-          niveau
+          niveau,
+          classLevels
         }
+        const remainingClassIds = Object.keys(classLevels).filter((id) => id !== (effectivePrimaryClassId ?? ''))
+        const effectiveSecondaryClassId = remainingClassIds[0] ?? secondaryClassId ?? null
+        ;(this as any).perso.classeId = effectivePrimaryClassId
+        ;(this as any).perso.classeId1 = effectivePrimaryClassId
+        ;(this as any).perso.classeId2 = effectiveSecondaryClassId
+        ;(this as any).perso.levelClasse1 = Math.max(1, Number((p as any).levelClasse1 ?? classLevels[effectivePrimaryClassId ?? ''] ?? niveau))
+        ;(this as any).perso.levelClasse2 = Math.max(0, Number((p as any).levelClasse2 ?? (effectiveSecondaryClassId ? classLevels[effectiveSecondaryClassId] ?? 0 : 0)))
+        ;(this as any).perso.classes = {
+          1: {
+            classeId: (this as any).perso.classeId1 ?? null,
+            subclasseId: (this as any).perso.subclasseId1 ?? null,
+            niveau: Math.max(1, Number((this as any).perso.levelClasse1 ?? (effectivePrimaryClassId ? classLevels[effectivePrimaryClassId] ?? 1 : 1)))
+          },
+          2: {
+            classeId: (this as any).perso.classeId2 ?? null,
+            subclasseId: (this as any).perso.subclasseId2 ?? null,
+            niveau: Math.max(0, Number((this as any).perso.levelClasse2 ?? (effectiveSecondaryClassId ? classLevels[effectiveSecondaryClassId] ?? 0 : 0)))
+          }
+        }
+        ;(this as any).perso.niveau = niveau
 
         const mergeStatBase = (target: StatBase | null, payload: any): StatBase => {
           if (!payload || typeof payload !== 'object') return target ?? {}
@@ -840,7 +1011,8 @@ export const usePersonnage = defineStore('personnage', {
           return map[key] || Object.values(map).find((e: any) => String(e?.id ?? '').toLowerCase() === key) || null
         }
 
-        let cls = findById(dataStore.maps.classes, p.classeId)
+        const classLookupId = effectivePrimaryClassId ?? normalizeClassId(p.classeId ?? null)
+        let cls = findById(dataStore.maps.classes, classLookupId)
         if (!cls && p.classe) {
           const wanted = String(p.classe).trim().toLowerCase()
           cls = Object.values(dataStore.maps.classes || {}).find((entry: any) => {
@@ -916,7 +1088,7 @@ export const usePersonnage = defineStore('personnage', {
         } catch {}
 
         const engine = new EffectEngine({ resolveItemById: async (id: string) => dataStore.maps.items?.[id] ?? null })
-        await engine.applyEffects(baseCharacter, effectEntries, { selection, baseCharacter })
+        await engine.applyEffects(baseCharacter, effectEntries, { selection, baseCharacter, classLevels })
 
         const summaryFromEngine = normalizeProficiencySummary((baseCharacter as any).proficiency_summary ?? null)
         const summaryFromPersisted = normalizeProficiencySummary((p as any).proficienciesDetail ?? null)
@@ -1133,9 +1305,20 @@ export const usePersonnage = defineStore('personnage', {
       // Sauvegarde minimale: �vite les doublons (labels) et blobs lourds
       const toPersist = (() => {
         const p: any = (this as any).perso || {}
+        const normalizeId = (value: any): string | null => {
+          if (value === null || value === undefined) return null
+          const str = String(value).trim()
+          return str.length ? str : null
+        }
         const minimalInventory = Array.isArray(p.inventaire)
           ? p.inventaire.map((it: any) => ({ id: String(it.id), quantity: Number(it.quantity)||1, coins: it.coins ?? null }))
           : []
+        const classeId1 = normalizeId(p.classeId1 ?? p.classeId ?? null)
+        const classeId2 = normalizeId(p.classeId2 ?? null)
+        const subclasseId1 = normalizeId(p.subclasseId1 ?? null)
+        const subclasseId2 = normalizeId(p.subclasseId2 ?? null)
+        const levelClasse1 = Math.max(1, Math.floor(Number(p.levelClasse1 ?? p.niveau ?? 1) || 1))
+        const levelClasse2 = Math.max(0, Math.floor(Number(p.levelClasse2 ?? 0) || 0))
         return {
           id: String(p.id ?? ''),
           nom: String(p.nom ?? ''),
@@ -1154,7 +1337,17 @@ export const usePersonnage = defineStore('personnage', {
           monture: p.monture || { nom:'', vitesse:'', notes:'' },
           inspiration: Boolean(p.inspiration || false),
           inventaire: minimalInventory,
-          classeId: p.classeId ?? null,
+          classeId: classeId1,
+          classeId1,
+          subclasseId1,
+          levelClasse1,
+          classeId2,
+          subclasseId2,
+          levelClasse2,
+          classes: {
+            1: { classeId: classeId1, subclasseId: subclasseId1, niveau: levelClasse1 },
+            2: { classeId: classeId2, subclasseId: subclasseId2, niveau: levelClasse2 }
+          },
           raceId: p.raceId ?? null,
           backgroundId: p.backgroundId ?? null,
           featureIds: Array.isArray(p.featureIds) ? p.featureIds.map(String) : [],
