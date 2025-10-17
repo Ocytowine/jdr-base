@@ -1747,17 +1747,12 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         .filter((entry) => entry.length > 0);
     };
 
-    const proficiencies = toList(previewCharacter.proficiencies).reduce<Record<string, ProficiencyRank>>(
-      (acc, entry) => {
-        const id = String(entry ?? '').trim();
-        if (!id.length) return acc;
-        const current = acc[id];
-        if (current === 'expertise') return acc;
-        acc[id] = current === 'maitrise' ? 'expertise' : 'maitrise';
-        return acc;
-      },
-      {}
-    );
+    const proficiencies = toList(previewCharacter.proficiencies).reduce<Record<string, ProficiencyRank>>((acc, entry) => {
+      const id = String(entry ?? '').trim();
+      if (!id.length) return acc;
+      acc[id] = 'maitrise';
+      return acc;
+    }, {});
 
     const languages = toList(previewCharacter.languages);
 

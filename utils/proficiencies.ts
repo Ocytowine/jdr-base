@@ -42,6 +42,27 @@ type AddEntryOptions = {
   source?: string | null
 }
 
+const splitSources = (value: string | null | undefined): { raw: string; normalized: string }[] => {
+  if (!value) return []
+  return String(value)
+    .split(/[|,]/)
+    .map((part) => part.trim())
+    .filter((part) => part.length)
+    .map((part) => ({ raw: part, normalized: normalizeKey(part) }))
+}
+
+const mergeSource = (existing: string | null | undefined, incoming: string | null | undefined): string | null => {
+  if (!incoming || !incoming.trim().length) return existing ? String(existing) : null
+  const incomingEntry = { raw: incoming.trim(), normalized: normalizeKey(incoming) }
+  const existingEntries = splitSources(existing)
+  if (!existingEntries.length) return incomingEntry.raw
+  const existingJoined = existingEntries.map((entry) => entry.raw).join(', ')
+  if (existingEntries.some((entry) => entry.normalized === incomingEntry.normalized)) {
+    return existingJoined
+  }
+  return `${existingJoined}, ${incomingEntry.raw}`
+}
+
 export function normalizeKey(value: string): string {
   return value
     .normalize('NFKD')
@@ -98,26 +119,26 @@ const SKILL_CATALOG: CatalogEntry[] = COMPETENCE_DEFS.map((def) => ({
   aliases: [
     def.id,
     def.nom,
-    (() => {
+    ...(() => {
       switch (def.id) {
-        case 'athletisme': return 'athletics'
-        case 'acrobaties': return 'acrobatics'
-        case 'discretion': return 'stealth'
-        case 'escamotage': return 'sleight of hand'
-        case 'dressage': return 'animal handling'
-        case 'intimidation': return 'intimidation'
-        case 'persuasion': return 'persuasion'
-        case 'representation': return 'performance'
-        case 'histoire': return 'history'
-        case 'arcanes': return 'arcana'
-        case 'investigation': return 'investigation'
-        case 'nature': return 'nature'
-        case 'religion': return 'religion'
-        case 'medecine': return 'medicine'
-        case 'perception': return 'perception'
-        case 'perspicacite': return 'insight'
-        case 'survie': return 'survival'
-        default: return def.id
+        case 'athletisme': return ['athletics', 'athletique']
+        case 'acrobaties': return ['acrobatics']
+        case 'discretion': return ['stealth']
+        case 'escamotage': return ['sleight of hand', 'sleight_of_hand']
+        case 'dressage': return ['animal handling', 'animal_handling']
+        case 'intimidation': return ['intimidation']
+        case 'persuasion': return ['persuasion']
+        case 'representation': return ['performance']
+        case 'histoire': return ['history']
+        case 'arcanes': return ['arcana']
+        case 'investigation': return ['investigation']
+        case 'nature': return ['nature']
+        case 'religion': return ['religion']
+        case 'medecine': return ['medicine']
+        case 'perception': return ['perception']
+        case 'perspicacite': return ['insight']
+        case 'survie': return ['survival']
+        default: return []
       }
     })()
   ].filter(Boolean) as string[]
@@ -317,6 +338,14 @@ export const pushProficiencyEntry = (
 
   const canonical = canonicalize(category, rawId, rawLabel)
   const rank = detectRank(value, options?.rankHint)
+  const isCompetence = category === 'competences'
+  const normalizedRank: ProficiencyRank = isCompetence ? rank : 'maitrise'
+  const valueSource =
+    options?.source ??
+    (value && typeof value === 'object'
+      ? ((value as any).source ?? (value as any).origin ?? null)
+      : null)
+  const incomingSource = valueSource !== null && valueSource !== undefined ? String(valueSource).trim() : null
 
   const list = (summary[category] = summary[category] ?? [])
   const key = normalizeKey(canonical.id)
@@ -329,22 +358,25 @@ export const pushProficiencyEntry = (
   }
 
   if (existing) {
-    if (existing.rank === 'maitrise' && rank === 'maitrise') {
+    const currentRank = existing.rank ?? 'maitrise'
+    let updatedSource = mergeSource(existing.source, incomingSource)
+    const existingSourceEntries = splitSources(existing.source)
+    const hasIncomingSource =
+      !incomingSource || existingSourceEntries.some((entry) => entry.normalized === normalizeKey(incomingSource))
+    if (isCompetence && normalizedRank === 'maitrise' && !hasIncomingSource) {
       existing.rank = 'expertise'
     } else {
-      existing.rank = maxRank(existing.rank, rank)
+      existing.rank = maxRank(currentRank, normalizedRank)
     }
-    if (options?.source) {
-      existing.source = existing.source ?? options.source
-    }
+    if (updatedSource) existing.source = updatedSource
     return existing
   }
 
   const entry: ProficiencyEntry = {
     id: canonical.id,
     label: canonical.label,
-    rank,
-    source: options?.source ?? null
+    rank: normalizedRank,
+    source: incomingSource ?? null
   }
   list.push(entry)
   return entry
@@ -364,7 +396,11 @@ const handleCollection = (
       entry && typeof entry === 'object' && (entry as any).rank
         ? detectRank(entry, (entry as any).rank as ProficiencyRank)
         : undefined
-    pushProficiencyEntry(summary, entry, { categoryHint, rankHint, source: sourceHint ?? null })
+    const entrySource =
+      entry && typeof entry === 'object'
+        ? (entry as any).source ?? (entry as any).origin ?? sourceHint ?? null
+        : sourceHint ?? null
+    pushProficiencyEntry(summary, entry, { categoryHint, rankHint, source: entrySource ?? null })
   }
 }
 

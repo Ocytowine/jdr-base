@@ -49,7 +49,7 @@
     <div class="champs" style="margin-top:8px;" v-if="proficiencyCategories.length">
       <div style="grid-column: span 12;">
         <div class="carte-mini">
-          <strong>Maitrises debloquees</strong>
+          <strong>Maitrises</strong>
           <div class="proficiency-groups">
             <div v-for="group in proficiencyCategories" :key="group.category" class="proficiency-group">
               <div class="group-title">{{ group.label }}</div>
@@ -189,7 +189,9 @@ const proficiencyCategories = computed(() => {
       .map((entry: any) => {
         const label = entry?.label ?? entry?.nom ?? entry?.name ?? entry?.id ?? ''
         if (!label) return ''
-        return prettifyLabel(String(label))
+        const rank = entry?.rank === 'expertise' ? 'expertise' : 'maitrise'
+        const baseLabel = prettifyLabel(String(label))
+        return rank === 'expertise' ? `${baseLabel} (Expertise)` : baseLabel
       })
       .filter((label: string) => label.length)
     if (!items.length) continue
