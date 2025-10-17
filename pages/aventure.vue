@@ -107,6 +107,18 @@
           v-on="panelConfig.on"
         />
       </AventureLayout>
+
+      <transition name="aventure-fade">
+        <div v-if="showLevelUpOverlay" class="aventure-page__levelup-overlay">
+          <div class="aventure-page__levelup-backdrop"></div>
+          <div class="aventure-page__levelup-container">
+            <AventureLevelUp
+              :key="`levelup-${activeLevelUpTarget}`"
+              @close="handleLevelUpClose"
+            />
+          </div>
+        </div>
+      </transition>
     </template>
   </section>
 </template>
@@ -134,13 +146,15 @@ import { useDataStore } from '@/stores/data'
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition'
 import { processInput as processCommand, isCommandInput } from '@/utils/commands'
 import { defineAsyncComponent } from 'vue'
+import useExperienceLevelUp from '@/composables/useExperienceLevelUp'
 
 type EtatSauvegarde = 'chargement' | 'chargee' | 'aucune'
 
 /* type SectionId =
   | 'narration'
   | 'fiche'
-  | 'classe'\n  | 'levelup'\n  | 'inventaire'
+  | 'classe'
+  | 'inventaire'
   | 'quetes'
   | 'journal'
   | 'aides'
@@ -161,7 +175,7 @@ if (process.client) {
 }
 
 const etatSauvegarde = ref<EtatSauvegarde>('chargement')
-const activeSection = ref<'narration' | 'fiche' | 'classe' | 'levelup' | 'inventaire' | 'quetes' | 'journal' | 'aides' | 'compagnons'>('narration')
+const activeSection = ref<'narration' | 'fiche' | 'classe' | 'inventaire' | 'quetes' | 'journal' | 'aides' | 'compagnons'>('narration')
 const showDebugPanel = ref(false)
   const debugPartieCache = ref<any | null>(null)
   const debugPartieStorage = ref<any | null>(null)
@@ -181,6 +195,12 @@ const classeDisplayLabel = computed(() => {
   }
   return storePersonnage.perso.classe || 'Classe'
 })
+
+const personnageLevel = computed(() => Number((storePersonnage as any).perso?.niveau || 1))
+const personnageXp = computed(() => Number((storePersonnage as any).perso?.xp || 0))
+const experienceManager = useExperienceLevelUp(personnageLevel, personnageXp)
+const activeLevelUpTarget = experienceManager.activeTargetLevel
+const showLevelUpOverlay = computed(() => Boolean(partie.value && experienceManager.ready.value))
 
 // Modules de classe a partir des features/sorts (data + ids du personnage)
 const classeModulesFromData = computed<ModuleClasse[]>(() => {
@@ -215,7 +235,7 @@ const classeModulesFromData = computed<ModuleClasse[]>(() => {
       const pieces: string[] = []
       if (raw?.school) pieces.push(String(raw.school))
       if (raw?.level !== undefined) pieces.push(`Niv. ${raw.level}`)
-      const head = pieces.length ? `Sort ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ${pieces.join(' ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ')}` : 'Sort'
+      const head = pieces.length ? `Sort (${pieces.join(' - ')})` : 'Sort'
       const description = String(raw?.description || raw?.desc || '')
       out.push({ id: sid, title: `${head}: ${title}`, description })
     }
@@ -531,7 +551,6 @@ const sections: Array<{ id: SectionId; label: string; hint?: string }> = [
   { id: 'narration', label: 'Narration', hint: 'Fil de discussion' },
   { id: 'fiche', label: 'Fiche personnage', hint: 'Profil complet' },
   { id: 'classe', label: 'Classe & pouvoirs', hint: 'Configuration dynamique a venir' },
-  { id: 'levelup', label: 'Passer un niveau', hint: 'AperÃƒÂ§u + choix' },
   { id: 'inventaire', label: 'Inventaire', hint: 'Equipement et tresors' },
   { id: 'quetes', label: 'Quetes', hint: 'Objectifs actifs' },
   { id: 'journal', label: 'Journal', hint: 'Notes de session' },
@@ -804,6 +823,18 @@ const panelConfig = computed(() => {
       return null
   }
 })
+
+const handleLevelUpClose = (payload?: { reason?: 'cancel' | 'confirmed'; level?: number }) => {
+  if (!payload) return
+  const levelValue = Number(payload.level)
+  if (!Number.isFinite(levelValue)) return
+  const target = Math.max(1, Math.floor(levelValue))
+  if (payload.reason === 'cancel') {
+    experienceManager.dismissUntilProgress(target)
+    return
+  }
+  experienceManager.acknowledge(target)
+}
 
 const handleSendMessage = ({ content, admin }: { content: string; admin?: boolean }) => {
   if (!partie.value) return
@@ -1157,5 +1188,40 @@ const pushSystemMessage = (content: string) => {
   background: rgba(255, 208, 122, 0.12);
   color: #ffd07a;
   border-color: rgba(255, 208, 122, 0.24);
+}
+
+.aventure-page__levelup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.aventure-page__levelup-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 6, 16, 0.82);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+.aventure-page__levelup-container {
+  position: relative;
+  pointer-events: auto;
+  width: min(760px, 92vw);
+  max-height: calc(100vh - 96px);
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+}
+
+.aventure-page__levelup-container > * {
+  flex: 1 1 auto;
+  max-height: 100%;
+  overflow-y: auto;
 }
 </style>

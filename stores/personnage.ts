@@ -16,9 +16,41 @@ import { useDataStore } from '@/stores/data'
 import { useBonomeCreationStore } from '@/stores/bonomeCreation'
 import { bonusDeMaitrise } from '@/utils/regles_du_jeu'
 import { evalFormuleAdditive, resolveStatBasePayload } from '@/utils/evalFormule'
-import { mod, pvMaxAuNiveau } from '@/utils/regles_du_jeu'
+import { mod } from '@/utils/regles_du_jeu'
 import EffectEngine from '@/engine/effectEngine'
 import { normalizeEffects } from '@/utils/normalizeEffect'
+
+const extractHitPoints = (entity: any): { level_1?: string; per_level_after_1?: string } | null => {
+  if (!entity || typeof entity !== 'object') return null
+  const direct = entity.hit_points
+  if (direct && typeof direct === 'object') return { ...direct }
+
+  const candidates: any[] = []
+  const effects = Array.isArray(entity.effects) ? entity.effects : []
+  const features = Array.isArray(entity.features) ? entity.features : []
+  const payloadEffects = Array.isArray(entity.payload?.effects) ? entity.payload.effects : []
+  candidates.push(...effects, ...features, ...payloadEffects)
+
+  if (candidates.length) {
+    try {
+      for (const entry of candidates) {
+        const payload = entry && typeof entry === 'object' ? (entry.payload && typeof entry.payload === 'object' ? entry.payload : entry) : null
+        const hp = payload?.hit_points
+        if (hp && typeof hp === 'object') return { ...hp }
+      }
+    } catch {}
+
+    try {
+      const normalized = normalizeEffects(candidates)
+      for (const entry of normalized) {
+        const hp = entry?.payload?.hit_points
+        if (hp && typeof hp === 'object') return { ...hp }
+      }
+    } catch {}
+  }
+
+  return null
+}
 
 const DEF_COMPETENCES: CompetenceDef[] = [
   { id: 'athletisme', nom: 'Athletisme', carac: 'force' },
@@ -40,6 +72,132 @@ const DEF_COMPETENCES: CompetenceDef[] = [
   { id: 'survie', nom: 'Survie', carac: 'sagesse' }
 ]
 
+const prettifyLabel = (value: string): string => {
+  const cleaned = value.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!cleaned.length) return ''
+  return cleaned
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+const coerceIdLabel = (entry: any): { id: string; label: string } | null => {
+  if (entry === null || entry === undefined) return null
+  if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
+    const id = String(entry).trim()
+    if (!id.length) return null
+    return { id, label: prettifyLabel(id) }
+  }
+  if (typeof entry === 'object') {
+    const idCandidate =
+      entry.id ?? entry.key ?? entry.value ?? entry.slug ?? entry.code ?? entry.name ?? entry.label ?? entry.type ?? entry.category ?? null
+    const id = idCandidate !== null && idCandidate !== undefined ? String(idCandidate).trim() : ''
+    if (!id.length) return null
+    const labelCandidate = entry.label ?? entry.name ?? entry.title ?? entry.nom ?? entry.text ?? null
+    const label = labelCandidate ? String(labelCandidate).trim() : prettifyLabel(id)
+    return { id, label }
+  }
+  const id = String(entry).trim()
+  if (!id.length) return null
+  return { id, label: prettifyLabel(id) }
+}
+
+const normalizeStringArray = (value: any): string[] => {
+  const entries = Array.isArray(value) ? value : value !== null && value !== undefined ? [value] : []
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const entry of entries) {
+    if (entry === null || entry === undefined) continue
+    const str = String(entry).trim()
+    if (!str.length) continue
+    const key = str.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(str)
+  }
+  return result
+}
+
+const normalizeProficiencySummary = (input: any): Record<string, Array<{ id: string; label: string }>> => {
+  const result: Record<string, Array<{ id: string; label: string }>> = {}
+  const ensureCategory = (categoryRaw: string) => {
+    const key = String(categoryRaw || 'other').toLowerCase()
+    if (!Array.isArray(result[key])) result[key] = []
+    return result[key] as Array<{ id: string; label: string }>
+  }
+  const pushEntry = (category: string, entry: any) => {
+    const normalized = coerceIdLabel(entry)
+    if (!normalized) return
+    const list = ensureCategory(category)
+    const key = normalized.id.toLowerCase()
+    if (list.some((existing) => String(existing.id).toLowerCase() === key)) return
+    list.push({ id: normalized.id, label: normalized.label })
+  }
+  const handleCollection = (category: string, collection: any) => {
+    if (collection === null || collection === undefined) return
+    const entries = Array.isArray(collection) ? collection : [collection]
+    for (const entry of entries) pushEntry(category, entry)
+  }
+
+  if (Array.isArray(input)) {
+    for (const entry of input) {
+      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        const category = entry.category ?? entry.type ?? entry.kind ?? entry.group ?? 'other'
+        if ((entry as any).values !== undefined) handleCollection(category, (entry as any).values)
+        else if ((entry as any).items !== undefined) handleCollection(category, (entry as any).items)
+        else if ((entry as any).proficiencies !== undefined) handleCollection(category, (entry as any).proficiencies)
+        else if ((entry as any).proficiency !== undefined) handleCollection(category, (entry as any).proficiency)
+        else if ((entry as any).value !== undefined) handleCollection(category, (entry as any).value)
+        else pushEntry(category, entry)
+      } else {
+        pushEntry('other', entry)
+      }
+    }
+    return result
+  }
+
+  if (input && typeof input === 'object') {
+    for (const [category, value] of Object.entries(input)) {
+      handleCollection(category, value)
+    }
+  }
+
+  return result
+}
+
+const cloneProficiencySummary = (summary: Record<string, Array<{ id: string; label: string }>>): Record<string, Array<{ id: string; label: string }>> => {
+  const cloned: Record<string, Array<{ id: string; label: string }>> = {}
+  for (const [category, list] of Object.entries(summary || {})) {
+    cloned[category] = Array.isArray(list) ? list.map((entry) => ({ id: entry.id, label: entry.label })) : []
+  }
+  return cloned
+}
+
+const mergeProficiencySummaries = (
+  ...summaries: Array<Record<string, Array<{ id: string; label: string }>>>
+): Record<string, Array<{ id: string; label: string }>> => {
+  const merged: Record<string, Array<{ id: string; label: string }>> = {}
+  for (const summary of summaries) {
+    for (const [categoryRaw, list] of Object.entries(summary || {})) {
+      const category = String(categoryRaw || 'other').toLowerCase()
+      const dest = (merged[category] = merged[category] ?? [])
+      const seen = new Set(dest.map((entry) => String(entry.id).toLowerCase()))
+      for (const entry of Array.isArray(list) ? list : []) {
+        if (!entry || entry.id === undefined || entry.id === null) continue
+        const id = String(entry.id).trim()
+        if (!id.length) continue
+        const key = id.toLowerCase()
+        if (seen.has(key)) continue
+        const label = entry.label ? String(entry.label).trim() : prettifyLabel(id)
+        dest.push({ id, label })
+        seen.add(key)
+      }
+    }
+  }
+  return merged
+}
+
 type Personnage = {
   id: string
   nom: string
@@ -54,8 +212,11 @@ type Personnage = {
   dv: number
   pvActuels: number
   pvMax?: number
+  hit_points?: { level_1?: string; per_level_after_1?: string } | null
   caracs: Caracs
   competences: Record<string, boolean>
+  proficienciesDetail?: Record<string, Array<{ id: string; label: string }>>
+  savingThrows?: string[]
   langues: string
   armure?: { type: 'aucune' | 'legere' | 'intermediaire' | 'lourde'; nom?: string }
   bouclier?: boolean
@@ -129,6 +290,7 @@ const createDefaultPerso = (): Personnage => ({
   dv: 10,
   pvActuels: 10,
   pvMax: 10,
+  hit_points: null,
   caracs: {
     force: 15,
     dexterite: 14,
@@ -138,6 +300,8 @@ const createDefaultPerso = (): Personnage => ({
     charisme: 8
   } as Caracs,
   competences: {} as Record<string, boolean>,
+  proficienciesDetail: {},
+  savingThrows: [],
   langues: 'Commun',
   armure: { type: 'aucune' },
   bouclier: false,
@@ -147,6 +311,7 @@ const createDefaultPerso = (): Personnage => ({
   traits: [],
   statBases: null,
   spellcastingSpec: null,
+  hit_points: null,
   materielPersonnalise: {
     armePrincipale: null,
     armePrincipaleId: null,
@@ -402,18 +567,48 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
   // UI template depuis la classe
   const uiTemplate: string | null = (resolvedClasse.entity?.ui_template ?? null) || null
 
-  // Déterminer le DV depuis la classe
+  // Déterminer le DV depuis la classe (ne sert plus au calcul PV)
   const derivedDv = numberFromKeys(resolvedClasse.entity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die']) || (base as any).dv
+
+  const classHitPoints = extractHitPoints(resolvedClasse.entity)
+  const sourceHitPoints = extractHitPoints(source)
 
   // Calcul PV max et pvActuels bornés
   const niveau = Number.isFinite((source as any).niveau) ? Number((source as any).niveau) : (base as any).niveau
   const modCon = mod(Number((caracs as any).constitution || (base as any).caracs.constitution))
-  const pvMax = pvMaxAuNiveau(derivedDv, niveau, modCon)
+  const pvMax = (() => {
+    const hpSource = classHitPoints ?? sourceHitPoints
+    if (hpSource && typeof hpSource === 'object') {
+      const l1 = evalFormuleAdditive(String(hpSource.level_1 || ''), niveau, caracs as any)
+      const per = evalFormuleAdditive(String(hpSource.per_level_after_1 || ''), niveau, caracs as any)
+      const add = (x: number) => Math.max(1, Number(x) || 0)
+      let sum = add(l1)
+      for (let i = 2; i <= niveau; i++) sum += add(per)
+      return sum
+    }
+    return 0
+  })()
   const pvActuels = (() => {
     const rawPv = Number((source as any).pvActuels)
     if (!Number.isFinite(rawPv) || rawPv <= 0) return pvMax
     return Math.min(rawPv, pvMax)
   })()
+  const rawProficiencySummary =
+    (source as any).proficienciesDetail ??
+    (source as any).proficiencySummary ??
+    (source as any).proficiency_summary ??
+    (source as any).maitrises ??
+    (source as any).maitrisesDetail ??
+    (source as any).proficiencies ??
+    null
+  const proficienciesDetail = normalizeProficiencySummary(rawProficiencySummary)
+  const savingThrows = normalizeStringArray(
+    (source as any).savingThrows ??
+      (source as any).saving_throws ??
+      (source as any).saves ??
+      (source as any).savingThrowsProf ??
+      null
+  )
 
   return {
     ...base,
@@ -426,8 +621,11 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     // Règles
     dv: derivedDv,
     pvActuels,
+    hit_points: classHitPoints ?? sourceHitPoints ?? ((base as any).hit_points ?? null),
     caracs,
     competences,
+    proficienciesDetail,
+    savingThrows,
     inventaire,
     // IDs normalisés (source de vérité)
     classeId: resolvedClasse.id ?? (base as any).classeId ?? null,
@@ -476,6 +674,8 @@ export const usePersonnage = defineStore('personnage', {
       proficiencyBonus: number
       spellcasting?: { dc: number | null; attack: number | null; ability: string | null } | null
       proficiencies?: string[]
+      proficiencySummary?: Record<string, Array<{ id: string; label: string }>>
+      savingThrows?: string[]
       senses?: any[]
     },
     _lastPvMax: 0,
@@ -503,16 +703,25 @@ export const usePersonnage = defineStore('personnage', {
           const creationStore = useBonomeCreationStore()
         } catch {}
         const classeKey = String(p.classeId || '').trim().toLowerCase()
-        const classe = classeKey ? Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
+        let classe = classeKey ? Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
           if (!c || typeof c !== 'object') return false
           const id = String(c.id ?? '').toLowerCase()
           const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
           return id === classeKey || name === classeKey
         }) : null
-        const hp: any = classe && typeof classe === 'object' ? (classe as any).hit_points : null
-        if (hp && typeof hp === 'object') {
-          const l1 = evalFormuleAdditive(String(hp.level_1 || ''), niveau, p.caracs)
-          const per = evalFormuleAdditive(String(hp.per_level_after_1 || ''), niveau, p.caracs)
+        if (!classe && p.classe) {
+          const wanted = String(p.classe).trim().toLowerCase()
+          classe = Object.values((dataStore as any).maps.classes || {}).find((c: any) => {
+            if (!c || typeof c !== 'object') return false
+            const id = String(c.id ?? '').toLowerCase()
+            const name = String(c.name ?? c.nom ?? c.label ?? c.slug ?? '').toLowerCase()
+            return id === wanted || name === wanted
+          }) || null
+        }
+        const hpSource: any = extractHitPoints(classe) ?? (p?.hit_points && typeof p.hit_points === 'object' ? p.hit_points : null)
+        if (hpSource && typeof hpSource === 'object') {
+          const l1 = evalFormuleAdditive(String(hpSource.level_1 || ''), niveau, p.caracs)
+          const per = evalFormuleAdditive(String(hpSource.per_level_after_1 || ''), niveau, p.caracs)
           const add = (x: number) => Math.max(1, Number(x) || 0)
           pvMax = add(l1)
           for (let i = 2; i <= niveau; i++) pvMax += add(per)
@@ -565,7 +774,9 @@ export const usePersonnage = defineStore('personnage', {
       return {
         pvMax: Math.max(1, pvMax || 0),
         proficiencyBonus: prof,
-        spellcasting: { dc: spellSaveDc, attack: spellAttackMod }
+        spellcasting: { dc: spellSaveDc, attack: spellAttackMod },
+        proficiencySummary: (p.proficienciesDetail && typeof p.proficienciesDetail === 'object') ? { ...p.proficienciesDetail } : {},
+        savingThrows: Array.isArray(p.savingThrows) ? [...p.savingThrows] : []
       }
     }
   },
@@ -613,6 +824,15 @@ export const usePersonnage = defineStore('personnage', {
       try {
         const p: any = (this as any).perso || {}
         const dataStore = useDataStore()
+        // Assurer que la base (classes/races/backgrounds) est chargée avant la résolution
+        try {
+          if (!Object.keys((dataStore as any).maps?.classes || {}).length) {
+            try { const parties = useParties(); await (dataStore as any).load?.(parties.currentPartyId ?? undefined) } catch {}
+            if (!Object.keys((dataStore as any).maps?.classes || {}).length) {
+              try { await (dataStore as any).load?.() } catch {}
+            }
+          }
+        } catch {}
         try {
           const creationStore = useBonomeCreationStore()
           await creationStore.restoreDatabaseFromIds?.((this as any).perso)
@@ -632,17 +852,19 @@ export const usePersonnage = defineStore('personnage', {
         const niveau = Number(p.niveau || 1) || 1
         const baseCharacter: any = {
           base_stats_before_race: toBaseStats(p.caracs || {}),
-          final_stats: {},
-          niveau,
-          features: Array.isArray(p.featureIds) ? [...p.featureIds] : [],
-          equipment: [],
-          spellcasting: {},
-          proficiencies: [],
-          senses: [],
-          item_proposals: [],
-          currency: { gold: 0, silver: 0, copper: 0 },
-          unhandled_effects: []
-        }
+        final_stats: {},
+        niveau,
+        features: Array.isArray(p.featureIds) ? [...p.featureIds] : [],
+        equipment: [],
+        spellcasting: {},
+        proficiencies: [],
+        proficiency_summary: {},
+        senses: [],
+        saving_throws: [],
+        item_proposals: [],
+        currency: { gold: 0, silver: 0, copper: 0 },
+        unhandled_effects: []
+      }
 
         const selection = {
           class: p.classeId ?? null,
@@ -686,6 +908,31 @@ export const usePersonnage = defineStore('personnage', {
             }
           }
         }
+        const pickGrantFrom = (entity: any, keys: string[]): any => {
+          if (!entity || typeof entity !== 'object') return null
+          for (const key of keys) {
+            if (entity[key] !== undefined) return entity[key]
+          }
+          if (entity.payload && typeof entity.payload === 'object') {
+            for (const key of keys) {
+              if (entity.payload[key] !== undefined) return entity.payload[key]
+            }
+          }
+          return null
+        }
+        const pushDirectGrants = (src: string, entity: any) => {
+          if (!entity || typeof entity !== 'object') return
+          const profPayload =
+            pickGrantFrom(entity, ['proficiency_grant', 'proficiencies', 'proficiencyGrant', 'proficiencies_grant']) ??
+            null
+          if (profPayload) {
+            effectEntries.push({ source: src, effect: { type: 'proficiency_grant', payload: profPayload } })
+          }
+          const savingPayload = pickGrantFrom(entity, ['saving_throws', 'savingThrows', 'saves', 'saving_throw']) ?? null
+          if (savingPayload) {
+            effectEntries.push({ source: src, effect: { type: 'saving_throws', payload: { saving_throws: savingPayload } } })
+          }
+        }
 
         const findById = (map: Record<string, any> = {}, id: any) => {
           if (!id) return null
@@ -693,9 +940,19 @@ export const usePersonnage = defineStore('personnage', {
           return map[key] || Object.values(map).find((e: any) => String(e?.id ?? '').toLowerCase() === key) || null
         }
 
-        const cls = findById(dataStore.maps.classes, p.classeId)
+        let cls = findById(dataStore.maps.classes, p.classeId)
+        if (!cls && p.classe) {
+          const wanted = String(p.classe).trim().toLowerCase()
+          cls = Object.values(dataStore.maps.classes || {}).find((entry: any) => {
+            if (!entry || typeof entry !== 'object') return false
+            const id = String(entry.id ?? '').toLowerCase()
+            const name = String(entry.name ?? entry.nom ?? entry.label ?? entry.slug ?? '').toLowerCase()
+            return id === wanted || name === wanted
+          }) || null
+        }
         if (cls) {
           pushEffects('class', pickEffects(cls))
+          pushDirectGrants('class', cls)
           const sc = (cls as any).spellcasting_feature || (cls as any).spellcasting || null
           if (sc && typeof sc === 'object') {
             classSpellPayload = sc
@@ -711,15 +968,24 @@ export const usePersonnage = defineStore('personnage', {
         }
 
         const rc = findById(dataStore.maps.races, p.raceId)
-        if (rc) pushEffects('race', pickEffects(rc))
+        if (rc) {
+          pushEffects('race', pickEffects(rc))
+          pushDirectGrants('race', rc)
+        }
 
         const bg = findById(dataStore.maps.backgrounds, p.backgroundId)
-        if (bg) pushEffects('background', pickEffects(bg))
+        if (bg) {
+          pushEffects('background', pickEffects(bg))
+          pushDirectGrants('background', bg)
+        }
 
         const featureIds = Array.isArray(p.featureIds) ? p.featureIds.map((x: any) => String(x)) : []
         for (const fid of featureIds) {
           const ft = findById(dataStore.maps.features, fid)
-          if (ft) pushEffects(`feature:${fid}`, pickEffects(ft))
+          if (ft) {
+            pushEffects(`feature:${fid}`, pickEffects(ft))
+            pushDirectGrants(`feature:${fid}`, ft)
+          }
         }
 
         // Effets d'items port�s (IDs d'origine du repo attendus)
@@ -745,11 +1011,24 @@ export const usePersonnage = defineStore('personnage', {
             const item = resolveItemEntity(id)
             if (!item) continue
             pushEffects(`item:${id}`, pickEffects(item))
+            pushDirectGrants(`item:${id}`, item)
           }
         } catch {}
 
         const engine = new EffectEngine({ resolveItemById: async (id: string) => dataStore.maps.items?.[id] ?? null })
         await engine.applyEffects(baseCharacter, effectEntries, { selection, baseCharacter })
+
+        const summaryFromEngine = normalizeProficiencySummary((baseCharacter as any).proficiency_summary ?? null)
+        const summaryFromPersisted = normalizeProficiencySummary((p as any).proficienciesDetail ?? null)
+        const mergedSummary = mergeProficiencySummaries(summaryFromEngine, summaryFromPersisted)
+        const summaryForPerso = cloneProficiencySummary(mergedSummary)
+        const proficiencySummaryForCache = cloneProficiencySummary(mergedSummary)
+        const savingThrowsFromEngine = normalizeStringArray((baseCharacter as any).saving_throws ?? null)
+        const savingThrowsFromPersisted = normalizeStringArray((p as any).savingThrows ?? null)
+        const savingThrowsCombined = normalizeStringArray([...savingThrowsFromEngine, ...savingThrowsFromPersisted])
+        const savingThrowsForCache = [...savingThrowsCombined]
+        ;(this as any).perso.proficienciesDetail = summaryForPerso
+        ;(this as any).perso.savingThrows = [...savingThrowsCombined]
 
         let dv = Number(p.dv || 0)
         try {
@@ -768,8 +1047,26 @@ export const usePersonnage = defineStore('personnage', {
           if (dvFromData > 0) dv = dvFromData
         } catch {}
         const conScore = Number(p?.caracs?.constitution ?? baseCharacter?.final_stats?.constitution ?? 10) || 10
-        const conMod = Math.floor((conScore - 10) / 2)
-        const pvMax = dv > 0 ? pvMaxAuNiveau(dv, niveau, conMod) : 0
+        // Calcul PV: uniquement via les formules de classe (hit_points)
+        let pvMax = 0
+        try {
+          const hpFromClass = extractHitPoints(cls)
+          const hpSource: any = hpFromClass ?? (p?.hit_points && typeof p.hit_points === 'object' ? p.hit_points : null)
+          if (hpFromClass) {
+            (this as any).perso.hit_points = { ...hpFromClass }
+          }
+          if (hpSource) {
+            const l1 = evalFormuleAdditive(String(hpSource.level_1 || ''), niveau, (p.caracs || {}) as any)
+            const per = evalFormuleAdditive(String(hpSource.per_level_after_1 || ''), niveau, (p.caracs || {}) as any)
+            const add = (x: number) => Math.max(1, Number(x) || 0)
+            pvMax = add(l1)
+            for (let i = 2; i <= niveau; i++) pvMax += add(per)
+          } else {
+            pvMax = 0
+          }
+        } catch {
+          pvMax = 0
+        }
         const proficiencyBonus = bonusDeMaitrise(niveau)
         const spellDc = baseCharacter?.spellcasting?.meta?.spell_save_dc ?? null
         const spellAtk = baseCharacter?.spellcasting?.meta?.spell_attack_mod ?? null
@@ -828,8 +1125,10 @@ export const usePersonnage = defineStore('personnage', {
           pvMax: Math.max(0, pvMax || 0),
           proficiencyBonus,
           spellcasting: { dc: spellDc, attack: spellAtk, ability: spellcastingSummary?.ability ?? null },
-          proficiencies: Array.isArray(baseCharacter?.proficiencies) ? baseCharacter.proficiencies : [],
-          senses: Array.isArray(baseCharacter?.senses) ? baseCharacter.senses : []
+          proficiencies: Array.isArray(baseCharacter?.proficiencies) ? [...baseCharacter.proficiencies] : [],
+          proficiencySummary: proficiencySummaryForCache,
+          savingThrows: [...savingThrowsForCache],
+          senses: Array.isArray(baseCharacter?.senses) ? [...baseCharacter.senses] : []
         }
         ;(this as any)._lastPvMax = pvMax
         ;(this as any)._lastNiveau = niveau
@@ -932,10 +1231,13 @@ export const usePersonnage = defineStore('personnage', {
           niveau: Number(p.niveau) || 1,
           xp: Number(p.xp) || 0,
           dv: Number(p.dv) || 0,
-          pvActuels: Number(p.pvActuels) || 0,
-          pvMax: Number(p.pvMax) || Number(((this as any).derivedCache ?? {}).pvMax || 0),
+          pvActuels: (() => { const _pvMax = Number(p.pvMax) || Number(((this as any).derived ?? {}).pvMax || 0); const act = Number(p.pvActuels)||0; return _pvMax>0? Math.min(act,_pvMax) : act })(),
+          pvMax: Number(p.pvMax) || Number(((this as any).derived ?? {}).pvMax || 0),
+          hit_points: p.hit_points && typeof p.hit_points === 'object' ? { ...p.hit_points } : null,
           caracs: p.caracs || {},
           competences: p.competences || {},
+          proficienciesDetail: cloneProficiencySummary(normalizeProficiencySummary(p.proficienciesDetail ?? null)),
+          savingThrows: normalizeStringArray(p.savingThrows ?? []),
           armure: p.armure || { type: 'aucune' },
           bouclier: Boolean(p.bouclier || false),
           monture: p.monture || { nom:'', vitesse:'', notes:'' },

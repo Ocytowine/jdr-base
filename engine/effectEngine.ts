@@ -52,6 +52,58 @@ function normalizeFieldAliases(payload: any) {
   return payload;
 }
 
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function formatLabelFromId(value: string): string {
+  const cleaned = normalizeWhitespace(String(value).replace(/[_-]+/g, ' '));
+  if (!cleaned.length) return '';
+  return cleaned
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function toArray<T>(input: T | T[] | Record<string, T> | null | undefined): T[] {
+  if (input === null || input === undefined) return [];
+  if (Array.isArray(input)) return input;
+  if (typeof input === 'object') {
+    return Object.values(input as Record<string, T>);
+  }
+  return [input];
+}
+
+function normalizeIdLabel(entry: any): { id: string; label: string } | null {
+  if (entry === null || entry === undefined) return null;
+  if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
+    const id = String(entry).trim();
+    if (!id.length) return null;
+    return { id, label: formatLabelFromId(id) };
+  }
+  if (typeof entry === 'object') {
+    const idCandidate =
+      entry.id ??
+      entry.key ??
+      entry.code ??
+      entry.slug ??
+      entry.value ??
+      entry.name ??
+      entry.label ??
+      entry.type ??
+      entry.category ??
+      null;
+    const id = idCandidate !== null && idCandidate !== undefined ? String(idCandidate).trim() : '';
+    if (!id.length) return null;
+    const labelCandidate = entry.label ?? entry.name ?? entry.title ?? entry.nom ?? entry.text ?? entry.description ?? null;
+    const label = labelCandidate ? String(labelCandidate).trim() : formatLabelFromId(id);
+    return { id, label };
+  }
+  const id = String(entry).trim();
+  if (!id.length) return null;
+  return { id, label: formatLabelFromId(id) };
+}
+
 const COPPER_PER_SILVER = 10;
 const COPPER_PER_GOLD = 100;
 
@@ -268,6 +320,8 @@ export class EffectEngine {
     character.unhandled_effects = character.unhandled_effects ?? [];
     character.item_proposals = character.item_proposals ?? [];
     character.currency = character.currency ?? { gold: 0, silver: 0, copper: 0 };
+    character.proficiency_summary = character.proficiency_summary ?? {};
+    character.saving_throws = character.saving_throws ?? [];
 
     // guard: check conditions
     const cond = effect.conditions ?? effect.payload?.conditions ?? effect.raw?.payload?.conditions ?? null;
@@ -309,25 +363,164 @@ export class EffectEngine {
     }
 
     // ---- proficiency_grant ----
-    if (type === 'proficiency_grant' || payload.proficiency || payload.skill || payload.skills || payload.subtype) {
-      let profs = payload.proficiency ?? payload.proficiencies ?? payload.skill ?? payload.skills ?? null;
-      if (!profs) {
-        if (payload.category === 'skill' && payload.subtype) {
-          profs = payload.subtype;
-        } else if (payload.category && payload.value) {
-          profs = payload.value;
+    if (
+      type === 'proficiency_grant' ||
+      payload.proficiency ||
+      payload.skill ||
+      payload.skills ||
+      payload.subtype ||
+      payload.proficiency_grant
+    ) {
+      const summary: Record<string, Array<{ id: string; label: string }>> = character.proficiency_summary;
+
+      const ensureSummaryList = (rawCategory: string): Array<{ id: string; label: string }> => {
+        const category = String(rawCategory || 'other').toLowerCase();
+        if (!Array.isArray(summary[category])) summary[category] = [];
+        return summary[category] as Array<{ id: string; label: string }>;
+      };
+
+      const pushSkill = (value: any) => {
+        if (value === null || value === undefined) return;
+        const str = typeof value === 'string' ? value : String(value);
+        const trimmed = str.trim();
+        if (!trimmed.length) return;
+        if (!character.proficiencies.includes(trimmed)) character.proficiencies.push(trimmed);
+      };
+
+      const registerCategory = (
+        categoryRaw: string | null | undefined,
+        values: any,
+        opts: { alsoSkill?: boolean } = {}
+      ): boolean => {
+        if (values === null || values === undefined) return false;
+        const category = categoryRaw ? String(categoryRaw).toLowerCase() : 'other';
+        const list = ensureSummaryList(category);
+        const seen = new Set(list.map((entry) => String(entry.id).toLowerCase()));
+        let appended = false;
+        for (const entry of toArray(values)) {
+          const normalized = normalizeIdLabel(entry);
+          if (!normalized) continue;
+          const key = normalized.id.toLowerCase();
+          if (!seen.has(key)) {
+            list.push({ id: normalized.id, label: normalized.label });
+            seen.add(key);
+            appended = true;
+          }
+          if (opts.alsoSkill) pushSkill(normalized.id);
+        }
+        return appended;
+      };
+
+      const structuredMappings: Array<{ keys: string[]; category: string; alsoSkill?: boolean }> = [
+        { keys: ['armor', 'armors', 'armure', 'armures'], category: 'armor' },
+        { keys: ['weapons', 'weapon', 'arme', 'armes'], category: 'weapons' },
+        { keys: ['tools', 'tool', 'outils', 'outil'], category: 'tools' },
+        { keys: ['vehicles', 'vehicle', 'vehicule', 'vehicules'], category: 'vehicles' },
+        { keys: ['languages', 'language', 'langue', 'langues'], category: 'languages' },
+        { keys: ['instruments', 'instrument', 'musical_instruments', 'musicalInstrument'], category: 'instruments' },
+        { keys: ['gaming_sets', 'gaming_set', 'jeux', 'game_sets', 'gameset'], category: 'gaming_sets' },
+        { keys: ['skills', 'skill'], category: 'skills', alsoSkill: true },
+        { keys: ['other', 'others', 'misc'], category: 'other' }
+      ];
+
+      let structuredHandled = false;
+
+      for (const mapping of structuredMappings) {
+        for (const key of mapping.keys) {
+          if (Object.prototype.hasOwnProperty.call(payload, key)) {
+            const appended = registerCategory(mapping.category, (payload as any)[key], { alsoSkill: mapping.alsoSkill });
+            structuredHandled = appended || structuredHandled;
+          }
         }
       }
-      if (!profs) return;
-      const push = (value: any) => {
-        if (value === null || value === undefined) return;
-        const id = typeof value === 'string' ? value : String(value);
-        if (!character.proficiencies.includes(id)) character.proficiencies.push(id);
+
+      if (payload.proficiency_grant && typeof payload.proficiency_grant === 'object') {
+        for (const [key, value] of Object.entries(payload.proficiency_grant)) {
+          const mapping = structuredMappings.find((m) => m.keys.includes(key));
+          const appended = registerCategory(mapping ? mapping.category : key, value, { alsoSkill: mapping?.alsoSkill });
+          structuredHandled = appended || structuredHandled;
+        }
+      }
+
+      if (Array.isArray(payload.categories)) {
+        for (const entry of payload.categories) {
+          if (!entry || typeof entry !== 'object') continue;
+          const cat = (entry as any).category ?? (entry as any).type ?? (entry as any).kind ?? null;
+          const values =
+            (entry as any).values ??
+            (entry as any).value ??
+            (entry as any).items ??
+            (entry as any).proficiencies ??
+            (entry as any).skills ??
+            (entry as any).proficiency ??
+            entry;
+          const appended = registerCategory(cat ?? 'other', values, {
+            alsoSkill: typeof cat === 'string' && /skill/i.test(cat)
+          });
+          structuredHandled = appended || structuredHandled;
+        }
+      } else if (payload.categories && typeof payload.categories === 'object') {
+        for (const [cat, values] of Object.entries(payload.categories)) {
+          const appended = registerCategory(cat, values, { alsoSkill: /skill/i.test(cat) });
+          structuredHandled = appended || structuredHandled;
+        }
+      }
+
+      let combined =
+        payload.proficiency ?? payload.proficiencies ?? payload.skill ?? payload.skills ?? payload.value ?? null;
+      if (!combined && payload.subtype) combined = payload.subtype;
+      if (!combined && payload.proficiency_id) combined = payload.proficiency_id;
+
+      const fallbackCategory = typeof payload.category === 'string' ? payload.category : null;
+      const looksLikeSkill = fallbackCategory ? /skill/i.test(fallbackCategory) : !structuredHandled;
+
+      let appended = false;
+      if (combined !== null && combined !== undefined) {
+        appended = registerCategory(fallbackCategory ?? (looksLikeSkill ? 'skills' : 'other'), combined, {
+          alsoSkill: looksLikeSkill
+        });
+        if (!appended && looksLikeSkill) {
+          for (const entry of toArray(combined)) pushSkill(entry);
+          appended = true;
+        }
+      }
+
+      if (structuredHandled || appended) return;
+      return;
+    }
+
+    // ---- saving_throws ----
+    if (
+      type === 'saving_throw_grant' ||
+      type === 'saving_throws' ||
+      payload.saving_throws ||
+      payload.savingThrows ||
+      payload.saving_throw
+    ) {
+      const candidates =
+        payload.saving_throws ?? payload.savingThrows ?? payload.saving_throw ?? payload.value ?? payload;
+      const list = character.saving_throws as string[];
+      const seen = new Set(list.map((entry: any) => String(entry).toLowerCase()));
+      const summary: Record<string, Array<{ id: string; label: string }>> = character.proficiency_summary;
+      const ensureSummaryList = (category: string) => {
+        const key = category.toLowerCase();
+        if (!Array.isArray(summary[key])) summary[key] = [];
+        return summary[key] as Array<{ id: string; label: string }>;
       };
-      if (Array.isArray(profs)) {
-        for (const p of profs) push(p);
-      } else {
-        push(profs);
+      const summaryList = ensureSummaryList('saving_throws');
+      const summarySeen = new Set(summaryList.map((entry) => String(entry.id).toLowerCase()));
+      for (const entry of toArray(candidates)) {
+        const normalized = normalizeIdLabel(entry);
+        if (!normalized) continue;
+        const key = normalized.id.toLowerCase();
+        if (!seen.has(key)) {
+          list.push(normalized.id);
+          seen.add(key);
+        }
+        if (!summarySeen.has(key)) {
+          summaryList.push({ id: normalized.id, label: normalized.label });
+          summarySeen.add(key);
+        }
       }
       return;
     }

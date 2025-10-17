@@ -5,12 +5,29 @@
 import fs from 'fs/promises';
 import path from 'path';
 import EffectEngine from '~/engine/effectEngine';
-import { pvMaxAuNiveau } from '~/utils/regles_du_jeu';
+
+import { evalFormuleAdditive } from '~/utils/evalFormule';
 import { normalizeEffect, extractChoiceDescriptor } from '~/utils/normalizeEffect';
 
 const TEXT_FIELDS = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
 const IMAGE_FIELDS = ['image', 'img', 'icon', 'art', 'avatar', 'illustration', 'picture', 'thumbnail'];
 const EFFECT_LABEL_FIELDS = ['effect_label', 'effectLabel', 'effect', 'summary', 'tagline', 'mecanique.effect_label', 'mecanique.effectLabel'];
+
+const extractHitPoints = (entity: any): { level_1?: string; per_level_after_1?: string } | null => {
+  if (!entity || typeof entity !== 'object') return null
+  const direct = entity.hit_points
+  if (direct && typeof direct === 'object') return { ...direct }
+  const lists = [entity.effects, entity.features, entity.payload?.effects]
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue
+    for (const entry of list) {
+      const payload = entry && typeof entry === 'object' ? (entry.payload && typeof entry.payload === 'object' ? entry.payload : entry) : null
+      const hp = payload?.hit_points
+      if (hp && typeof hp === 'object') return { ...hp }
+    }
+  }
+  return null
+}
 
 export type Selection = {
   class?: string | null;
@@ -382,17 +399,30 @@ export class CreationAdapterServer {
       const classeEntity = findResolvedEntityById(selection.class) ?? await this.resolveItemById(String(selection.class || ''));
       const niveau = Number(selection.niveau ?? 1) || 1;
       const dv = pickNumberFromKeys(classeEntity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die'], 0) || 0;
-      const conScore = Number(previewChar?.final_stats?.constitution ?? baseCharacterIn?.base_stats_before_race?.constitution ?? 10) || 10;
-      const conMod = Math.floor((conScore - 10) / 2);
-      if (dv > 0) {
-        const pvMax = pvMaxAuNiveau(dv, niveau, conMod);
-        previewChar.dv = dv;
-        // Set pvActuels to max at creation, unless a value already present
-        const currentPv = Number(previewChar?.pvActuels ?? previewChar?.pv ?? 0);
-        previewChar.pvActuels = Number.isFinite(currentPv) && currentPv > 0 ? Math.min(currentPv, pvMax) : pvMax;
-        // also expose pv_max for UI if needed
-        previewChar.pv_max = pvMax;
+      const hp = extractHitPoints(classeEntity);
+      const caracs = {
+        force: Number(previewChar?.final_stats?.force ?? baseCharacterIn?.base_stats_before_race?.force ?? 10) || 10,
+        dexterite: Number(previewChar?.final_stats?.dexterite ?? baseCharacterIn?.base_stats_before_race?.dexterite ?? 10) || 10,
+        constitution: Number(previewChar?.final_stats?.constitution ?? baseCharacterIn?.base_stats_before_race?.constitution ?? 10) || 10,
+        intelligence: Number(previewChar?.final_stats?.intelligence ?? baseCharacterIn?.base_stats_before_race?.intelligence ?? 10) || 10,
+        sagesse: Number(previewChar?.final_stats?.sagesse ?? baseCharacterIn?.base_stats_before_race?.sagesse ?? 10) || 10,
+        charisme: Number(previewChar?.final_stats?.charisme ?? baseCharacterIn?.base_stats_before_race?.charisme ?? 10) || 10,
+      };
+      let pvMax = 0;
+      if (hp) {
+        previewChar.hit_points = { ...hp };
+        const l1 = evalFormuleAdditive(String(hp.level_1 || ''), niveau, caracs as any);
+        const per = evalFormuleAdditive(String(hp.per_level_after_1 || ''), niveau, caracs as any);
+        const add = (x: number) => Math.max(1, Number(x) || 0);
+        pvMax = add(l1);
+        for (let i = 2; i <= niveau; i++) pvMax += add(per);
       }
+      if (dv > 0) previewChar.dv = dv;
+      // Set pvActuels to max at creation, unless a value already present
+      const currentPv = Number(previewChar?.pvActuels ?? previewChar?.pv ?? 0);
+      previewChar.pvActuels = Number.isFinite(currentPv) && currentPv > 0 ? Math.min(currentPv, pvMax) : pvMax;
+      // also expose pv_max for UI if needed
+      previewChar.pv_max = pvMax;
 
       // Filter pending choices by conditions (if any). If no conditions, keep the choice.
       const choicesFiltered = (pendingChoices || []).filter((cd) => {
