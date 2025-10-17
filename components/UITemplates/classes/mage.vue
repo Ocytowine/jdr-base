@@ -23,7 +23,7 @@
     </p>
 
     <section v-if="spells.length" class="mage-ui__spells">
-      <h3>Sorts et pouvoirs</h3>
+      <h3>Grimoire</h3>
       <div class="mage-ui__spell-grid">
         <article v-for="spell in spells" :key="spell.id" class="mage-ui__spell-card">
           <div v-if="spell.image" class="mage-ui__spell-thumb">
@@ -379,7 +379,7 @@ const spellcastingCards = computed(() => {
   if (formattedAttack) cards.push({ label: 'Bonus d attaque', value: formattedAttack })
   const slotsSummary = spellSlotSummary.value
   if (slotsSummary) cards.push({ label: 'Emplacements', value: slotsSummary })
-  if (spells.value.length) cards.push({ label: 'Sorts suivis', value: String(spells.value.length) })
+  if (spells.value.length) cards.push({ label: 'Sorts écrits', value: String(spells.value.length) })
   return cards
 })
 

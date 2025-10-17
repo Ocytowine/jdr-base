@@ -1,3 +1,16 @@
+- Maitrises (proficiency_grant / saving_throws):
+  - Les categories sont harmonisees et converties en identifiants canoniques (`armes`, `armures`, `outils`, `competences`, `langues`, `vehicules`, `instruments`, `jeux`, `sauvegardes`, `divers`).
+  - Les alias FR/EN de `docs/ITEMS-EXPLICATION` sont resolus pour retrouver l'identifiant mecanique :
+    - Armes : `simple`, `martiale`, `speciale`, `monastique`.
+    - Armures : `legere`, `intermediaire`, `lourde`, `bouclier`.
+    - Outils : `outils_artisan`, `outils_voleur`, `trousse_herboriste`, `trousse_soins`, `instrument_musique`, `trousse_deguisement`, `trousse_faussaire`, `trousse_brasseur`, `outils_navigation`, `outils_cartographe`.
+    - Competences : identifiants du catalogue (cf. `utils/competences.ts`).
+  - Chaque entree de `proficiency_summary` expose un champ `rank` (`maitrise` ou `expertise`). Recevoir deux fois la meme competence (ou un outil) fait automatiquement evoluer le rang en `expertise`.
+  - Les `saving_throws` sont ajoutes dans le meme resume canonique (categorie `sauvegardes`).
+  - Les donnees existantes sont normalisees a la volee : les anciens tableaux `{id,label}` sont convertis vers la structure enrichie.
+
+  - Les donnees existantes sont normalisees � la volee : les anciens tableaux `{id,label}` sont mapp�s vers la structure enrichie.
+
 # Normalisation des Effets (spécification)
 
 But
@@ -69,4 +82,5 @@ Affichage & langue
 
 Traçabilité et debug
 - Chaque effet normalisé conserve `raw` (copie profonde) pour permettre un diagnostic aisé si un mapping ne fonctionne pas comme attendu.
+
 

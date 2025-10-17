@@ -5,6 +5,7 @@ import { useDataStore } from '@/stores/data';
 import { useParties } from '@/stores/parties'; // <-- Ajout import pour obtenir currentPartyId
 import { normalizeEffects } from '@/utils/normalizeEffect';
 import { resolveStatBasePayload, evalFormuleAdditive } from '@/utils/evalFormule';
+import type { ProficiencyRank } from '@/utils/proficiencies';
 
 import type { Personnage } from './personnage';
 
@@ -1746,10 +1747,17 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
         .filter((entry) => entry.length > 0);
     };
 
-    const proficiencies = toList(previewCharacter.proficiencies).reduce<Record<string, boolean>>((acc, entry) => {
-      acc[entry] = true;
-      return acc;
-    }, {});
+    const proficiencies = toList(previewCharacter.proficiencies).reduce<Record<string, ProficiencyRank>>(
+      (acc, entry) => {
+        const id = String(entry ?? '').trim();
+        if (!id.length) return acc;
+        const current = acc[id];
+        if (current === 'expertise') return acc;
+        acc[id] = current === 'maitrise' ? 'expertise' : 'maitrise';
+        return acc;
+      },
+      {}
+    );
 
     const languages = toList(previewCharacter.languages);
 

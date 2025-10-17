@@ -35,12 +35,12 @@
     <div class="champs" style="margin-top:8px;">
       <div style="grid-column: span 12;">
         <div class="carte-mini">
-          <strong>Competences maitrisees</strong>
+          <strong>Competences</strong>
           <div style="margin-top:6px; display:flex; flex-wrap: wrap; gap:6px;">
-            <span v-for="c in competencesMaitrisees" :key="c.id" class="badge">
-              {{ c.nom }} ({{ scoreCompetence(c) >=0?'+':'' }}{{ scoreCompetence(c) }})
+            <span v-for="c in competencesAffichees" :key="c.id" class="badge">
+              {{ c.nom }}{{ c.rank === 'expertise' ? ' (Expertisee)' : '' }} ({{ c.total >= 0 ? '+' : '' }}{{ c.total }})
             </span>
-            <span v-if="!competencesMaitrisees.length" style="color:var(--texte-2);">Aucune</span>
+            <span v-if="!competencesAffichees.length" style="color:var(--texte-2);">Aucune</span>
           </div>
         </div>
       </div>
@@ -91,6 +91,15 @@
 import { computed } from 'vue'
 import { usePersonnage } from '@/stores/personnage'
 import { mod, classeArmureDeBase } from '@/utils/regles_du_jeu'
+import {
+  DEFAULT_CATEGORY_LABELS,
+  DEFAULT_CATEGORY_ORDER,
+  prettifyLabel,
+  type ProficiencyCategory,
+  type ProficiencyRank,
+  type ProficiencySummary
+} from '@/utils/proficiencies'
+import type { CompetenceDef } from '@/utils/competences'
 
 const props = defineProps<{ compact?: boolean }>()
 const store = usePersonnage()
@@ -114,41 +123,40 @@ const init = computed(() => mod(Number(p.caracs?.dexterite || 10)))
 const ca = computed(() => classeArmureDeBase(Number(p.caracs?.dexterite || 10), p.armure?.type || 'aucune', !!p.bouclier))
 const pvMax = computed(() => Number(derived.value?.pvMax || 0))
 
-const competencesMaitrisees = computed(() => (store.listeCompetences as any[]).filter((c: any) => Boolean(p.competences?.[c.id])))
-
-function scoreCompetence(c: { id: string; nom: string; carac: keyof typeof p.caracs }) {
-  const base = mod(Number(p.caracs?.[c.carac] ?? 10))
-  const maitB = p.competences?.[c.id] ? mait.value : 0
-  return base + maitB
+const rankFromValue = (value: unknown): ProficiencyRank | null => {
+  if (!value) return null
+  if (value === 'expertise') return 'expertise'
+  if (value === 'maitrise') return 'maitrise'
+  if (value === true) return 'maitrise'
+  if (typeof value === 'string') {
+    const lower = value.toLowerCase()
+    if (lower === 'expertise') return 'expertise'
+    if (lower === 'maitrise' || lower === 'proficiency') return 'maitrise'
+  }
+  return null
 }
 
-const prettify = (value: string): string => {
-  const cleaned = String(value || '').replace(/[_-]+/g, ' ').trim()
-  if (!cleaned.length) return ''
-  return cleaned
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
+const scoreCompetence = (def: CompetenceDef, rank: ProficiencyRank | null) => {
+  const base = mod(Number(p.caracs?.[def.carac] ?? 10))
+  if (rank === 'expertise') return base + mait.value * 2
+  if (rank === 'maitrise') return base + mait.value
+  return base
 }
 
-const categoryLabels: Record<string, string> = {
-  armor: 'Armures',
-  armure: 'Armures',
-  weapons: 'Armes',
-  armes: 'Armes',
-  tools: 'Outils',
-  outils: 'Outils',
-  languages: 'Langues',
-  langue: 'Langues',
-  vehicles: 'Vehicules',
-  vehicules: 'Vehicules',
-  instruments: 'Instruments',
-  gaming_sets: 'Jeux',
-  other: 'Divers'
-}
-
-const categoryOrder = ['armor', 'weapons', 'tools', 'languages', 'vehicles', 'instruments', 'gaming_sets', 'other']
+const competencesAffichees = computed(() => {
+  const map = (p.competences ?? {}) as Record<string, unknown>
+  return (store.listeCompetences as CompetenceDef[])
+    .map((def) => {
+      const rank = rankFromValue(map[def.id])
+      if (!rank) return null
+      return {
+        ...def,
+        rank,
+        total: scoreCompetence(def, rank)
+      }
+    })
+    .filter(Boolean) as Array<CompetenceDef & { rank: ProficiencyRank; total: number }>
+})
 
 const abilityMeta: Record<string, { key: string; label: string }> = {
   force: { key: 'force', label: 'Force' },
@@ -167,37 +175,37 @@ const abilityOrder = ['force', 'dexterite', 'constitution', 'intelligence', 'sag
 
 const proficiencyCategories = computed(() => {
   const summary = (derived.value?.proficiencySummary && typeof derived.value.proficiencySummary === 'object'
-    ? derived.value.proficiencySummary
-    : (p.proficienciesDetail && typeof p.proficienciesDetail === 'object' ? p.proficienciesDetail : {})) as Record<
-    string,
-    Array<{ id: string; label?: string }>
-  >
+    ? (derived.value.proficiencySummary as ProficiencySummary)
+    : (p.proficienciesDetail && typeof p.proficienciesDetail === 'object'
+        ? (p.proficienciesDetail as ProficiencySummary)
+        : {}))
+
   const groups: Array<{ category: string; label: string; items: string[] }> = []
   for (const [rawCategory, list] of Object.entries(summary || {})) {
     const category = String(rawCategory || '').toLowerCase()
-    if (category === 'skills' || category === 'saving_throws') continue
-    const items = Array.isArray(list)
-      ? list
-          .map((entry) => {
-            const label = entry?.label ?? entry?.nom ?? entry?.name ?? entry?.id ?? ''
-            return label ? prettify(label) : ''
-          })
-          .filter((label) => label.length)
-      : []
+    if (category === 'competences' || category === 'skills' || category === 'sauvegardes' || category === 'saving_throws') continue
+    const entries = Array.isArray(list) ? list : []
+    const items = entries
+      .map((entry: any) => {
+        const label = entry?.label ?? entry?.nom ?? entry?.name ?? entry?.id ?? ''
+        if (!label) return ''
+        return prettifyLabel(String(label))
+      })
+      .filter((label: string) => label.length)
     if (!items.length) continue
-    const label = categoryLabels[category] ?? prettify(category)
-    groups.push({ category, label, items })
+    const defaultLabel = DEFAULT_CATEGORY_LABELS[category as keyof typeof DEFAULT_CATEGORY_LABELS] ?? prettifyLabel(category)
+    groups.push({ category, label: defaultLabel, items })
   }
-  const indexFor = (cat: string) => {
-    const idx = categoryOrder.indexOf(cat)
-    return idx === -1 ? categoryOrder.length + 1 : idx
-  }
+
   groups.sort((a, b) => {
-    const ai = indexFor(a.category)
-    const bi = indexFor(b.category)
-    if (ai !== bi) return ai - bi
+    const ai = DEFAULT_CATEGORY_ORDER.indexOf(a.category as ProficiencyCategory)
+    const bi = DEFAULT_CATEGORY_ORDER.indexOf(b.category as ProficiencyCategory)
+    const safeAi = ai === -1 ? DEFAULT_CATEGORY_ORDER.length + 1 : ai
+    const safeBi = bi === -1 ? DEFAULT_CATEGORY_ORDER.length + 1 : bi
+    if (safeAi !== safeBi) return safeAi - safeBi
     return a.label.localeCompare(b.label)
   })
+
   return groups
 })
 

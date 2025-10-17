@@ -19,6 +19,15 @@ import { evalFormuleAdditive, resolveStatBasePayload } from '@/utils/evalFormule
 import { mod } from '@/utils/regles_du_jeu'
 import EffectEngine from '@/engine/effectEngine'
 import { normalizeEffects } from '@/utils/normalizeEffect'
+import { COMPETENCE_DEFS, COMPETENCE_INDEX, type CompetenceDef } from '@/utils/competences'
+import {
+  cloneProficiencySummary,
+  mergeProficiencySummaries,
+  normalizeProficiencySummary,
+  summarizeSkillRanks,
+  type ProficiencySummary,
+  type ProficiencyRank
+} from '@/utils/proficiencies'
 
 const extractHitPoints = (entity: any): { level_1?: string; per_level_after_1?: string } | null => {
   if (!entity || typeof entity !== 'object') return null
@@ -52,57 +61,6 @@ const extractHitPoints = (entity: any): { level_1?: string; per_level_after_1?: 
   return null
 }
 
-const DEF_COMPETENCES: CompetenceDef[] = [
-  { id: 'athletisme', nom: 'Athletisme', carac: 'force' },
-  { id: 'acrobaties', nom: 'Acrobaties', carac: 'dexterite' },
-  { id: 'discretion', nom: 'Discretion', carac: 'dexterite' },
-  { id: 'escamotage', nom: 'Escamotage', carac: 'dexterite' },
-  { id: 'dressage', nom: 'Dressage', carac: 'sagesse' },
-  { id: 'intimidation', nom: 'Intimidation', carac: 'charisme' },
-  { id: 'persuasion', nom: 'Persuasion', carac: 'charisme' },
-  { id: 'representation', nom: 'Representation', carac: 'charisme' },
-  { id: 'histoire', nom: 'Histoire', carac: 'intelligence' },
-  { id: 'arcanes', nom: 'Arcanes', carac: 'intelligence' },
-  { id: 'investigation', nom: 'Investigation', carac: 'intelligence' },
-  { id: 'nature', nom: 'Nature', carac: 'intelligence' },
-  { id: 'religion', nom: 'Religion', carac: 'intelligence' },
-  { id: 'medecine', nom: 'Medecine', carac: 'sagesse' },
-  { id: 'perception', nom: 'Perception', carac: 'sagesse' },
-  { id: 'perspicacite', nom: 'Perspicacite', carac: 'sagesse' },
-  { id: 'survie', nom: 'Survie', carac: 'sagesse' }
-]
-
-const prettifyLabel = (value: string): string => {
-  const cleaned = value.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
-  if (!cleaned.length) return ''
-  return cleaned
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
-}
-
-const coerceIdLabel = (entry: any): { id: string; label: string } | null => {
-  if (entry === null || entry === undefined) return null
-  if (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean') {
-    const id = String(entry).trim()
-    if (!id.length) return null
-    return { id, label: prettifyLabel(id) }
-  }
-  if (typeof entry === 'object') {
-    const idCandidate =
-      entry.id ?? entry.key ?? entry.value ?? entry.slug ?? entry.code ?? entry.name ?? entry.label ?? entry.type ?? entry.category ?? null
-    const id = idCandidate !== null && idCandidate !== undefined ? String(idCandidate).trim() : ''
-    if (!id.length) return null
-    const labelCandidate = entry.label ?? entry.name ?? entry.title ?? entry.nom ?? entry.text ?? null
-    const label = labelCandidate ? String(labelCandidate).trim() : prettifyLabel(id)
-    return { id, label }
-  }
-  const id = String(entry).trim()
-  if (!id.length) return null
-  return { id, label: prettifyLabel(id) }
-}
-
 const normalizeStringArray = (value: any): string[] => {
   const entries = Array.isArray(value) ? value : value !== null && value !== undefined ? [value] : []
   const seen = new Set<string>()
@@ -119,86 +77,7 @@ const normalizeStringArray = (value: any): string[] => {
   return result
 }
 
-const normalizeProficiencySummary = (input: any): Record<string, Array<{ id: string; label: string }>> => {
-  const result: Record<string, Array<{ id: string; label: string }>> = {}
-  const ensureCategory = (categoryRaw: string) => {
-    const key = String(categoryRaw || 'other').toLowerCase()
-    if (!Array.isArray(result[key])) result[key] = []
-    return result[key] as Array<{ id: string; label: string }>
-  }
-  const pushEntry = (category: string, entry: any) => {
-    const normalized = coerceIdLabel(entry)
-    if (!normalized) return
-    const list = ensureCategory(category)
-    const key = normalized.id.toLowerCase()
-    if (list.some((existing) => String(existing.id).toLowerCase() === key)) return
-    list.push({ id: normalized.id, label: normalized.label })
-  }
-  const handleCollection = (category: string, collection: any) => {
-    if (collection === null || collection === undefined) return
-    const entries = Array.isArray(collection) ? collection : [collection]
-    for (const entry of entries) pushEntry(category, entry)
-  }
-
-  if (Array.isArray(input)) {
-    for (const entry of input) {
-      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-        const category = entry.category ?? entry.type ?? entry.kind ?? entry.group ?? 'other'
-        if ((entry as any).values !== undefined) handleCollection(category, (entry as any).values)
-        else if ((entry as any).items !== undefined) handleCollection(category, (entry as any).items)
-        else if ((entry as any).proficiencies !== undefined) handleCollection(category, (entry as any).proficiencies)
-        else if ((entry as any).proficiency !== undefined) handleCollection(category, (entry as any).proficiency)
-        else if ((entry as any).value !== undefined) handleCollection(category, (entry as any).value)
-        else pushEntry(category, entry)
-      } else {
-        pushEntry('other', entry)
-      }
-    }
-    return result
-  }
-
-  if (input && typeof input === 'object') {
-    for (const [category, value] of Object.entries(input)) {
-      handleCollection(category, value)
-    }
-  }
-
-  return result
-}
-
-const cloneProficiencySummary = (summary: Record<string, Array<{ id: string; label: string }>>): Record<string, Array<{ id: string; label: string }>> => {
-  const cloned: Record<string, Array<{ id: string; label: string }>> = {}
-  for (const [category, list] of Object.entries(summary || {})) {
-    cloned[category] = Array.isArray(list) ? list.map((entry) => ({ id: entry.id, label: entry.label })) : []
-  }
-  return cloned
-}
-
-const mergeProficiencySummaries = (
-  ...summaries: Array<Record<string, Array<{ id: string; label: string }>>>
-): Record<string, Array<{ id: string; label: string }>> => {
-  const merged: Record<string, Array<{ id: string; label: string }>> = {}
-  for (const summary of summaries) {
-    for (const [categoryRaw, list] of Object.entries(summary || {})) {
-      const category = String(categoryRaw || 'other').toLowerCase()
-      const dest = (merged[category] = merged[category] ?? [])
-      const seen = new Set(dest.map((entry) => String(entry.id).toLowerCase()))
-      for (const entry of Array.isArray(list) ? list : []) {
-        if (!entry || entry.id === undefined || entry.id === null) continue
-        const id = String(entry.id).trim()
-        if (!id.length) continue
-        const key = id.toLowerCase()
-        if (seen.has(key)) continue
-        const label = entry.label ? String(entry.label).trim() : prettifyLabel(id)
-        dest.push({ id, label })
-        seen.add(key)
-      }
-    }
-  }
-  return merged
-}
-
-type Personnage = {
+export type Personnage = {
   id: string
   nom: string
   lignee: string
@@ -214,8 +93,8 @@ type Personnage = {
   pvMax?: number
   hit_points?: { level_1?: string; per_level_after_1?: string } | null
   caracs: Caracs
-  competences: Record<string, boolean>
-  proficienciesDetail?: Record<string, Array<{ id: string; label: string }>>
+  competences: Record<string, ProficiencyRank>
+  proficienciesDetail?: ProficiencySummary
   savingThrows?: string[]
   langues: string
   armure?: { type: 'aucune' | 'legere' | 'intermediaire' | 'lourde'; nom?: string }
@@ -299,8 +178,8 @@ const createDefaultPerso = (): Personnage => ({
     sagesse: 10,
     charisme: 8
   } as Caracs,
-  competences: {} as Record<string, boolean>,
-  proficienciesDetail: {},
+  competences: {} as Record<string, ProficiencyRank>,
+  proficienciesDetail: {} as ProficiencySummary,
   savingThrows: [],
   langues: 'Commun',
   armure: { type: 'aucune' },
@@ -349,8 +228,6 @@ export type Caracs = {
   charisme: number
 }
 
-export type CompetenceDef = { id: string; nom: string; carac: keyof Caracs }
-
 type InventaireSnapshotItem = CreationInventoryTransition['items'][number]
 
 export type PersonnageInventoryEntry = {
@@ -381,10 +258,22 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     ...(typeof source.caracs === 'object' && source.caracs ? source.caracs : {})
   } as Caracs
 
-  const competences =
+  const rawCompetences =
     source.competences && typeof source.competences === 'object'
-      ? (source.competences as Record<string, boolean>)
+      ? (source.competences as Record<string, unknown>)
       : {}
+  const competences: Record<string, ProficiencyRank> = {}
+  for (const [key, value] of Object.entries(rawCompetences)) {
+    if (!value) continue
+    const rank =
+      typeof value === 'string'
+        ? (value.toLowerCase() === 'expertise' ? 'expertise' : 'maitrise')
+        : value === true
+        ? 'maitrise'
+        : null
+    if (!rank) continue
+    competences[key] = rank
+  }
 
   const slugify = (value: string): string =>
     value
@@ -602,6 +491,17 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     (source as any).proficiencies ??
     null
   const proficienciesDetail = normalizeProficiencySummary(rawProficiencySummary)
+  const summarySkillRanks = summarizeSkillRanks(proficienciesDetail)
+  for (const [skillId, rank] of Object.entries(summarySkillRanks)) {
+    const current = competences[skillId]
+    if (current === 'expertise' || rank === 'expertise') {
+      competences[skillId] = 'expertise'
+    } else if (!current) {
+      competences[skillId] = rank
+    } else {
+      competences[skillId] = current
+    }
+  }
   const savingThrows = normalizeStringArray(
     (source as any).savingThrows ??
       (source as any).saving_throws ??
@@ -683,7 +583,7 @@ export const usePersonnage = defineStore('personnage', {
     _lastConScore: 10
   }),
   getters: {
-    listeCompetences: () => DEF_COMPETENCES,
+    listeCompetences: () => COMPETENCE_DEFS,
     ui_template: (state) => {
       // On suppose que le champ est stocké dans perso ou à défaut dans la classe
       return state.perso?.ui_template || null
@@ -1028,6 +928,17 @@ export const usePersonnage = defineStore('personnage', {
         const savingThrowsCombined = normalizeStringArray([...savingThrowsFromEngine, ...savingThrowsFromPersisted])
         const savingThrowsForCache = [...savingThrowsCombined]
         ;(this as any).perso.proficienciesDetail = summaryForPerso
+        const persoCompetences: Record<string, ProficiencyRank> =
+          ((this as any).perso.competences && typeof (this as any).perso.competences === 'object'
+            ? (this as any).perso.competences
+            : {}) || {}
+        const recomputedSkillRanks = summarizeSkillRanks(summaryForPerso)
+        for (const [skillId, rank] of Object.entries(recomputedSkillRanks)) {
+          const current = persoCompetences[skillId]
+          if (current === 'expertise' || rank === 'expertise') persoCompetences[skillId] = 'expertise'
+          else if (!current) persoCompetences[skillId] = rank
+        }
+        ;(this as any).perso.competences = persoCompetences
         ;(this as any).perso.savingThrows = [...savingThrowsCombined]
 
         let dv = Number(p.dv || 0)
