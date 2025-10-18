@@ -15,6 +15,7 @@ import { useSession } from '@/composables/useSession';
 import { createCardPlaceholder, coinsToCopper, copperToCoins, ensureCardImage, ensureDescription, humanizeLabel, normalizeCatalogEntries, normalizeCoinsValue, resolveCardVisuals, toFiniteNumber, valueExists } from '@/utils/creationHelpers';
 import type { CoinBreakdown } from '@/utils/creationHelpers';
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
+import { xpThresholdForLevel } from '@/composables/useExperienceLevelUp';
 
 export type CatalogEntry = {
   id: string;
@@ -2003,6 +2004,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       classe: toDisplayString(identityLabels.class, ''),
       sousClasse: toDisplayString(previewCharacter.subclass ?? previewCharacter.sousClasse, ''),
       niveau: niveauValue,
+      xp: xpThresholdForLevel(niveauValue),
       dv: dvFinal,
       pvActuels: pvActuelsFinal,
       hit_points: classHitPoints && typeof classHitPoints === 'object' ? { ...classHitPoints } : null,

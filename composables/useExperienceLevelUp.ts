@@ -1,4 +1,7 @@
 import { computed, type ComputedRef, ref, type Ref, watch } from 'vue'
+import { useRequestFetch } from '#app'
+import { useDataStore } from '@/stores/data'
+import { usePersonnage } from '@/stores/personnage'
 
 const DND5E_XP_THRESHOLDS: number[] = [
   0, // level 0 (unused, keeps indexes aligned)
@@ -76,6 +79,7 @@ export type ExperienceLevelUpState = {
   ready: ComputedRef<boolean>
   nextLevelThreshold: ComputedRef<number | null>
   xpUntilNextLevel: ComputedRef<number | null>
+  availableClasses: ComputedRef<AvailableClassEntry[]>
   acknowledge: (level: number) => void
   dismissUntilProgress: (level: number) => void
 }
@@ -84,15 +88,152 @@ type ExperienceLevelUpOptions = {
   maxLevel?: number
 }
 
+type AbilityKey = 'force' | 'dexterite' | 'constitution' | 'intelligence' | 'sagesse' | 'charisme'
+
+type RequirementNode = {
+  stat?: string
+  min_value?: number
+  min?: number
+  all?: RequirementNode[]
+  any?: RequirementNode[]
+  [key: string]: any
+}
+
+export type AvailableClassEntry = {
+  id: string
+  label: string
+  eligible: boolean
+  reasons: string[]
+  existingLevel: number
+  requirements: RequirementNode | null
+  raw: Record<string, any> | null
+}
+
+const MAX_CLASS_SLOTS = 2
+
+const ABILITY_MAP: Record<string, AbilityKey> = {
+  strength: 'force',
+  str: 'force',
+  force: 'force',
+  dexterity: 'dexterite',
+  dex: 'dexterite',
+  dexterite: 'dexterite',
+  constitution: 'constitution',
+  con: 'constitution',
+  intelligence: 'intelligence',
+  int: 'intelligence',
+  sagesse: 'sagesse',
+  wisdom: 'sagesse',
+  wis: 'sagesse',
+  charisme: 'charisme',
+  charisma: 'charisme',
+  cha: 'charisme'
+}
+
+const ABILITY_LABELS: Record<AbilityKey, string> = {
+  force: 'Force',
+  dexterite: 'Dexterite',
+  constitution: 'Constitution',
+  intelligence: 'Intelligence',
+  sagesse: 'Sagesse',
+  charisme: 'Charisme'
+}
+
+const normalizeId = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null
+  const str = String(value).trim()
+  return str.length ? str : null
+}
+
+const normalizeStatKey = (value: unknown): AbilityKey | null => {
+  if (value === null || value === undefined) return null
+  const normalized = String(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z]/g, '')
+  return ABILITY_MAP[normalized] ?? null
+}
+
+const describeRequirementNode = (node: RequirementNode): string => {
+  if (Array.isArray(node?.all) && node.all.length) {
+    return node.all.map((child) => describeRequirementNode(child)).join(' et ')
+  }
+  if (Array.isArray(node?.any) && node.any.length) {
+    return node.any.map((child) => describeRequirementNode(child)).join(' ou ')
+  }
+  const abilityKey = normalizeStatKey(node?.stat)
+  const label = abilityKey ? ABILITY_LABELS[abilityKey] : String(node?.stat ?? 'stat')
+  const threshold = Number(node?.min_value ?? node?.min ?? 0) || 0
+  return `${label} ≥ ${threshold}`
+}
+
+const evaluateRequirementNode = (
+  node: RequirementNode,
+  abilities: Record<AbilityKey, number>
+): { ok: boolean; failures: string[] } => {
+  if (!node) return { ok: true, failures: [] }
+  if (Array.isArray(node.all) && node.all.length) {
+    const failures: string[] = []
+    let ok = true
+    for (const child of node.all) {
+      const res = evaluateRequirementNode(child, abilities)
+      if (!res.ok) {
+        ok = false
+        failures.push(...res.failures)
+      }
+    }
+    return { ok, failures }
+  }
+  if (Array.isArray(node.any) && node.any.length) {
+    const childDescriptions: string[] = []
+    let ok = false
+    for (const child of node.any) {
+      const res = evaluateRequirementNode(child, abilities)
+      if (res.ok) {
+        ok = true
+        break
+      }
+      childDescriptions.push(describeRequirementNode(child))
+    }
+    return ok
+      ? { ok: true, failures: [] }
+      : {
+          ok: false,
+          failures: [
+            childDescriptions.length
+              ? `Remplir au moins une des conditions suivantes: ${childDescriptions.join(', ')}`
+              : 'Conditions alternatives non remplies'
+          ]
+        }
+  }
+  const abilityKey = normalizeStatKey(node?.stat)
+  const threshold = Number(node?.min_value ?? node?.min ?? 0) || 0
+  if (!abilityKey) {
+    return { ok: false, failures: ['Condition de multiclassage inconnue'] }
+  }
+  const value = Number(abilities[abilityKey] ?? 0)
+  if (Number.isFinite(value) && value >= threshold) {
+    return { ok: true, failures: [] }
+  }
+  return { ok: false, failures: [`${ABILITY_LABELS[abilityKey]} ≥ ${threshold}`] }
+}
+
+
 export const useExperienceLevelUp = (
   currentLevel: LevelSource,
   currentXp: LevelSource,
   opts: ExperienceLevelUpOptions = {}
 ): ExperienceLevelUpState => {
+  const requestFetch = useRequestFetch()
+  const dataStore = useDataStore()
+  const personnageStore = usePersonnage()
   const maxLevel = clampLevel(opts.maxLevel ?? MAX_SUPPORTED_LEVEL, MAX_SUPPORTED_LEVEL)
 
   const dismissedLevels = ref<number[]>([])
   const queue = ref<number[]>([])
+  const catalogLoaded = ref(false)
+  const catalogLoading = ref<Promise<void> | null>(null)
 
   const evaluateQueue = () => {
     const lvl = clampLevel(currentLevel.value ?? 1, maxLevel)
@@ -104,8 +245,9 @@ export const useExperienceLevelUp = (
     )
     const dismissedSet = new Set<number>(filteredDismissed)
 
+    const maxTarget = Math.min(lvl + 1, reachable)
     const nextQueue: number[] = []
-    for (let target = lvl + 1; target <= reachable; target += 1) {
+    for (let target = lvl + 1; target <= maxTarget; target += 1) {
       if (!dismissedSet.has(target)) {
         nextQueue.push(target)
       }
@@ -167,6 +309,151 @@ export const useExperienceLevelUp = (
     evaluateQueue()
   }
 
+  const abilityScores = computed<Record<AbilityKey, number>>(() => {
+    const caracs = ((personnageStore as any).perso?.caracs ?? {}) as Record<string, any>
+    return {
+      force: Number(caracs.force ?? 0) || 0,
+      dexterite: Number(caracs.dexterite ?? 0) || 0,
+      constitution: Number(caracs.constitution ?? 0) || 0,
+      intelligence: Number(caracs.intelligence ?? 0) || 0,
+      sagesse: Number(caracs.sagesse ?? 0) || 0,
+      charisme: Number(caracs.charisme ?? 0) || 0
+    }
+  })
+
+  const classLevels = computed<Record<string, number>>(() => {
+    const p: any = (personnageStore as any).perso || {}
+    const levels: Record<string, number> = {}
+    const add = (id: unknown, lvl: unknown) => {
+      const key = normalizeId(id)
+      if (!key) return
+      const value = Math.max(0, Math.floor(Number(lvl) || 0))
+      if (!value) return
+      levels[key] = (levels[key] ?? 0) + value
+    }
+    if (p && typeof p.classes === 'object' && p.classes !== null) {
+      for (const entry of Object.values(p.classes as Record<string, any>)) {
+        if (!entry || typeof entry !== 'object') continue
+        add(entry.classeId ?? entry.classId ?? entry.id ?? null, entry.niveau ?? entry.level ?? entry.levels ?? 0)
+      }
+    }
+    add(p.classeId1 ?? p.classeId ?? null, p.levelClasse1 ?? p.niveau ?? 0)
+    add(p.classeId2 ?? null, p.levelClasse2 ?? 0)
+    return levels
+  })
+
+  const loadCatalogClasses = async () => {
+    if (!process.client) return
+    if (catalogLoading.value) return catalogLoading.value
+    catalogLoading.value = (async () => {
+      try {
+        try {
+          await (dataStore.load?.() ?? Promise.resolve())
+        } catch {
+          // ignore local load errors
+        }
+        const response = await requestFetch('/api/catalog/classes')
+        if (Array.isArray(response) && response.length) {
+          const map: Record<string, any> = {}
+          for (const entry of response as Array<Record<string, any>>) {
+            const id = normalizeId(entry?.id ?? null)
+            if (!id) continue
+            const raw =
+              (entry.raw && typeof entry.raw === 'object' ? entry.raw : null) ??
+              (entry.data && typeof entry.data === 'object' ? entry.data : null)
+            const next: Record<string, any> = raw ? { ...raw } : {}
+            if (!next.id) next.id = id
+            if (!next.name) next.name = entry.name ?? next.nom ?? next.label ?? id
+            if (entry?.multiclassing_requirements !== undefined && next.multiclassing_requirements === undefined) {
+              next.multiclassing_requirements = entry.multiclassing_requirements
+            }
+            if (!next.label && entry?.name) next.label = entry.name
+            map[id] = next
+          }
+          if (Object.keys(map).length) {
+            dataStore.merge({ classes: map })
+          }
+        }
+      } catch (error) {
+        console.warn('[useExperienceLevelUp] catalogue classes indisponible', error)
+      } finally {
+        catalogLoaded.value = true
+        catalogLoading.value = null
+      }
+    })()
+    return catalogLoading.value
+  }
+
+  const ensureClassesLoaded = async () => {
+    if (catalogLoaded.value) return
+    await loadCatalogClasses()
+  }
+
+  watch(
+    () => ready.value,
+    (isReady) => {
+      if (isReady) {
+        ensureClassesLoaded()
+      }
+    },
+    { immediate: true }
+  )
+
+  const availableClasses = computed<AvailableClassEntry[]>(() => {
+    const classesMap = dataStore.maps.classes || {}
+    const entries: AvailableClassEntry[] = []
+    const usedIds = new Set<string>(Object.keys(classLevels.value))
+    const abilities = abilityScores.value
+    const classKeys = Object.keys(classesMap)
+    if (!classKeys.length && !catalogLoaded.value) {
+      // data not yet loaded (but request triggered), we still return empty listing; ensure load triggered
+      ensureClassesLoaded()
+    }
+    const seen = new Set<string>()
+    const collectEntry = (raw: any) => {
+      const clsId = normalizeId(raw?.id ?? raw?.slug ?? raw?.name ?? raw?.nom ?? null)
+      if (!clsId || seen.has(clsId)) return
+      seen.add(clsId)
+      const label = String(raw?.name ?? raw?.nom ?? raw?.label ?? clsId)
+      const existingLevel = classLevels.value[clsId] ?? 0
+      const requirements = (raw?.multiclassing_requirements ?? null) as RequirementNode | null
+      const reasons: string[] = []
+      let eligible = true
+      if (!usedIds.has(clsId) && usedIds.size >= MAX_CLASS_SLOTS) {
+        eligible = false
+        reasons.push('Limite de deux classes atteinte')
+      }
+      if (eligible && requirements) {
+        const validation = evaluateRequirementNode(requirements, abilities)
+        if (!validation.ok) {
+          eligible = false
+          reasons.push(...validation.failures)
+        }
+      }
+      entries.push({
+        id: clsId,
+        label,
+        eligible,
+        reasons,
+        existingLevel,
+        requirements,
+        raw
+      })
+    }
+    for (const key of classKeys) {
+      const raw = classesMap[key]
+      if (!raw || typeof raw !== 'object') continue
+      collectEntry(raw)
+    }
+    entries.sort((a, b) => {
+      const aExisting = a.existingLevel > 0 ? 0 : 1
+      const bExisting = b.existingLevel > 0 ? 0 : 1
+      if (aExisting !== bExisting) return aExisting - bExisting
+      return a.label.localeCompare(b.label)
+    })
+    return entries
+  })
+
   return {
     activeTargetLevel,
     queuedTargets,
@@ -174,6 +461,7 @@ export const useExperienceLevelUp = (
     ready,
     nextLevelThreshold,
     xpUntilNextLevel,
+    availableClasses,
     acknowledge,
     dismissUntilProgress
   }

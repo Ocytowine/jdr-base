@@ -129,9 +129,19 @@ export async function run() {
   const backgroundsHandler = backgroundsModule.default;
 
   setCatalogAdapter(new SuccessAdapter());
-  const classesFromIndex = await classesHandler({} as any);
-  const racesFromIndex = await racesHandler({} as any);
-  const backgroundsFromIndex = await backgroundsHandler({} as any);
+  const stripExtras = (list: any[]) =>
+    list.map((entry) => {
+      const { raw, multiclassing_requirements, ...rest } = entry;
+      return rest;
+    });
+
+  const classesFromIndexRaw = await classesHandler({} as any);
+  const racesFromIndexRaw = await racesHandler({} as any);
+  const backgroundsFromIndexRaw = await backgroundsHandler({} as any);
+
+  const classesFromIndex = stripExtras(classesFromIndexRaw);
+  const racesFromIndex = stripExtras(racesFromIndexRaw);
+  const backgroundsFromIndex = stripExtras(backgroundsFromIndexRaw);
 
   assert.deepEqual(classesFromIndex, [
     {
@@ -207,9 +217,9 @@ export async function run() {
   ]);
 
   setCatalogAdapter(new FallbackAdapter());
-  const classesFallback = await classesHandler({} as any);
-  const racesFallback = await racesHandler({} as any);
-  const backgroundsFallback = await backgroundsHandler({} as any);
+  const classesFallback = stripExtras(await classesHandler({} as any));
+  const racesFallback = stripExtras(await racesHandler({} as any));
+  const backgroundsFallback = stripExtras(await backgroundsHandler({} as any));
 
   assert.deepEqual(classesFallback, [
     { id: 'barbare', name: 'Barbare', description: null, image: null, effectLabel: null, effect_label: null },
@@ -233,9 +243,9 @@ export async function run() {
   };
 
   setCatalogAdapter(new ErroringAdapter());
-  const classesError = await classesHandler({} as any);
-  const racesError = await racesHandler({} as any);
-  const backgroundsError = await backgroundsHandler({} as any);
+  const classesError = stripExtras(await classesHandler({} as any));
+  const racesError = stripExtras(await racesHandler({} as any));
+  const backgroundsError = stripExtras(await backgroundsHandler({} as any));
 
   assert.deepEqual(classesError, []);
   assert.deepEqual(racesError, []);

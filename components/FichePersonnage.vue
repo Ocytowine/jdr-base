@@ -3,10 +3,38 @@
     <h3 class="h2">Fiche personnage</h3>
     <div class="champs" style="margin-top:8px;">
       <div style="grid-column: span 6;">
-        <div class="carte-mini">
-          <strong>{{ p.nom || 'Sans-nom' }}</strong>
-          <div style="color:var(--texte-2);">{{ p.lignee }} — {{ p.classe }} {{ p.niveau }}</div>
-          <div class="ligne" style="gap:8px; margin-top:6px;">
+        <div class="carte-mini header-card">
+          <div class="header-card__identity">
+            <strong>{{ p.nom || 'Sans-nom' }}</strong>
+            <span class="header-card__subtitle">{{ p.lignee || 'Origine inconnue' }}</span>
+          </div>
+          <div class="header-card__levels">
+            <div class="header-card__global">
+              <span class="header-card__global-label">Niveau global</span>
+              <span class="header-card__global-value">{{ globalLevel }}</span>
+            </div>
+            <div class="header-card__classes">
+              <template v-if="classDisplayEntries.length">
+                <span v-for="slot in classDisplayEntries" :key="slot.id" class="class-chip">
+                  {{ slot.label }} <small v-if="slot.level">niv {{ slot.level }}</small>
+                </span>
+              </template>
+              <span v-else class="muted">Classe inconnue</span>
+            </div>
+          </div>
+          <div class="header-card__xp" v-if="xpProgress.nextThreshold !== null">
+            <div class="header-card__xp-label">
+              XP {{ xpProgress.current }} / {{ xpProgress.nextThreshold }}
+              <span class="header-card__xp-remaining">({{ xpProgress.remaining }} restant)</span>
+            </div>
+            <div class="xp-bar">
+              <div class="xp-bar__fill" :style="{ width: xpProgress.ratio + '%' }"></div>
+            </div>
+          </div>
+          <div class="header-card__xp" v-else>
+            <div class="header-card__xp-label">XP {{ xpProgress.current }} (niveau maximum)</div>
+          </div>
+          <div class="ligne header-card__badges">
             <span class="badge">CA {{ ca }}</span>
             <span class="badge" v-if="pvMax > 0">PV {{ p.pvActuels }}/{{ pvMax }}</span>
             <span class="badge" v-else>PV ...</span>
@@ -100,9 +128,12 @@ import {
   type ProficiencySummary
 } from '@/utils/proficiencies'
 import type { CompetenceDef } from '@/utils/competences'
+import { useDataStore } from '@/stores/data'
+import { xpThresholdForLevel, MAX_SUPPORTED_LEVEL } from '@/composables/useExperienceLevelUp'
 
 const props = defineProps<{ compact?: boolean }>()
 const store = usePersonnage()
+const dataStore = useDataStore()
 const p: any = store.perso || {
   nom: '',
   lignee: '',
@@ -122,6 +153,66 @@ const mait = computed(() => Number(derived.value?.proficiencyBonus || 0))
 const init = computed(() => mod(Number(p.caracs?.dexterite || 10)))
 const ca = computed(() => classeArmureDeBase(Number(p.caracs?.dexterite || 10), p.armure?.type || 'aucune', !!p.bouclier))
 const pvMax = computed(() => Number(derived.value?.pvMax || 0))
+const globalLevel = computed(() => Math.max(1, Number(p.niveau || 1)))
+const normalizeId = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null
+  const str = String(value).trim()
+  return str.length ? str : null
+}
+const labelForClassId = (id: string | null, fallback: string | null = null): string | null => {
+  if (!id) return fallback
+  const raw = dataStore.maps.classes?.[id] ?? null
+  const label = raw?.name ?? raw?.nom ?? raw?.label ?? raw?.slug ?? fallback ?? id
+  return label ? String(label) : null
+}
+const classDisplayEntries = computed(() => {
+  const entries: Array<{ id: string; label: string; level: number }> = []
+  const slot1Id = normalizeId(p.classeId1 ?? p.classeId ?? null)
+  const slot2Id = normalizeId(p.classeId2 ?? null)
+  const slot1Level = Number(p.levelClasse1 ?? (slot1Id ? p.niveau : 0) ?? 0) || (slot1Id ? globalLevel.value : 0)
+  const slot2Level = Number(p.levelClasse2 ?? 0) || 0
+  if (slot1Id) {
+    entries.push({
+      id: slot1Id,
+      label: labelForClassId(slot1Id, p.classe ? String(p.classe) : slot1Id) ?? slot1Id,
+      level: slot1Level
+    })
+  } else if (p.classe) {
+    entries.push({
+      id: 'main',
+      label: String(p.classe),
+      level: globalLevel.value
+    })
+  }
+  if (slot2Id) {
+    entries.push({
+      id: slot2Id,
+      label: labelForClassId(slot2Id, slot2Id) ?? slot2Id,
+      level: slot2Level > 0 ? slot2Level : 1
+    })
+  }
+  return entries
+})
+const xpProgress = computed(() => {
+  const current = Number(p.xp ?? 0) || 0
+  const level = globalLevel.value
+  const previousThreshold = xpThresholdForLevel(level)
+  const nextThreshold =
+    level >= MAX_SUPPORTED_LEVEL ? null : xpThresholdForLevel(Math.min(MAX_SUPPORTED_LEVEL, level + 1))
+  if (nextThreshold === null) {
+    return { current, previousThreshold, nextThreshold: null, remaining: 0, ratio: 100 }
+  }
+  const span = Math.max(1, nextThreshold - previousThreshold)
+  const progress = Math.max(0, Math.min(1, (current - previousThreshold) / span))
+  const remaining = Math.max(0, nextThreshold - current)
+  return {
+    current,
+    previousThreshold,
+    nextThreshold,
+    remaining,
+    ratio: Math.round(progress * 100)
+  }
+})
 
 const rankFromValue = (value: unknown): ProficiencyRank | null => {
   if (!value) return null
@@ -247,6 +338,23 @@ const savingThrowsDisplay = computed(() => {
 <style scoped>
 .fiche.compact .carte-mini{ padding:10px; }
 .carte-mini{ background:#0f1330; border:1px solid var(--bord); border-radius:12px; padding:14px; }
+.header-card{ display:flex; flex-direction:column; gap:10px; }
+.header-card__identity{ display:flex; flex-direction:column; gap:2px; }
+.header-card__subtitle{ color:var(--texte-2); font-size:13px; }
+.header-card__levels{ display:flex; flex-direction:column; gap:6px; }
+.header-card__global{ display:flex; align-items:center; gap:8px; }
+.header-card__global-label{ font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--texte-2); }
+.header-card__global-value{ font-size:20px; font-weight:600; }
+.header-card__classes{ display:flex; flex-wrap:wrap; gap:8px; }
+.class-chip{ background:rgba(255,255,255,0.06); border-radius:999px; padding:4px 10px; font-size:13px; display:flex; align-items:center; gap:4px; }
+.class-chip small{ font-size:11px; color:var(--texte-2); text-transform:uppercase; letter-spacing:0.04em; }
+.header-card__xp{ display:flex; flex-direction:column; gap:4px; }
+.header-card__xp-label{ font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--texte-2); display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.header-card__xp-remaining{ text-transform:none; letter-spacing:normal; font-size:11px; color:var(--texte-3); }
+.xp-bar{ position:relative; height:6px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden; }
+.xp-bar__fill{ background:#4f7cff; height:100%; border-radius:inherit; transition:width 0.3s ease; }
+.header-card__badges{ gap:8px; margin-top:4px; flex-wrap:wrap; }
+.muted{ color:var(--texte-2); }
 .table th, .table td{ border-bottom:1px solid var(--bord); padding:8px 6px; text-align:left; }
 .proficiency-groups{ margin-top:6px; display:flex; flex-direction:column; gap:8px; }
 .proficiency-group .group-title{ font-size:12px; text-transform:uppercase; letter-spacing:0.04em; color:var(--texte-2); }

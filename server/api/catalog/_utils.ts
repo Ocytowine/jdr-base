@@ -10,6 +10,8 @@ export type CatalogEntry = {
   image: string | null;
   effectLabel: string | null;
   effect_label?: string | null;
+  multiclassing_requirements?: any;
+  raw?: Record<string, any> | null;
 };
 type CatalogKind = 'classes' | 'races' | 'backgrounds' | 'spells' | 'items';
 
@@ -264,6 +266,10 @@ async function enrichCatalogEntries(
       }
 
       const record = payload as Record<string, any>;
+      entry.raw = record;
+      if (record?.multiclassing_requirements !== undefined) {
+        entry.multiclassing_requirements = record.multiclassing_requirements;
+      }
       const resolvedName = pickFirstFromKeys(record, NAME_FIELDS);
       const resolvedDescription = pickFirstFromKeys(record, TEXT_FIELDS);
       const resolvedImage = pickFirstFromKeys(record, IMAGE_FIELDS);

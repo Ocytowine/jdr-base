@@ -16,6 +16,7 @@ import { useDataStore } from '@/stores/data'
 import { useBonomeCreationStore } from '@/stores/bonomeCreation'
 import { bonusDeMaitrise } from '@/utils/regles_du_jeu'
 import { evalFormuleAdditive, resolveStatBasePayload } from '@/utils/evalFormule'
+import { xpThresholdForLevel, MAX_SUPPORTED_LEVEL } from '@/composables/useExperienceLevelUp'
 import EffectEngine from '@/engine/effectEngine'
 import { normalizeEffects } from '@/utils/normalizeEffect'
 import { COMPETENCE_DEFS, COMPETENCE_INDEX, type CompetenceDef } from '@/utils/competences'
@@ -623,7 +624,18 @@ const sanitizePersonnage = async (raw: unknown): Promise<Personnage> => {
     nom: String((source as any).nom ?? (base as any).nom),
     niveau,
     // XP
-    xp: Number.isFinite((source as any).xp) ? Number((source as any).xp) : 0,
+    xp: (() => {
+      const minXp = xpThresholdForLevel(niveau)
+      const nextThreshold =
+        niveau >= MAX_SUPPORTED_LEVEL ? null : xpThresholdForLevel(Math.min(niveau + 1, MAX_SUPPORTED_LEVEL))
+      let rawXp = Number((source as any).xp)
+      if (!Number.isFinite(rawXp)) rawXp = minXp
+      rawXp = Math.max(rawXp, minXp)
+      if (nextThreshold !== null) {
+        rawXp = Math.min(rawXp, nextThreshold - 1)
+      }
+      return rawXp
+    })(),
     // Règles
     dv: derivedDv,
     pvActuels,
