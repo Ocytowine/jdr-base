@@ -147,6 +147,7 @@ import { buildCreationInventoryTransition } from '@/utils/inventaireTransition'
 import { processInput as processCommand, isCommandInput } from '@/utils/commands'
 import { defineAsyncComponent } from 'vue'
 import useExperienceLevelUp from '@/composables/useExperienceLevelUp'
+import { normalizeFeatureLedger, flattenFeatureLedger } from '@/utils/featureLedger'
 
 type EtatSauvegarde = 'chargement' | 'chargee' | 'aucune'
 
@@ -207,7 +208,7 @@ const classeModulesFromData = computed<ModuleClasse[]>(() => {
   const out: ModuleClasse[] = []
   try {
     const perso: any = (storePersonnage as any).perso
-    const featureIds: string[] = Array.isArray(perso?.featureIds) ? perso.featureIds.map((x: any) => String(x)) : []
+    const featureIds: string[] = flattenFeatureLedger(normalizeFeatureLedger(perso?.featureIds ?? {}))
     const spellIds: string[] = Array.isArray(perso?.spellIds) ? perso.spellIds.map((x: any) => String(x)) : []
 
     for (const fid of featureIds) {

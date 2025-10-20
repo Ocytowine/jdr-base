@@ -96,7 +96,7 @@
           <ul>
             <li v-for="cls in lockedNewClasses" :key="cls.id">
               <strong>{{ cls.label }}</strong>
-              <span> — {{ cls.reasons.length ? cls.reasons.join(', ') : 'Conditions non remplies' }}</span>
+              <span> - {{ cls.reasons.length ? cls.reasons.join(', ') : 'Conditions non remplies' }}</span>
             </li>
           </ul>
         </div>
@@ -128,9 +128,19 @@
 
       <article class="card">
         <h3 class="card__title">Nouvelles capacites</h3>
-        <ul class="list">
-          <li v-for="fid in newFeatureIds" :key="fid">{{ featureLabel(fid) }}</li>
-          <li v-if="!newFeatureIds.length" class="muted">Aucune nouvelle capacite detectee.</li>
+        <ul class="list list--features">
+          <li v-for="entry in newFeatureEntries" :key="entry.featureId">
+            <div class="feature-entry">
+              <strong>{{ entry.featureLabel }}</strong>
+              <span v-if="entry.rootLabel && entry.rootLabel !== entry.featureLabel" class="feature-entry__origin">
+                - {{ entry.rootLabel }}
+              </span>
+              <ul v-if="entry.effectsSummary.length" class="feature-entry__effects">
+                <li v-for="(summary, idx) in entry.effectsSummary" :key="idx">{{ summary }}</li>
+              </ul>
+            </div>
+          </li>
+          <li v-if="!newFeatureEntries.length" class="muted">Aucune nouvelle capacite detectee.</li>
         </ul>
       </article>
     </section>
@@ -142,7 +152,26 @@
           <strong>{{ pc.title || pc.ui_id }}</strong>
           <span class="muted" v-if="pc.choose && pc.choose > 1">Selectionnez {{ pc.choose }}</span>
         </div>
-        <div class="choice__options">
+        <div class="choice__options" v-if="isCardChoice(pc)">
+          <article
+            v-for="opt in pc.resolvedOptions"
+            :key="opt.id"
+            class="choice-card"
+            :class="{ 'choice-card--selected': localChoices[pc.ui_id] === opt.id }"
+          >
+            <header class="choice-card__head">
+              <h4>{{ opt.label }}</h4>
+            </header>
+            <p v-if="opt.description" class="choice-card__description">{{ opt.description }}</p>
+            <p v-if="opt.longDescription" class="choice-card__description muted">{{ opt.longDescription }}</p>
+            <footer class="choice-card__actions">
+              <button type="button" class="btn" @click="selectCardOption(pc, opt.id)">
+                Sélectionner
+              </button>
+            </footer>
+          </article>
+        </div>
+        <div class="choice__options" v-else>
           <template v-if="pc.choose && pc.choose > 1">
             <label v-for="opt in optionLabels(pc)" :key="opt.id" class="option">
               <input type="checkbox" :value="opt.id" v-model="localChoices[pc.ui_id]" />
@@ -172,6 +201,46 @@ import { bonusDeMaitrise } from '@/utils/regles_du_jeu'
 import { useDataStore } from '@/stores/data'
 import { useParties } from '@/stores/parties'
 import { xpThresholdForLevel, MAX_SUPPORTED_LEVEL, type AvailableClassEntry } from '@/composables/useExperienceLevelUp'
+import {
+  normalizeFeatureLedger,
+  flattenFeatureLedger,
+  mergeFeatureLedgers,
+  ledgerAddFeature,
+  type FeatureLedger
+} from '@/utils/featureLedger'
+
+type FeaturePreviewEntry = {
+  featureId: string
+  featureLabel: string
+  parentId: string | null
+  parentLabel: string | null
+  rootId: string | null
+  rootLabel: string | null
+  sourceKind: 'class' | 'race' | 'background' | 'feature' | 'manual' | 'item' | 'unknown'
+  effects: Array<Record<string, any>>
+  effectsSummary: string[]
+}
+
+const summarizeEffectForDisplay = (effect: any): string => {
+  if (!effect || typeof effect !== 'object') return 'Effet'
+  const type = String(effect.type ?? 'effet')
+  const payload = effect.payload ?? {}
+  const entries = Object.entries(payload)
+  if (!entries.length) return type
+  const formatted = entries.slice(0, 3).map(([key, value]) => {
+    if (Array.isArray(value)) return `${key}=${value.map((v) => String(v)).join(', ')}`
+    if (value && typeof value === 'object') {
+      const inner = Object.entries(value)
+        .slice(0, 2)
+        .map(([k, v]) => `${k}:${String(v)}`)
+        .join(', ')
+      return `${key}={${inner}${Object.keys(value).length > 2 ? ', ...' : ''}}`
+    }
+    return `${key}=${String(value)}`
+  })
+  const suffix = entries.length > 3 ? ', ...' : ''
+  return `${type}: ${formatted.join(', ')}${suffix}`
+}
 
 const emit = defineEmits<{
   (e: 'close', payload?: { reason: 'cancel' | 'confirmed'; level: number }): void
@@ -202,11 +271,75 @@ const pendingChoices = computed<any[]>(() =>
   Array.isArray(preview.value?.pendingChoices) ? preview.value.pendingChoices : []
 )
 const hasPendingChoices = computed(() => pendingChoices.value.length > 0)
-const appliedFeatures = computed<string[]>(() =>
-  Array.isArray(preview.value?.appliedFeatures)
-    ? preview.value.appliedFeatures.map((x: any) => String(x))
-    : []
-)
+const previewFeatureDetails = computed<FeaturePreviewEntry[]>(() => {
+  const raw =
+    (Array.isArray(preview.value?.appliedFeatureDetails) ? preview.value?.appliedFeatureDetails : null) ??
+    (Array.isArray(preview.value?.previewCharacter?.featureDetails) ? preview.value?.previewCharacter?.featureDetails : null) ??
+    []
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((detail: any) => {
+      const featureId = String(detail?.featureId ?? detail?.id ?? '').trim()
+      if (!featureId.length) return null
+      const featureLabel = String(detail?.featureLabel ?? detail?.label ?? featureId)
+      const effectsArray = Array.isArray(detail?.effects) ? detail.effects : []
+      const summaries = Array.isArray(detail?.effectsSummary) && detail.effectsSummary.length
+        ? detail.effectsSummary.map((entry: any) => String(entry))
+        : effectsArray.map((effect: any) => summarizeEffectForDisplay(effect))
+      const sourceKindRaw = String(detail?.sourceKind ?? '').toLowerCase()
+      const allowedKinds: FeaturePreviewEntry['sourceKind'][] = ['class', 'race', 'background', 'feature', 'manual', 'item', 'unknown']
+      const sourceKind = (allowedKinds.includes(sourceKindRaw as FeaturePreviewEntry['sourceKind'])
+        ? (sourceKindRaw as FeaturePreviewEntry['sourceKind'])
+        : 'feature')
+      const entry: FeaturePreviewEntry = {
+        featureId,
+        featureLabel,
+        parentId: detail?.parentId ? String(detail.parentId) : null,
+        parentLabel: detail?.parentLabel ? String(detail.parentLabel) : null,
+        rootId: detail?.rootId ? String(detail.rootId) : null,
+        rootLabel: detail?.rootLabel ? String(detail.rootLabel) : null,
+        sourceKind,
+        effects: effectsArray,
+        effectsSummary: summaries
+      }
+      return entry
+    })
+    .filter((entry): entry is FeaturePreviewEntry => Boolean(entry))
+})
+
+const previewFeatureLedger = computed<FeatureLedger>(() => {
+  const rawLedger =
+    preview.value?.featureLedger ??
+    preview.value?.previewCharacter?.featureLedger ??
+    (Array.isArray(preview.value?.appliedFeatures) ? preview.value?.appliedFeatures : null) ??
+    (Array.isArray(preview.value?.previewCharacter?.features) ? preview.value?.previewCharacter?.features : null) ??
+    (Array.isArray(preview.value?.previewCharacter?.featureIds) ? preview.value?.previewCharacter?.featureIds : null) ??
+    []
+  return normalizeFeatureLedger(rawLedger)
+})
+
+const currentFeatureLedger = computed<FeatureLedger>(() => normalizeFeatureLedger((store as any).perso?.featureIds ?? []))
+
+const currentFeatureSet = computed(() => new Set(flattenFeatureLedger(currentFeatureLedger.value)))
+
+const newFeatureEntries = computed<FeaturePreviewEntry[]>(() => {
+  const currentSet = currentFeatureSet.value
+  const entries = previewFeatureDetails.value.filter((detail) => !currentSet.has(detail.featureId))
+  if (entries.length) return entries
+  const previewIds = flattenFeatureLedger(previewFeatureLedger.value)
+  const fallbackIds = previewIds.filter((id) => !currentSet.has(id))
+  return fallbackIds.map((fid) => ({
+    featureId: fid,
+    featureLabel: featureLabel(fid),
+    parentId: null,
+    parentLabel: null,
+    rootId: null,
+    rootLabel: null,
+    sourceKind: 'feature',
+    effects: [],
+    effectsSummary: []
+  }))
+})
 
 const normalizeId = (value: unknown): string | null => {
   if (value === null || value === undefined) return null
@@ -268,14 +401,17 @@ const currentClassLevels = computed<Record<string, number>>(() => {
     if (!value) return
     levels[key] = (levels[key] ?? 0) + value
   }
-  if (p && typeof p.classes === 'object' && p.classes !== null) {
+  const hasStructuredClasses =
+    p && typeof p.classes === 'object' && p.classes !== null && Object.keys(p.classes).length > 0
+  if (hasStructuredClasses) {
     for (const entry of Object.values(p.classes as Record<string, any>)) {
       if (!entry || typeof entry !== 'object') continue
       add(entry.classeId ?? entry.classId ?? entry.id ?? null, entry.niveau ?? entry.level ?? entry.levels ?? 0)
     }
+  } else {
+    add(p.classeId1 ?? p.classeId ?? null, p.levelClasse1 ?? p.niveau ?? 0)
+    add(p.classeId2 ?? null, p.levelClasse2 ?? 0)
   }
-  add(p.classeId1 ?? p.classeId ?? null, p.levelClasse1 ?? p.niveau ?? 0)
-  add(p.classeId2 ?? null, p.levelClasse2 ?? 0)
   return levels
 })
 
@@ -385,7 +521,17 @@ const pickFirstField = (record: Record<string, any>, fields: string[] | undefine
   return fallback
 }
 
-const optionFromPayload = (payload: Record<string, any>, fallbackId: string) => {
+const collectionToMapKey: Record<string, keyof ReturnType<typeof useDataStore>['maps']> = {
+  classes: 'classes',
+  races: 'races',
+  backgrounds: 'backgrounds',
+  features: 'features',
+  spells: 'spells',
+  items: 'items',
+  subclasses: 'classes'
+}
+
+const optionFromPayload = (payload: Record<string, any>, fallbackId: string, collection?: string | null) => {
   const label =
     payload?.name ??
     payload?.nom ??
@@ -410,7 +556,8 @@ const optionFromPayload = (payload: Record<string, any>, fallbackId: string) => 
     label: String(label),
     description: description ? String(description) : null,
     longDescription: longDescription ? String(longDescription) : null,
-    payload
+    payload,
+    collection: collection ?? null
   }
 }
 
@@ -421,6 +568,15 @@ const persistDataStore = () => {
   } catch (error) {
     console.warn('[AventureLevelUp] sauvegarde dataStore impossible', error)
   }
+}
+
+const mergeCatalogEntryIntoStore = (collection: string | null | undefined, id: string, payload: Record<string, any>) => {
+  if (!collection) return
+  const mapKey = collectionToMapKey[collection]
+  if (!mapKey) return
+  const current = (dataStore.maps as any)[mapKey] ?? {}
+  ;(dataStore.maps as any)[mapKey] = { ...current, [id]: payload }
+  persistDataStore()
 }
 
 const fetchCatalogEntry = async (collection: string, id: string): Promise<Record<string, any> | null> => {
@@ -446,15 +602,16 @@ const ensureClassDetails = async (classId: string | null) => {
   try {
     const payload = await fetchCatalogEntry('classes', id)
     if (payload && typeof payload === 'object') {
-      dataStore.merge({ classes: { [id]: payload } })
-      persistDataStore()
+      mergeCatalogEntryIntoStore('classes', id, payload)
     }
   } catch (error) {
     console.warn('[AventureLevelUp] impossible de charger la classe', id, error)
   }
 }
 
-const fetchAutoFromOptions = async (autoFrom: any): Promise<Array<{ id: string; label: string; description: string | null; longDescription: string | null; payload: Record<string, any> }>> => {
+const fetchAutoFromOptions = async (
+  autoFrom: any
+): Promise<Array<{ id: string; label: string; description: string | null; longDescription: string | null; payload: Record<string, any>; collection: string | null }>> => {
   if (!autoFrom || typeof autoFrom !== 'object' || !autoFrom.collection) return []
   try {
     const response = await requestFetch('/api/catalog/search', {
@@ -473,9 +630,9 @@ const fetchAutoFromOptions = async (autoFrom: any): Promise<Array<{ id: string; 
           pickFirstField(payload, autoFrom.id_fields, entry?.id ?? payload?.id ?? payload?.slug ?? null) ?? null
         if (!resolvedId) return null
         const resolvedLabel = pickFirstField(payload, autoFrom.label_fields, payload?.name ?? payload?.nom ?? resolvedId)
-        return optionFromPayload(payload, String(resolvedId ?? resolvedLabel ?? 'option'))
+        return optionFromPayload(payload, String(resolvedId ?? resolvedLabel ?? 'option'), String(autoFrom.collection))
       })
-      .filter(Boolean) as Array<{ id: string; label: string; description: string | null; longDescription: string | null; payload: Record<string, any> }>
+      .filter(Boolean) as Array<{ id: string; label: string; description: string | null; longDescription: string | null; payload: Record<string, any>; collection: string | null }>
   } catch (error) {
     console.warn('[AventureLevelUp] recherche auto_from impossible', autoFrom, error)
     return []
@@ -487,7 +644,7 @@ const hydratePendingChoices = async (choices: any[]): Promise<any[]> => {
   const hydrated: any[] = []
   for (const choice of choices) {
     const cloned = { ...choice }
-    let options: Array<{ id: string; label: string; description: string | null; longDescription: string | null; payload: Record<string, any> }> = []
+    let options: Array<{ id: string; label: string; description: string | null; longDescription: string | null; payload: Record<string, any>; collection: string | null }> = []
     if (choice?.auto_from?.collection) {
       options = await fetchAutoFromOptions(choice.auto_from)
     }
@@ -498,7 +655,7 @@ const hydratePendingChoices = async (choices: any[]): Promise<any[]> => {
         if (!id) continue
         const payload = await fetchCatalogEntry(choice.auto_from.collection, id)
         if (!payload) continue
-        options.push(optionFromPayload(payload, id))
+        options.push(optionFromPayload(payload, id, String(choice.auto_from.collection)))
       }
     }
     if (options.length) {
@@ -513,10 +670,33 @@ const hydratePendingChoices = async (choices: any[]): Promise<any[]> => {
 const isCardChoice = (choice: any): boolean =>
   Array.isArray(choice?.resolvedOptions) && choice.resolvedOptions.length > 0
 
-const selectCardOption = (choice: any, optionId: string) => {
+const ensureChoiceDetail = async (choice: any, optionId: string) => {
+  const options = Array.isArray(choice?.resolvedOptions) ? choice.resolvedOptions : []
+  const option = options.find((opt: any) => String(opt?.id) === String(optionId)) ?? null
+  const collection: string | null =
+    (option && option.collection ? String(option.collection) : null) ??
+    (choice?.auto_from?.collection ? String(choice.auto_from.collection) : null)
+  if (!collection) return
+  if (option && option.payload && typeof option.payload === 'object') {
+    mergeCatalogEntryIntoStore(collection, String(optionId), option.payload)
+    return
+  }
+  const payload = await fetchCatalogEntry(collection, String(optionId))
+  if (payload) {
+    mergeCatalogEntryIntoStore(collection, String(optionId), payload)
+    if (option) option.payload = payload
+  }
+}
+
+const selectCardOption = async (choice: any, optionId: string) => {
   const uiId = String(choice?.ui_id ?? '')
   if (!uiId || !optionId) return
   localChoices[uiId] = optionId
+  try {
+    await ensureChoiceDetail(choice, optionId)
+  } catch (error) {
+    console.warn('[AventureLevelUp] ensureChoiceDetail failed', choice?.auto_from?.collection, optionId, error)
+  }
 }
 
 const normalizeStatKey = (value: unknown): AbilityKey | null => {
@@ -892,11 +1072,15 @@ async function loadPreview() {
     return
   }
   try {
+    if (selectedClassId.value) {
+      await ensureClassDetails(selectedClassId.value)
+    }
     const res = await requestFetch('/api/creation/preview', {
       method: 'POST',
       body: payload
     })
-    preview.value = res
+    const hydratedChoices = await hydratePendingChoices(res?.pendingChoices ?? [])
+    preview.value = { ...res, pendingChoices: hydratedChoices }
     resetLocalChoices()
   } catch (error) {
     preview.value = null
@@ -923,25 +1107,13 @@ async function applyChoice(pc: any) {
       method: 'POST',
       body: { ...payload, ui_id, value }
     })
-    preview.value = res
+    const hydratedChoices = await hydratePendingChoices(res?.pendingChoices ?? [])
+    preview.value = { ...res, pendingChoices: hydratedChoices }
     resetLocalChoices()
   } catch (error) {
     console.warn('[AventureLevelUp] applyChoice failed', error)
   }
 }
-
-const newFeatureIds = computed(() => {
-  try {
-    const current: string[] = Array.isArray((store as any).perso?.featureIds)
-      ? (store as any).perso.featureIds.map((x: any) => String(x))
-      : []
-    const next: string[] = appliedFeatures.value
-    const currentSet = new Set(current)
-    return next.filter((fid) => !currentSet.has(fid))
-  } catch {
-    return []
-  }
-})
 
 async function confirmLevelUp() {
   if (hasPendingChoices.value || !classEligibility.value.allowed || !selectedClassId.value) return
@@ -950,11 +1122,16 @@ async function confirmLevelUp() {
     const nextClassLevels = buildClassLevelsForPreview()
     const validatedLevel = Object.values(nextClassLevels).reduce((sum, lvl) => sum + lvl, 0)
     const selectedId = selectedClassId.value
-    const cur = Array.isArray((store as any).perso?.featureIds)
-      ? (store as any).perso.featureIds.map((x: any) => String(x))
-      : []
-    const merged = Array.from(new Set([...cur, ...newFeatureIds.value]))
-    ;(store as any).perso.featureIds = merged
+    const currentLedger = normalizeFeatureLedger((store as any).perso?.featureIds ?? [])
+    let mergedLedger = mergeFeatureLedgers(currentLedger, previewFeatureLedger.value)
+    for (const entry of newFeatureEntries.value) {
+      const rootTarget = normalizeId(entry.rootId) ?? normalizeId(entry.parentId) ?? entry.featureId
+      mergedLedger = ledgerAddFeature(mergedLedger, rootTarget ?? entry.featureId, entry.featureId)
+      if (entry.parentId && entry.parentId !== entry.featureId) {
+        mergedLedger = ledgerAddFeature(mergedLedger, entry.parentId, entry.featureId)
+      }
+    }
+    ;(store as any).perso.featureIds = mergedLedger
 
     const p: any = (store as any).perso || {}
     let slot1Id = normalizeClassId(p.classeId1 ?? p.classeId ?? null)
@@ -1253,6 +1430,22 @@ watch(
 .diff li:last-child {
   border-bottom: none;
 }
+.feature-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.feature-entry__origin {
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--texte-2);
+}
+.feature-entry__effects {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--texte-2);
+}
 .muted {
   color: var(--texte-2);
 }
@@ -1288,6 +1481,34 @@ watch(
   display: flex;
   gap: 6px;
   align-items: center;
+}
+.choice-card {
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(12, 16, 38, 0.85);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+}
+.choice-card--selected {
+  border-color: #4f7cff;
+  background: rgba(79, 124, 255, 0.15);
+}
+.choice-card__head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+.choice-card__description {
+  margin: 0;
+  font-size: 13px;
+}
+.choice-card__actions {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
 }
 .btn {
   padding: 8px 12px;

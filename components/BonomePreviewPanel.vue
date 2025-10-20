@@ -3,7 +3,7 @@
   <section class="preview">
     <div class="preview__header">
       <h3 class="preview__title">Prévisualisation</h3>
-      <div class="preview__counter">Appliqués : {{ preview?.appliedFeatures?.length ?? 0 }}</div>
+      <div class="preview__counter">Capacités : {{ appliedFeatureCount }}</div>
     </div>
 
     <div v-if="preview" class="preview__panel">
@@ -80,6 +80,24 @@
           </p>
         </section>
         <!-- Fin bloc matériel -->
+        <section class="preview-section">
+          <h4 class="preview-section__title">Capacités &amp; choix</h4>
+          <div v-if="featureSections.length" class="preview-section__tiles">
+            <article v-for="section in featureSections" :key="section.id" class="preview-tile">
+              <span class="preview-tile__label">{{ section.sourceLabel }}</span>
+              <strong class="preview-tile__title">{{ section.title }}</strong>
+              <ul class="preview-feature-list">
+                <li v-for="item in section.items" :key="item.id">
+                  <span class="preview-feature__label">{{ item.label }}</span>
+                  <span v-if="item.summaries.length" class="preview-feature__summary">
+                    {{ item.summaries.join(' • ') }}
+                  </span>
+                </li>
+              </ul>
+            </article>
+          </div>
+          <p v-else class="preview-list__empty">Aucune capacité détectée.</p>
+        </section>
       </div>
 
       <div v-if="preview?.errors && preview.errors.length" class="preview__errors">
@@ -116,13 +134,95 @@ import { usePersonnage } from '@/stores/personnage';
 import { useDataStore } from '@/stores/data';
 import { useParties } from '@/stores/parties';
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
+import { normalizeFeatureLedger, flattenFeatureLedger, type FeatureLedger } from '@/utils/featureLedger';
 import type { InventaireItem } from '@/components/aventure/AventureInventaire.vue';
 
 const router = useRouter();
 const creation = useBonomeCreationStore();
-const personnageStore = usePersonnage();
 const dataStore = useDataStore();
 const requestFetch = useRequestFetch();
+
+type FeaturePreviewEntry = {
+  featureId: string;
+  featureLabel: string;
+  parentId: string | null;
+  parentLabel: string | null;
+  rootId: string | null;
+  rootLabel: string | null;
+  sourceKind: 'class' | 'race' | 'background' | 'feature' | 'manual' | 'item' | 'unknown';
+  effects: Array<Record<string, any>>;
+  effectsSummary: string[];
+};
+
+type FeatureSection = {
+  id: string;
+  title: string;
+  sourceLabel: string;
+  items: Array<{ id: string; label: string; summaries: string[] }>;
+};
+
+const summarizeValue = (value: any): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const mapped = value
+      .map((entry) => summarizeValue(entry))
+      .filter((entry) => typeof entry === 'string' && entry.length > 0);
+    return mapped.join(', ');
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value);
+    const limited = entries.slice(0, 3).map(([key, val]) => `${key}: ${summarizeValue(val)}`);
+    const suffix = entries.length > 3 ? ' ...' : '';
+    return limited.join(', ') + suffix;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const summarizeEffectForDisplay = (effect: any): string => {
+  if (!effect || typeof effect !== 'object') return '';
+  const type = String(effect.type ?? 'effet').toLowerCase();
+  const payload = effect.payload ?? {};
+  switch (type) {
+    case 'proficiency_grant': {
+      const parts: string[] = [];
+      if (payload.skills) parts.push(`Compétences (${summarizeValue(payload.skills)})`);
+      if (payload.weapons) parts.push(`Armes (${summarizeValue(payload.weapons)})`);
+      if (payload.armor) parts.push(`Armures (${summarizeValue(payload.armor)})`);
+      if (payload.tools) parts.push(`Outils (${summarizeValue(payload.tools)})`);
+      if (!parts.length) parts.push(summarizeValue(payload));
+      return parts.join(' · ');
+    }
+    case 'saving_throws':
+      return `Jets de sauvegarde: ${summarizeValue(payload.saving_throws ?? payload)}`;
+    case 'spell_grant':
+      return `Sort obtenu: ${summarizeValue(payload.spell_id ?? payload.spell ?? payload)}`;
+    case 'spellcasting_feature': {
+      const ability = payload.ability ? ` (${payload.ability})` : '';
+      return `Sortilège${ability}`.trim();
+    }
+    case 'stat_modifier': {
+      const stat = summarizeValue(payload.stat ?? payload.attribute ?? 'stat');
+      const delta = summarizeValue(payload.delta ?? payload.value ?? '+?');
+      return `Modification ${stat}: ${delta}`;
+    }
+    case 'ability_score_increase':
+      return `Augmentation de caractéristique: ${summarizeValue(payload)}`;
+    case 'trait':
+      return payload.description ? String(payload.description) : `Trait: ${summarizeValue(payload)}`;
+    case 'items_proposal':
+      return `Équipement: ${summarizeValue(payload.items ?? payload)}`;
+    default: {
+      const summary = summarizeValue(payload);
+      return summary.length ? `${type}: ${summary}` : type;
+    }
+  }
+};
 
 const cloneInventoryItems = (items: InventaireItem[] | null | undefined): InventaireItem[] =>
   (Array.isArray(items) ? items : []).map((item) => ({
@@ -141,8 +241,55 @@ const {
   characterFirstName,
   characterLastName,
   characterNickname,
-  fullCharacterName
+  fullCharacterName,
+  selectedClass,
+  selectedRace,
+  selectedBackground
 } = storeToRefs(creation);
+
+const { getSpellOrFeatureDetails } = creation;
+
+const normalizeId = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  const str = String(value).trim();
+  return str.length ? str : null;
+};
+
+const labelForFeature = (id: string | null): string => {
+  const cleanId = normalizeId(id);
+  if (!cleanId) return '';
+  const detail = getSpellOrFeatureDetails?.(cleanId, 'feature');
+  if (detail && typeof detail === 'object') {
+    const label = detail.name ?? detail.label ?? detail.nom ?? detail.title ?? null;
+    if (label) return String(label);
+  }
+  const raw = (dataStore.maps.features || {})[cleanId];
+  if (raw && typeof raw === 'object') {
+    const label = raw.name ?? raw.label ?? raw.nom ?? raw.title ?? raw.id ?? null;
+    if (label) return String(label);
+  }
+  return cleanId;
+};
+
+const classifyRootKind = (rootId: string | null): FeaturePreviewEntry['sourceKind'] => {
+  const normalized = normalizeId(rootId)?.toLowerCase() ?? '';
+  if (normalized && normalizeId(selectedClass.value)?.toLowerCase() === normalized) return 'class';
+  if (normalized && normalizeId(selectedRace.value)?.toLowerCase() === normalized) return 'race';
+  if (normalized && normalizeId(selectedBackground.value)?.toLowerCase() === normalized) return 'background';
+  return 'feature';
+};
+
+const SOURCE_KIND_LABEL: Record<FeaturePreviewEntry['sourceKind'], string> = {
+  class: 'Classe',
+  race: 'Race',
+  background: 'Historique',
+  feature: 'Capacité',
+  manual: 'Choix manuel',
+  item: 'Objet',
+  unknown: 'Autre'
+};
+
+const sourceKindLabel = (kind: FeaturePreviewEntry['sourceKind']): string => SOURCE_KIND_LABEL[kind] ?? 'Autre';
 
 const trimmedFirstName = computed(() => characterFirstName.value.trim());
 const trimmedLastName = computed(() => characterLastName.value.trim());
@@ -206,6 +353,165 @@ const slotCandidatesForUi = computed(() => {
     accessories: prune(map.accessories)
   };
 });
+
+const previewFeatureLedger = computed<FeatureLedger>(() => {
+  const rawLedger =
+    preview.value?.featureLedger ??
+    preview.value?.previewCharacter?.featureLedger ??
+    (Array.isArray(preview.value?.appliedFeatures) ? preview.value?.appliedFeatures : null) ??
+    (Array.isArray(preview.value?.previewCharacter?.features) ? preview.value?.previewCharacter?.features : null) ??
+    (Array.isArray(preview.value?.previewCharacter?.featureIds) ? preview.value?.previewCharacter?.featureIds : null) ??
+    [];
+  return normalizeFeatureLedger(rawLedger);
+});
+
+const previewFeatureDetails = computed<FeaturePreviewEntry[]>(() => {
+  const rawDetails =
+    (Array.isArray(preview.value?.appliedFeatureDetails) ? preview.value?.appliedFeatureDetails : null) ??
+    (Array.isArray(preview.value?.previewCharacter?.featureDetails) ? preview.value?.previewCharacter?.featureDetails : null) ??
+    [];
+  if (!Array.isArray(rawDetails)) return [];
+
+  const map = new Map<string, FeaturePreviewEntry>();
+  const allowedKinds: FeaturePreviewEntry['sourceKind'][] = ['class', 'race', 'background', 'feature', 'manual', 'item', 'unknown'];
+
+  for (const detail of rawDetails) {
+    if (!detail || typeof detail !== 'object') continue;
+    const featureId = normalizeId(detail.featureId ?? detail.id);
+    if (!featureId) continue;
+    const parentId = normalizeId(detail.parentId ?? detail.parent_id ?? null);
+    const rootId = normalizeId(detail.rootId ?? detail.originId ?? parentId ?? featureId);
+    const effectsArray = Array.isArray(detail.effects) ? detail.effects : [];
+    const summaries = Array.isArray(detail.effectsSummary) && detail.effectsSummary.length
+      ? detail.effectsSummary.map((entry: any) => String(entry))
+      : effectsArray.map((effect: any) => summarizeEffectForDisplay(effect)).filter((entry) => entry && entry.length);
+    const kindRaw = String(detail.sourceKind ?? '').toLowerCase();
+    const sourceKind = allowedKinds.includes(kindRaw as FeaturePreviewEntry['sourceKind'])
+      ? (kindRaw as FeaturePreviewEntry['sourceKind'])
+      : classifyRootKind(rootId);
+
+    const parentLabelRaw = typeof detail.parentLabel === 'string' && detail.parentLabel.trim().length
+      ? String(detail.parentLabel)
+      : typeof detail.parentName === 'string' && detail.parentName.trim().length
+        ? String(detail.parentName)
+        : null;
+    const rootLabelRaw = typeof detail.rootLabel === 'string' && detail.rootLabel.trim().length
+      ? String(detail.rootLabel)
+      : typeof detail.originLabel === 'string' && detail.originLabel.trim().length
+        ? String(detail.originLabel)
+        : null;
+
+    const entry: FeaturePreviewEntry = {
+      featureId,
+      featureLabel: String(detail.featureLabel ?? detail.label ?? detail.name ?? featureId),
+      parentId,
+      parentLabel: parentLabelRaw ?? (parentId ? labelForFeature(parentId) : null),
+      rootId,
+      rootLabel: rootLabelRaw ?? (rootId ? labelForFeature(rootId) : null),
+      sourceKind,
+      effects: effectsArray,
+      effectsSummary: summaries
+    };
+
+    map.set(featureId, entry);
+  }
+
+  return Array.from(map.values());
+});
+
+const featureEntries = computed<FeaturePreviewEntry[]>(() => {
+  const entries = new Map<string, FeaturePreviewEntry>();
+  previewFeatureDetails.value.forEach((entry) => {
+    entries.set(entry.featureId, { ...entry });
+  });
+
+  const ledger = previewFeatureLedger.value;
+  const ensureEntry = (featureId: string, parentForChild: string | null, rootForChild: string): FeaturePreviewEntry => {
+    let existing = entries.get(featureId);
+    if (!existing) {
+      existing = {
+        featureId,
+        featureLabel: labelForFeature(featureId),
+        parentId: parentForChild && parentForChild !== featureId ? parentForChild : null,
+        parentLabel: parentForChild && parentForChild !== featureId ? labelForFeature(parentForChild) : null,
+        rootId: rootForChild,
+        rootLabel: labelForFeature(rootForChild),
+        sourceKind: classifyRootKind(rootForChild),
+        effects: [],
+        effectsSummary: []
+      };
+      entries.set(featureId, existing);
+    } else {
+      if (parentForChild && parentForChild !== featureId && !existing.parentId) {
+        existing.parentId = parentForChild;
+        existing.parentLabel = labelForFeature(parentForChild);
+      }
+      if (!existing.rootId) existing.rootId = rootForChild;
+      if (!existing.rootLabel) existing.rootLabel = labelForFeature(rootForChild);
+      if (!existing.sourceKind || existing.sourceKind === 'unknown') {
+        existing.sourceKind = classifyRootKind(rootForChild);
+      }
+    }
+    return existing;
+  };
+
+  for (const [parentKey, list] of Object.entries(ledger)) {
+    const parentId = normalizeId(parentKey);
+    if (!parentId) continue;
+    const parentEntry = ensureEntry(parentId, null, parentId);
+    parentEntry.parentId = null;
+    parentEntry.parentLabel = null;
+
+    const children = Array.isArray(list) ? list : [];
+    for (const child of children) {
+      const childId = normalizeId(child);
+      if (!childId) continue;
+      ensureEntry(childId, parentId, parentId);
+    }
+  }
+
+  return Array.from(entries.values()).sort((a, b) =>
+    a.featureLabel.localeCompare(b.featureLabel, 'fr', { sensitivity: 'base' })
+  );
+});
+
+const featureSections = computed<FeatureSection[]>(() => {
+  const sections = new Map<string, FeatureSection>();
+
+  for (const entry of featureEntries.value) {
+    const rootKey = normalizeId(entry.rootId ?? entry.parentId ?? entry.featureId) ?? entry.featureId;
+    const title = entry.rootLabel ?? entry.parentLabel ?? entry.featureLabel;
+    if (!sections.has(rootKey)) {
+      sections.set(rootKey, {
+        id: rootKey,
+        title,
+        sourceLabel: sourceKindLabel(entry.sourceKind),
+        items: []
+      });
+    }
+    const section = sections.get(rootKey)!;
+    if (section.sourceLabel === SOURCE_KIND_LABEL.feature && entry.sourceKind !== 'feature') {
+      section.sourceLabel = sourceKindLabel(entry.sourceKind);
+    }
+    const summaries = entry.effectsSummary.filter((summary) => summary && summary.length);
+    if (!section.items.find((existing) => existing.id === entry.featureId)) {
+      section.items.push({
+        id: entry.featureId,
+        label: entry.featureLabel,
+        summaries
+      });
+    }
+  }
+
+  return Array.from(sections.values())
+    .map((section) => {
+      section.items.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
+      return section;
+    })
+    .sort((a, b) => a.title.localeCompare(b.title, 'fr', { sensitivity: 'base' }));
+});
+
+const appliedFeatureCount = computed(() => flattenFeatureLedger(previewFeatureLedger.value).length);
 
 const coinPurseLabel = computed(() => creation.materialCoinPurseLabel?.value || 'Bourse')
 const coinPurseFinalLabel = computed(() => {
@@ -354,8 +660,9 @@ async function handleSave() {
     }
     // --- FIN injection ui_template ---
 
-    personnageStore.perso = payload;
-    try { await (personnageStore as any).recomputeDerived?.() } catch {}
+    const livePersonnageStore = usePersonnage();
+    livePersonnageStore.perso = payload;
+    try { await (livePersonnageStore as any).recomputeDerived?.() } catch {}
     const partiesStore = useParties();
     if (process.client) {
       partiesStore.initialiser();
@@ -381,7 +688,7 @@ async function handleSave() {
       let inventoryItems = cloneInventoryItems(transition.items);
 
       if (!inventoryItems.length) {
-        const fallbackFromPersonnage = cloneInventoryItems(personnageStore.perso.inventaire);
+        const fallbackFromPersonnage = cloneInventoryItems(livePersonnageStore.perso.inventaire);
         if (fallbackFromPersonnage.length) {
           inventoryItems = fallbackFromPersonnage;
         }
@@ -401,12 +708,16 @@ async function handleSave() {
         inventaireInitialise: finalized.length > 0
       })
 
-      personnageStore.perso = {
-        ...personnageStore.perso,
+      livePersonnageStore.perso = {
+        ...livePersonnageStore.perso,
         inventaire: finalized
       }
     }
-    personnageStore.sauvegarderLocal(partieId ?? undefined);
+    if (typeof livePersonnageStore.sauvegarderLocal === 'function') {
+      livePersonnageStore.sauvegarderLocal(partieId ?? undefined);
+    } else {
+      console.warn('[BonomePreviewPanel] sauvegarderLocal indisponible', livePersonnageStore);
+    }
     creation.lockCreation();
 
     await router.push('/aventure');
@@ -651,6 +962,28 @@ async function handleSave() {
 .preview-list__empty {
   color: var(--texte-2);
   font-style: italic;
+}
+
+.preview-feature-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.preview-feature__label {
+  display: block;
+  font-weight: 600;
+}
+
+.preview-feature__summary {
+  display: block;
+  color: var(--texte-2);
+  font-size: 12px;
+  margin-top: 2px;
 }
 
 .preview-section__slots {

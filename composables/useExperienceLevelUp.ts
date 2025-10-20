@@ -234,6 +234,7 @@ export const useExperienceLevelUp = (
   const queue = ref<number[]>([])
   const catalogLoaded = ref(false)
   const catalogLoading = ref<Promise<void> | null>(null)
+  const catalogClasses = ref<Record<string, any>>({})
 
   const evaluateQueue = () => {
     const lvl = clampLevel(currentLevel.value ?? 1, maxLevel)
@@ -331,14 +332,17 @@ export const useExperienceLevelUp = (
       if (!value) return
       levels[key] = (levels[key] ?? 0) + value
     }
-    if (p && typeof p.classes === 'object' && p.classes !== null) {
+    const hasStructuredClasses =
+      p && typeof p.classes === 'object' && p.classes !== null && Object.keys(p.classes).length > 0
+    if (hasStructuredClasses) {
       for (const entry of Object.values(p.classes as Record<string, any>)) {
         if (!entry || typeof entry !== 'object') continue
         add(entry.classeId ?? entry.classId ?? entry.id ?? null, entry.niveau ?? entry.level ?? entry.levels ?? 0)
       }
+    } else {
+      add(p.classeId1 ?? p.classeId ?? null, p.levelClasse1 ?? p.niveau ?? 0)
+      add(p.classeId2 ?? null, p.levelClasse2 ?? 0)
     }
-    add(p.classeId1 ?? p.classeId ?? null, p.levelClasse1 ?? p.niveau ?? 0)
-    add(p.classeId2 ?? null, p.levelClasse2 ?? 0)
     return levels
   })
 
@@ -363,16 +367,14 @@ export const useExperienceLevelUp = (
               (entry.data && typeof entry.data === 'object' ? entry.data : null)
             const next: Record<string, any> = raw ? { ...raw } : {}
             if (!next.id) next.id = id
-            if (!next.name) next.name = entry.name ?? next.nom ?? next.label ?? id
+            if (!next.name) next.name = entry.name ?? entry.nom ?? entry.label ?? id
             if (entry?.multiclassing_requirements !== undefined && next.multiclassing_requirements === undefined) {
               next.multiclassing_requirements = entry.multiclassing_requirements
             }
             if (!next.label && entry?.name) next.label = entry.name
             map[id] = next
           }
-          if (Object.keys(map).length) {
-            dataStore.merge({ classes: map })
-          }
+          catalogClasses.value = map
         }
       } catch (error) {
         console.warn('[useExperienceLevelUp] catalogue classes indisponible', error)
@@ -400,7 +402,7 @@ export const useExperienceLevelUp = (
   )
 
   const availableClasses = computed<AvailableClassEntry[]>(() => {
-    const classesMap = dataStore.maps.classes || {}
+    const classesMap = { ...catalogClasses.value, ...(dataStore.maps.classes || {}) }
     const entries: AvailableClassEntry[] = []
     const usedIds = new Set<string>(Object.keys(classLevels.value))
     const abilities = abilityScores.value

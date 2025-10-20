@@ -8,10 +8,75 @@ import EffectEngine from '~/engine/effectEngine';
 
 import { evalFormuleAdditive } from '~/utils/evalFormule';
 import { normalizeEffect, extractChoiceDescriptor } from '~/utils/normalizeEffect';
+import { FeatureLedger, AppliedFeatureDetail, flattenFeatureLedger } from '~/utils/featureLedger';
 
 const TEXT_FIELDS = ['description', 'desc', 'summary', 'flavor', 'flavor_text', 'text'];
 const IMAGE_FIELDS = ['image', 'img', 'icon', 'art', 'avatar', 'illustration', 'picture', 'thumbnail'];
 const EFFECT_LABEL_FIELDS = ['effect_label', 'effectLabel', 'effect', 'summary', 'tagline', 'mecanique.effect_label', 'mecanique.effectLabel'];
+
+const summarizeValue = (value: any, depth = 0): string => {
+  if (depth > 2) return '...';
+  if (value === null || value === undefined) return 'n/a';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const mapped = value
+      .map((entry) => summarizeValue(entry, depth + 1))
+      .filter((entry) => entry && entry !== 'n/a');
+    return mapped.length ? mapped.join(', ') : 'n/a';
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value);
+    const limited = entries.slice(0, 3).map(([key, val]) => `${key}: ${summarizeValue(val, depth + 1)}`);
+    const suffix = entries.length > 3 ? ' ...' : '';
+    return limited.join(', ') + suffix;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const summarizeEffectDescription = (effect: any): string => {
+  if (!effect || typeof effect !== 'object') return 'Effet applique';
+  const type = String(effect.type ?? effect.raw?.type ?? 'effet').toLowerCase();
+  const payload = effect.payload ?? {};
+  switch (type) {
+    case 'proficiency_grant': {
+      const parts: string[] = [];
+      if (payload.skills) parts.push(`competences (${summarizeValue(payload.skills)})`);
+      if (payload.weapons) parts.push(`armes (${summarizeValue(payload.weapons)})`);
+      if (payload.armor) parts.push(`armures (${summarizeValue(payload.armor)})`);
+      if (payload.tools) parts.push(`outils (${summarizeValue(payload.tools)})`);
+      if (!parts.length) parts.push(summarizeValue(payload));
+      return `Maitrises: ${parts.join(' | ')}`;
+    }
+    case 'saving_throws':
+      return `Jets de sauvegarde: ${summarizeValue(payload.saving_throws ?? payload)}`;
+    case 'spell_grant':
+      return `Sort obtenu: ${summarizeValue(payload.spell_id ?? payload.spell ?? payload)}`;
+    case 'spellcasting_feature': {
+      const ability = payload.ability ? ` (${payload.ability})` : '';
+      return `Sortilege${ability}`.trim();
+    }
+    case 'stat_modifier': {
+      const stat = summarizeValue(payload.stat ?? payload.attribute ?? 'stat');
+      const delta = summarizeValue(payload.delta ?? payload.value ?? '+?');
+      return `Modification ${stat}: ${delta}`;
+    }
+    case 'ability_score_increase':
+      return `Augmentation de caracteristique: ${summarizeValue(payload)}`;
+    case 'trait':
+      return payload.description ? String(payload.description) : `Trait: ${summarizeValue(payload)}`;
+    case 'items_proposal':
+      return `Proposition d'equipement: ${summarizeValue(payload.items ?? payload)}`;
+    default: {
+      const summary = summarizeValue(payload);
+      return summary && summary !== 'n/a' ? `${type}: ${summary}` : type;
+    }
+  }
+};
 
 const extractHitPoints = (entity: any): { level_1?: string; per_level_after_1?: string } | null => {
   if (!entity || typeof entity !== 'object') return null
@@ -191,27 +256,157 @@ export class CreationAdapterServer {
       // eslint-disable-next-line no-console
       console.debug('[CREATION PREVIEW] selection normalized', { selection, classLevels });
 
+      const toCleanId = (value: unknown): string | null => {
+        if (value === null || value === undefined) return null;
+        const str = String(value).trim();
+        return str.length ? str : null;
+      };
+
       // Resolve features/entities
       const resolved = await this.resolveFeatureTree(selection);
+
+      const resolvedById = new Map<string, any>();
+      for (const node of resolved || []) {
+        const payloadEntity = node?.payload ?? node;
+        const key = toCleanId(payloadEntity?.id ?? node?.originId ?? node?.id ?? null);
+        if (!key) continue;
+        resolvedById.set(key, node);
+      }
+
+      const getResolvedPayload = (id?: string | null) => {
+        const key = toCleanId(id);
+        if (!key) return null;
+        const node = resolvedById.get(key);
+        if (!node) return null;
+        return node.payload ?? node;
+      };
+
+      const manualFeatureIds = new Set<string>();
+      if (Array.isArray(selection.manual_features)) {
+        for (const entry of selection.manual_features) {
+          const id =
+            typeof entry === 'object'
+              ? toCleanId(entry?.id ?? entry?.feature_id ?? entry?.featureId)
+              : toCleanId(entry);
+          if (id) manualFeatureIds.add(id);
+        }
+      }
 
       // collect immediate effects and pending choices
       const immediateEffects: Array<{ source?: string | null; effect: any }> = [];
       const pendingChoices: any[] = [];
-      const appliedFeatures: string[] = [];
+      const featureDetails: AppliedFeatureDetail[] = [];
+      const ledgerMap = new Map<string, Set<string>>();
 
-      for (const node of (resolved || [])) {
+      const addLedgerEntry = (parentId: string | null, featureId: string | null) => {
+        const feature = toCleanId(featureId);
+        if (!feature) return;
+        const parent = toCleanId(parentId) ?? feature;
+        if (!ledgerMap.has(parent)) ledgerMap.set(parent, new Set<string>());
+        const set = ledgerMap.get(parent)!;
+        set.add(parent);
+        set.add(feature);
+      };
+
+      const extractEffectIds = (effect: any): string[] => {
+        if (!effect || typeof effect !== 'object') return [];
+        const ids = new Set<string>();
+        const push = (value: unknown) => {
+          const id = toCleanId(value);
+          if (id) ids.add(id);
+        };
+
+        push(effect.id);
+        const payload = effect.payload ?? {};
+        push(payload.feature_id);
+        push(payload.featureId);
+        push(payload.id);
+        push(payload.slug);
+        push(payload.key);
+
+        const arrays = [
+          payload.feature_ids,
+          payload.featureIds,
+          payload.features,
+          payload.ids,
+          payload.options,
+          payload.grants
+        ];
+        for (const candidate of arrays) {
+          if (Array.isArray(candidate)) {
+            for (const value of candidate) {
+              if (value && typeof value === 'object') {
+                push((value as any).id ?? (value as any).feature_id ?? (value as any).featureId ?? value);
+              } else {
+                push(value);
+              }
+            }
+          }
+        }
+
+        return Array.from(ids);
+      };
+
+      const toLabel = (entity: any, fallback: string | null): string => {
+        const fallbackLabel = fallback ? String(fallback) : '';
+        if (!entity || typeof entity !== 'object') return fallbackLabel;
+        const candidates = [entity.name, entity.label, entity.title, entity.nom, entity.slug, entity.id];
+        for (const candidate of candidates) {
+          const label = toCleanId(candidate);
+          if (label) return label;
+        }
+        return fallbackLabel;
+      };
+
+      const resolveSourceKind = (rootId: string | null): AppliedFeatureDetail['sourceKind'] => {
+        const key = toCleanId(rootId);
+        if (!key) return 'unknown';
+        if (selection.class && toCleanId(selection.class) === key) return 'class';
+        if (selection.race && toCleanId(selection.race) === key) return 'race';
+        if (selection.background && toCleanId(selection.background) === key) return 'background';
+        if (manualFeatureIds.has(key)) return 'manual';
+        return 'feature';
+      };
+
+      for (const node of resolved || []) {
         try {
           console.debug('[RESOLVED_NODE]', node?.originId ?? node?.id ?? '<unknown>');
         } catch (e) {
           // ignore console errors
         }
         const payloadEntity = node?.payload ?? node;
+        const featureId = toCleanId(payloadEntity?.id ?? node?.id ?? node?.originId);
+        if (!featureId) continue;
+        const rootId = toCleanId(node?.originId ?? node?.rootId ?? featureId);
+        const parentId = toCleanId(node?.grantedBy ?? null);
+        addLedgerEntry(rootId, featureId);
+
         try {
           const effectsCount = Array.isArray(payloadEntity?.effects) ? payloadEntity.effects.length : payloadEntity?.effects ? 1 : 0;
-          console.debug('[RESOLVED_PAYLOAD]', payloadEntity?.id ?? node?.originId ?? '<unknown>', effectsCount);
+          console.debug('[RESOLVED_PAYLOAD]', featureId, effectsCount);
         } catch (e) {
           // ignore console errors
         }
+
+        const featureLabel = toLabel(payloadEntity, featureId);
+        const rootLabel = toLabel(getResolvedPayload(rootId), rootId ?? featureId);
+        const parentLabel = parentId ? toLabel(getResolvedPayload(parentId), parentId) : null;
+        const sourceKind = resolveSourceKind(rootId);
+        const featureEffects: Array<Record<string, any>> = [];
+        const effectSummaries: string[] = [];
+
+        const recordNormalizedEffect = (normalized: any) => {
+          if (!normalized || typeof normalized !== 'object') return;
+          immediateEffects.push({ source: rootId ?? featureId, effect: normalized });
+          featureEffects.push(normalized);
+          effectSummaries.push(summarizeEffectDescription(normalized));
+        };
+
+        const recordRawEffect = (raw: any) => {
+          const normalized = normalizeEffect(raw);
+          if (normalized) recordNormalizedEffect(normalized);
+        };
+
         // extract raw effects array from common fields
         const effectsRaw = payloadEntity.effects ?? payloadEntity.features ?? payloadEntity.payload?.effects ?? payloadEntity.payload?.features ?? [];
         const arr = Array.isArray(effectsRaw) ? effectsRaw : (effectsRaw ? [effectsRaw] : []);
@@ -219,7 +414,7 @@ export class CreationAdapterServer {
         for (const rawEf of arr) {
           const ef = normalizeEffect(rawEf);
           try {
-            console.debug('[NORMALIZED_EFFECT]', node?.originId ?? payloadEntity?.id ?? '<unknown>', ef?.id ?? ef?.type ?? '<no-id>', ef?.type ?? '<no-type>');
+            console.debug('[NORMALIZED_EFFECT]', featureId, ef?.id ?? ef?.type ?? '<no-id>', ef?.type ?? '<no-type>');
           } catch (e) {
             // ignore console errors
           }
@@ -293,37 +488,28 @@ export class CreationAdapterServer {
 
                 if ((category === 'skill' || category === 'skills') && chosenIds.length > 0) {
                   const skillsPayload = chosenIds.length === 1 ? chosenIds[0] : chosenIds;
-                  immediateEffects.push({
-                    source: node.originId ?? payloadEntity.id ?? null,
-                    effect: {
-                      type: 'proficiency_grant',
-                      payload: { skills: skillsPayload }
-                    }
+                  recordRawEffect({
+                    type: 'proficiency_grant',
+                    payload: { skills: skillsPayload }
                   });
                   effectGenerated = true;
                 }
 
                 if ((category === 'spell' || category === 'spells') && chosenIds.length > 0) {
                   for (const spellId of chosenIds) {
-                    immediateEffects.push({
-                      source: node.originId ?? payloadEntity.id ?? null,
-                      effect: {
-                        type: 'spell_grant',
-                        payload: { spell_id: spellId }
-                      }
+                    recordRawEffect({
+                      type: 'spell_grant',
+                      payload: { spell_id: spellId }
                     });
                   }
                   effectGenerated = true;
                 }
 
                 if ((category === 'subclass' || category === 'subclasses') && chosenIds.length > 0) {
-                  for (const featureId of chosenIds) {
-                    immediateEffects.push({
-                      source: node.originId ?? payloadEntity.id ?? null,
-                      effect: {
-                        type: 'grant_feature',
-                        payload: { feature_id: featureId, apply_immediately: true }
-                      }
+                  for (const grantedFeatureId of chosenIds) {
+                    recordRawEffect({
+                      type: 'grant_feature',
+                      payload: { feature_id: grantedFeatureId, apply_immediately: true }
                     });
                   }
                   effectGenerated = true;
@@ -342,14 +528,63 @@ export class CreationAdapterServer {
             continue;
           }
 
+          const effectIds = extractEffectIds(ef);
+          if (effectIds.length) {
+            for (const childId of effectIds) {
+              if (childId === featureId) continue;
+              addLedgerEntry(featureId, childId);
+              const effectLabel = String(
+                ef.payload?.name ??
+                  ef.payload?.label ??
+                  ef.payload?.title ??
+                  ef.payload?.nom ??
+                  ef.payload?.id ??
+                  ef.id ??
+                  childId
+              );
+              const summary = summarizeEffectDescription(ef);
+              featureDetails.push({
+                featureId: childId,
+                featureLabel: effectLabel,
+                parentId: featureId,
+                parentLabel: featureLabel,
+                rootId,
+                rootLabel,
+                sourceKind,
+                effects: [ef],
+                effectsSummary: summary ? [summary] : []
+              });
+            }
+          }
+
           // otherwise it's immediate -> push for application
-          immediateEffects.push({ source: node.originId ?? payloadEntity.id ?? null, effect: ef });
+          recordNormalizedEffect(ef);
         }
 
-        // record applied feature OR entity id
-        if (node.originId) appliedFeatures.push(String(node.originId));
-        else if (payloadEntity.id) appliedFeatures.push(String(payloadEntity.id));
+        featureDetails.push({
+          featureId,
+          featureLabel,
+          parentId,
+          parentLabel,
+          rootId,
+          rootLabel,
+          sourceKind,
+          effects: featureEffects,
+          effectsSummary: effectSummaries
+        });
       }
+
+      featureDetails.sort((a, b) => {
+        const rootCompare = (a.rootLabel ?? '').localeCompare(b.rootLabel ?? '', undefined, { sensitivity: 'base' });
+        if (rootCompare !== 0) return rootCompare;
+        return (a.featureLabel ?? '').localeCompare(b.featureLabel ?? '', undefined, { sensitivity: 'base' });
+      });
+
+      const featureLedger: FeatureLedger = {};
+      for (const [parent, set] of ledgerMap.entries()) {
+        featureLedger[parent] = Array.from(set);
+      }
+      const appliedFeatures = flattenFeatureLedger(featureLedger);
 
       // Build initial preview character skeleton
       const previewChar: any = {
@@ -389,14 +624,7 @@ export class CreationAdapterServer {
         return fallback;
       };
 
-      const findResolvedEntityById = (id?: string | null) => {
-        if (!id) return null;
-        const key = String(id);
-        const node = (resolved || []).find((n: any) => String(n?.originId ?? n?.payload?.id ?? n?.id ?? '') === key);
-        return node ? (node.payload ?? node) : null;
-      };
-
-      const classeEntity = findResolvedEntityById(selection.class) ?? await this.resolveItemById(String(selection.class || ''));
+      const classeEntity = getResolvedPayload(selection.class) ?? await this.resolveItemById(String(selection.class || ''));
       const niveau = Number(selection.niveau ?? 1) || 1;
       const dv = pickNumberFromKeys(classeEntity, ['dv', 'hit_die', 'hitdie', 'hitDie', 'hit_dice', 'dice.hit_die'], 0) || 0;
       const hp = extractHitPoints(classeEntity);
@@ -423,6 +651,10 @@ export class CreationAdapterServer {
       previewChar.pvActuels = Number.isFinite(currentPv) && currentPv > 0 ? Math.min(currentPv, pvMax) : pvMax;
       // also expose pv_max for UI if needed
       previewChar.pv_max = pvMax;
+      previewChar.features = appliedFeatures;
+      previewChar.featureIds = appliedFeatures;
+      previewChar.featureLedger = featureLedger;
+      previewChar.featureDetails = featureDetails;
 
       // Filter pending choices by conditions (if any). If no conditions, keep the choice.
       const choicesFiltered = (pendingChoices || []).filter((cd) => {
@@ -446,6 +678,8 @@ export class CreationAdapterServer {
         ok: true,
         previewCharacter: previewChar,
         appliedFeatures,
+        appliedFeatureDetails: featureDetails,
+        featureLedger,
         pendingChoices: choicesFiltered,
         errors: []
       };
@@ -551,15 +785,56 @@ export class CreationAdapterServer {
       autoFrom.label_fields ?? autoFrom.label_field ?? autoFrom.labelKey ?? autoFrom.label_path
     );
 
+    const normalizeKey = (raw: string): string =>
+      String(raw || '')
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .replace(/[\s_-]+/g, '')
+        .toLowerCase();
+
+    const SEGMENT_ALIAS_MAP: Record<string, string[]> = {
+      classid: ['classeid'],
+      classeid: ['classid'],
+      subclassid: ['sousclasseid'],
+      sousclasseid: ['subclassid'],
+      raceid: ['ligneeid'],
+      ligneeid: ['raceid'],
+      backgroundid: ['historiqueid'],
+      historiqueid: ['backgroundid']
+    };
+
     const getNestedValue = (obj: any, key: string) => {
-      if (!obj || typeof obj !== 'object' || !key) return undefined;
-      const parts = String(key).split('.');
-      let current = obj;
-      for (const part of parts) {
-        if (current === null || current === undefined) return undefined;
-        current = current[part];
-      }
-      return current;
+      const parts = String(key || '').split('.');
+
+      const dive = (current: any, index: number): any => {
+        if (index >= parts.length) {
+          return current;
+        }
+        if (current === null || current === undefined || typeof current !== 'object') {
+          return undefined;
+        }
+
+        const segment = parts[index];
+        const normalizedSegment = normalizeKey(segment);
+        const aliases = new Set<string>([normalizedSegment, ...(SEGMENT_ALIAS_MAP[normalizedSegment] ?? [])]);
+
+        for (const candidateKey of Object.keys(current)) {
+          const normalizedCandidate = normalizeKey(candidateKey);
+          if (
+            aliases.has(normalizedCandidate) ||
+            (SEGMENT_ALIAS_MAP[normalizedCandidate] ?? []).includes(normalizedSegment)
+          ) {
+            const result = dive(current[candidateKey], index + 1);
+            if (result !== undefined) {
+              return result;
+            }
+          }
+        }
+
+        return undefined;
+      };
+
+      return dive(obj, 0);
     };
 
     const predicate = (entry: any): boolean => {

@@ -3,15 +3,56 @@ import { getCatalogAdapter } from '~/server/utils/catalogAdapter'
 
 type SearchFilters = Record<string, unknown>
 
+const normalizeKey = (value: string): string =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[\s_-]+/g, '')
+    .toLowerCase()
+
+const SEGMENT_ALIAS_MAP: Record<string, string[]> = {
+  classid: ['classeid'],
+  classeid: ['classid'],
+  subclassid: ['sousclasseid'],
+  sousclasseid: ['subclassid'],
+  raceid: ['ligneeid'],
+  ligneeid: ['raceid'],
+  backgroundid: ['historiqueid'],
+  historiqueid: ['backgroundid']
+}
+
 const getNested = (source: any, path: string): any => {
-  if (!source || typeof source !== 'object') return undefined
-  const segments = path.split('.')
-  let current = source
-  for (const segment of segments) {
-    if (current === null || current === undefined) return undefined
-    current = current[segment]
+  const segments = String(path || '').split('.')
+
+  const dive = (current: any, index: number): any => {
+    if (index >= segments.length) {
+      return current
+    }
+    if (current === null || current === undefined || typeof current !== 'object') {
+      return undefined
+    }
+
+    const segment = segments[index]
+    const normalizedSegment = normalizeKey(segment)
+    const aliases = new Set<string>([normalizedSegment, ...(SEGMENT_ALIAS_MAP[normalizedSegment] ?? [])])
+
+    for (const key of Object.keys(current)) {
+      const normalizedKey = normalizeKey(key)
+      if (
+        aliases.has(normalizedKey) ||
+        (SEGMENT_ALIAS_MAP[normalizedKey] && SEGMENT_ALIAS_MAP[normalizedKey].includes(normalizedSegment))
+      ) {
+        const result = dive(current[key], index + 1)
+        if (result !== undefined) {
+          return result
+        }
+      }
+    }
+
+    return undefined
   }
-  return current
+
+  return dive(source, 0)
 }
 
 const matchesFilters = (record: Record<string, any>, filters: SearchFilters): boolean => {

@@ -16,6 +16,7 @@ import { createCardPlaceholder, coinsToCopper, copperToCoins, ensureCardImage, e
 import type { CoinBreakdown } from '@/utils/creationHelpers';
 import { buildCreationInventoryTransition } from '@/utils/inventaireTransition';
 import { xpThresholdForLevel } from '@/composables/useExperienceLevelUp';
+import { normalizeFeatureLedger, flattenFeatureLedger, ledgerAddFeature } from '@/utils/featureLedger';
 
 export type CatalogEntry = {
   id: string;
@@ -1823,9 +1824,39 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     const protectionKey = protectionOriginKey;
     const shieldKey = shieldOriginKey;
 
-    const appliedFeaturesIds: string[] = Array.isArray((preview.value as any)?.appliedFeatures)
-      ? (preview.value as any).appliedFeatures.map((x: any) => String(x))
-      : [];
+    let appliedFeatureLedger = normalizeFeatureLedger(
+      (preview.value as any)?.featureLedger ??
+        (preview.value as any)?.previewCharacter?.featureLedger ??
+        null
+    );
+    const appliedFeatureSet = new Set<string>(flattenFeatureLedger(appliedFeatureLedger));
+
+    const ensureFeatureInLedger = (featureId: unknown, parentId: unknown = null) => {
+      const feature = String(featureId ?? '').trim();
+      if (!feature.length) return;
+      const parent = String(parentId ?? '').trim();
+      appliedFeatureLedger = ledgerAddFeature(
+        appliedFeatureLedger,
+        parent.length ? parent : feature,
+        feature
+      );
+      appliedFeatureSet.add(feature);
+    };
+
+    const fallbackFeatureArrays = [
+      (preview.value as any)?.appliedFeatures,
+      (preview.value as any)?.previewCharacter?.appliedFeatures,
+      (preview.value as any)?.previewCharacter?.features
+    ];
+    for (const arr of fallbackFeatureArrays) {
+      if (!Array.isArray(arr)) continue;
+      for (const entry of arr) {
+        ensureFeatureInLedger(entry);
+      }
+    }
+    ensureFeatureInLedger(selectedClass.value);
+    ensureFeatureInLedger(selectedRace.value);
+    ensureFeatureInLedger(selectedBackground.value);
     const knownSpells: string[] = Array.isArray(previewCharacter?.spellcasting?.known)
       ? (previewCharacter.spellcasting.known as any[]).map((s) => String(s))
       : [];
@@ -2034,7 +2065,7 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
       },
       raceId: selectedRace.value || null,
       backgroundId: selectedBackground.value || null,
-      featureIds: appliedFeaturesIds,
+      featureIds: appliedFeatureLedger,
       spellIds: knownSpells,
       traits: Array.isArray(previewCharacter?.traits) ? previewCharacter.traits.map((t: any) => String(t?.id ?? t)) : [],
       spellcastingSpec: (() => {
@@ -2323,26 +2354,110 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     return null;
   };
 
+  const completionRequestState: { inFlight: Promise<void> | null } = {
+    inFlight: null
+  };
+
   /**
    * Restaure la database locale en complétant les entités manquantes (spells, features, items, classes, races, backgrounds)
    * à partir des IDs présents dans la fiche du personnage ou du preview.
    * Utilise l'API /api/creation/complete pour enrichir dataStore.maps.
    */
+  const completionCache = {
+    classes: new Set<string>(),
+    races: new Set<string>(),
+    backgrounds: new Set<string>(),
+    features: new Set<string>(),
+    spells: new Set<string>(),
+    items: new Set<string>()
+  };
+
+  const cacheAddFromEntries = (kind: keyof typeof completionCache, entries: Record<string, any> | null | undefined) => {
+    if (!entries || typeof entries !== 'object') return;
+    for (const key of Object.keys(entries)) {
+      const str = String(key ?? '').trim();
+      if (str.length) completionCache[kind].add(str);
+    }
+  };
+
+  const syncCompletionCacheFromStore = (dataStore: ReturnType<typeof useDataStore>) => {
+    cacheAddFromEntries('classes', dataStore.maps.classes);
+    cacheAddFromEntries('races', dataStore.maps.races);
+    cacheAddFromEntries('backgrounds', dataStore.maps.backgrounds);
+    cacheAddFromEntries('features', dataStore.maps.features);
+    cacheAddFromEntries('spells', dataStore.maps.spells);
+    cacheAddFromEntries('items', dataStore.maps.items);
+  };
+
   const restoreDatabaseFromIds = async (personnage?: any) => {
-    const dataStore = useDataStore();
-    // Collecte tous les IDs à compléter
-    const ids = {
-      spells: [],
-      features: [],
-      items: [],
-      classes: [],
-      races: [],
-      backgrounds: []
+    if (completionRequestState.inFlight) {
+      try {
+        await completionRequestState.inFlight;
+      } catch {
+        // ignore previous failure, a new attempt will run with refreshed payload
+      }
+    }
+
+    const normalizeIds = (values: Array<unknown>): string[] => {
+      const seen = new Set<string>();
+      const pushValue = (raw: unknown) => {
+        if (raw === null || raw === undefined) return;
+        if (Array.isArray(raw)) {
+          for (const entry of raw) pushValue(entry);
+          return;
+        }
+        if (typeof raw === 'object') {
+          const obj = raw as Record<string, unknown>;
+          const candidate =
+            obj.id ??
+            obj.featureId ??
+            obj.feature_id ??
+            obj.featureID ??
+            obj.value ??
+            obj.key ??
+            null;
+          if (candidate !== null && candidate !== undefined) {
+            const fromObject = String(candidate).trim();
+            if (fromObject.length) {
+              seen.add(fromObject);
+              return;
+            }
+          }
+        }
+        const str = typeof raw === 'string' ? raw.trim() : String(raw).trim();
+        if (str.length) seen.add(str);
+      };
+      for (const value of values) pushValue(value);
+      return Array.from(seen);
     };
-    // Récupère les IDs depuis le personnage ou le preview
+
+    const dataStore = useDataStore();
+    syncCompletionCacheFromStore(dataStore);
+    const ids = {
+      spells: [] as Array<unknown>,
+      features: [] as Array<unknown>,
+      items: [] as Array<unknown>,
+      classes: [] as Array<unknown>,
+      races: [] as Array<unknown>,
+      backgrounds: [] as Array<unknown>
+    };
     const source = personnage ?? preview.value?.previewCharacter ?? {};
     if (Array.isArray(source.spellIds)) ids.spells.push(...source.spellIds);
-    if (Array.isArray(source.featureIds)) ids.features.push(...source.featureIds);
+    if (source?.spellcasting && typeof source.spellcasting === 'object') {
+      const spellcasting = source.spellcasting as Record<string, any>;
+      if (Array.isArray(spellcasting.known)) ids.spells.push(...spellcasting.known);
+      if (Array.isArray(spellcasting.prepared)) ids.spells.push(...spellcasting.prepared);
+    }
+    ids.features.push(...flattenFeatureLedger(normalizeFeatureLedger(source.featureIds ?? {})));
+    ids.features.push(...flattenFeatureLedger(normalizeFeatureLedger(source.featureLedger ?? {})));
+    if (Array.isArray(source.appliedFeatures)) ids.features.push(...source.appliedFeatures);
+    if (Array.isArray(source.features)) ids.features.push(...source.features);
+    if (Array.isArray(source.manual_features)) ids.features.push(...source.manual_features);
+    if (source?.chosenOptions && typeof source.chosenOptions === 'object') {
+      for (const value of Object.values(source.chosenOptions as Record<string, unknown>)) {
+        ids.features.push(value);
+      }
+    }
     if (Array.isArray(source.inventaire)) {
       for (const entry of source.inventaire) {
         if (entry && entry.id) ids.items.push(entry.id);
@@ -2352,46 +2467,100 @@ export const useBonomeCreationStore = defineStore('bonomeCreation', () => {
     if (source.raceId) ids.races.push(source.raceId);
     if (source.backgroundId) ids.backgrounds.push(source.backgroundId);
 
-    // Filtre les IDs non présents dans la base locale
-    const missing = {
-      spells: ids.spells.filter(id => !dataStore.maps.spells[id]),
-      features: ids.features.filter(id => !dataStore.maps.features[id]),
-      items: ids.items.filter(id => !dataStore.maps.items[id]),
-      classes: ids.classes.filter(id => !dataStore.maps.classes[id]),
-      races: ids.races.filter(id => !dataStore.maps.races[id]),
-      backgrounds: ids.backgrounds.filter(id => !dataStore.maps.backgrounds[id])
+    const normalizedIds = {
+      spells: normalizeIds(ids.spells),
+      features: normalizeIds(ids.features),
+      items: normalizeIds(ids.items),
+      classes: normalizeIds(ids.classes),
+      races: normalizeIds(ids.races),
+      backgrounds: normalizeIds(ids.backgrounds)
     };
 
-    // Si rien à compléter, ne fait rien
-    if (
-      !missing.spells.length &&
-      !missing.features.length &&
-      !missing.items.length &&
-      !missing.classes.length &&
-      !missing.races.length &&
-      !missing.backgrounds.length
-    ) return;
+    const featureCandidates = normalizedIds.features.filter((id) => {
+      if (!id) return false;
+      if (normalizedIds.classes.includes(id)) return false;
+      if (normalizedIds.races.includes(id)) return false;
+      if (normalizedIds.backgrounds.includes(id)) return false;
+      return true;
+    });
 
-    // Appel l'API pour enrichir la base locale
-    try {
-      const selection = {
-        class: source.classeId ?? selectedClass.value,
-        race: source.raceId ?? selectedRace.value,
-        background: source.backgroundId ?? selectedBackground.value,
-        niveau: source.niveau ?? niveau.value,
-        chosenOptions: source.chosenOptions ?? chosenOptions
-      };
-      const previewCharacter = source ?? null;
-      const requestFetch = useRequestFetch();
-      const completion = await requestFetch('/api/creation/complete', {
-        method: 'POST',
-        body: { selection, previewCharacter, personnage: source }
-      }).catch(() => null);
-      if (completion?.ok && completion.enriched) {
-        dataStore.merge(completion.enriched);
+    const shouldFetch = (kind: keyof typeof completionCache, map: Record<string, any>, id: string): boolean => {
+      if (!id) return false;
+      if (completionCache[kind].has(id)) return false;
+      if (map && typeof map === 'object' && map[id]) return false;
+      return true;
+    };
+
+    const missing = {
+      spells: normalizedIds.spells.filter((id) => shouldFetch('spells', dataStore.maps.spells, id)),
+      features: featureCandidates.filter((id) => shouldFetch('features', dataStore.maps.features, id)),
+      items: normalizedIds.items.filter((id) => shouldFetch('items', dataStore.maps.items, id)),
+      classes: normalizedIds.classes.filter((id) => shouldFetch('classes', dataStore.maps.classes, id)),
+      races: normalizedIds.races.filter((id) => shouldFetch('races', dataStore.maps.races, id)),
+      backgrounds: normalizedIds.backgrounds.filter((id) => shouldFetch('backgrounds', dataStore.maps.backgrounds, id))
+    };
+
+    const totalMissing =
+      missing.spells.length +
+      missing.features.length +
+      missing.items.length +
+      missing.classes.length +
+      missing.races.length +
+      missing.backgrounds.length;
+
+    if (totalMissing === 0) return;
+
+    const pickId = (value: unknown): string | null => {
+      if (value === null || value === undefined) return null;
+      if (typeof value === 'object') {
+        const obj = value as Record<string, unknown>;
+        const candidate = obj.id ?? obj.value ?? obj.key ?? null;
+        if (candidate !== null && candidate !== undefined) {
+          const strCandidate = String(candidate).trim();
+          if (strCandidate.length) return strCandidate;
+        }
       }
-    } catch (e) {
-      try { console.warn('[restoreDatabaseFromIds] completion fetch failed', e); } catch {}
+      const str = String(value).trim();
+      return str.length ? str : null;
+    };
+
+    const selection = {
+      class: missing.classes.length ? (pickId((source as any).classeId) ?? pickId(selectedClass.value)) : null,
+      race: missing.races.length ? (pickId((source as any).raceId) ?? pickId(selectedRace.value)) : null,
+      background: missing.backgrounds.length ? (pickId((source as any).backgroundId) ?? pickId(selectedBackground.value)) : null,
+      niveau: source.niveau ?? niveau.value,
+      chosenOptions: source.chosenOptions ?? chosenOptions
+    };
+
+    const previewCharacter = source ?? null;
+    const requestFetch = useRequestFetch();
+
+    const fetchPromise = (async () => {
+      try {
+        const completion = await requestFetch('/api/creation/complete', {
+          method: 'POST',
+          body: { selection, previewCharacter, personnage: source, missing }
+        }).catch(() => null);
+        if (completion?.ok && completion.enriched) {
+          dataStore.merge(completion.enriched);
+          cacheAddFromEntries('classes', completion.enriched.classes ?? {});
+          cacheAddFromEntries('races', completion.enriched.races ?? {});
+          cacheAddFromEntries('backgrounds', completion.enriched.backgrounds ?? {});
+          cacheAddFromEntries('features', completion.enriched.features ?? {});
+          cacheAddFromEntries('spells', completion.enriched.spells ?? {});
+          cacheAddFromEntries('items', completion.enriched.items ?? {});
+        }
+      } catch (e) {
+        try { console.warn('[restoreDatabaseFromIds] completion fetch failed', e); } catch {}
+        throw e;
+      }
+    })();
+
+    completionRequestState.inFlight = fetchPromise;
+    try {
+      await fetchPromise;
+    } finally {
+      completionRequestState.inFlight = null;
     }
   };
 

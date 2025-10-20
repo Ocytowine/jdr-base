@@ -271,6 +271,8 @@ export class DataAdapterV2GitHub {
   async resolveFeatureTree(seedIdsOrSelection: ID[] | any, maxDepth = 8) {
     // Normalize input to an array of seedIds
     let seedIds: string[] = [];
+    const parentById = new Map<string, string | null>();
+    const rootById = new Map<string, string>();
 
     // Defensive logging
     try {
@@ -335,7 +337,11 @@ export class DataAdapterV2GitHub {
 
     const out: any[] = [];
     const visited = new Set<ID>();
-    const queue = [...seedIds];
+    const queue = [...new Set(seedIds)];
+    for (const seed of queue) {
+      parentById.set(seed, null);
+      rootById.set(seed, seed);
+    }
     let depth = 0;
     while (queue.length && depth < maxDepth) {
       const id = queue.shift()!;
@@ -351,11 +357,21 @@ export class DataAdapterV2GitHub {
       }
       visited.add(id);
       if (!feat) { depth++; continue; }
-      out.push(feat);
+      const currentId = String(feat.id ?? id);
+      if (!parentById.has(currentId)) parentById.set(currentId, null);
+      if (!rootById.has(currentId)) rootById.set(currentId, currentId);
+      const entry: any = { ...feat };
+      entry.originId = rootById.get(currentId) ?? currentId;
+      entry.rootId = entry.originId;
+      entry.grantedBy = parentById.get(currentId) ?? null;
+      out.push(entry);
       const grants = (feat.links && (feat.links.grants || feat.links.grant_feature_ids || feat.links.features || [])) || [];
       for (const g of grants) {
         if (!g) continue;
-        if (!visited.has(String(g))) queue.push(String(g));
+        const childId = String(g);
+        if (!parentById.has(childId)) parentById.set(childId, currentId);
+        if (!rootById.has(childId)) rootById.set(childId, entry.originId ?? currentId);
+        if (!visited.has(childId)) queue.push(childId);
       }
       depth++;
     }
